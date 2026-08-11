@@ -1,0 +1,164 @@
+.view {
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.inner {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* ── connection form ─────────────────────────────────────────────────── */
+
+.formColumn {
+  flex: 0 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.formTitle,
+.tablesTitle {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+.input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  font: inherit;
+}
+
+.input:disabled {
+  opacity: 0.55;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.primary,
+.ghost {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--dsh-color-accent, #3b82f6);
+  border-color: transparent;
+  color: #fff;
+}
+
+.primary:disabled,
+.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.statusOk {
+  color: var(--dsh-color-success, #22c55e);
+  font-size: 13px;
+}
+
+.statusError {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--dsh-color-danger, rgba(239, 68, 68, 0.5));
+  background: var(--dsh-color-danger-soft, rgba(239, 68, 68, 0.08));
+  font-size: 13px;
+}
+
+.errorTitle {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.errorText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── table list ──────────────────────────────────────────────────────── */
+
+.tablesColumn {
+  flex: 1 1 280px;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tables {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.table {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.04));
+  font-family: var(--dsh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+}
+
+.hint {
+  opacity: 0.6;
+  font-size: 13px;
+}
+
+.chatHint {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--dsh-color-accent, rgba(59, 130, 246, 0.4));
+  font-size: 13px;
+}
+
+/* ── guide card ──────────────────────────────────────────────────────── */
+
+.guideCard {
+  max-width: 480px;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px dashed var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+}
+
+.guideTitle {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.guideText {
+  opacity: 0.75;
+  line-height: 1.6;
+  font-size: 13px;
+}

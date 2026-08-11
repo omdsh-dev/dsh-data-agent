@@ -1,0 +1,45 @@
+# The `data-agent` agent preset: the data-engineer surface.
+#
+# This file is an AGENT-PLANE composition. The roster mounts it ONCE under a
+# standing scope; every session naming it joins by scope parentage, so the
+# tools registered here cover each joined agent while a session's own state
+# stays keyed per Session/Agent inside the plugins. The host composition
+# (base.cordis.yml + web.cordis.yml) keeps everything a preset must not own:
+# the registries themselves, the sandbox and approval stack, persistence, and
+# the model route.
+#
+# A preset composes what an agent HAS instead of subtracting from a shared
+# default: every model-facing tool row absent from this file is simply not
+# registered for agents on this preset. Only the four tools below exist here —
+# bash, glob/grep, str_replace_editor, skill, todo, goal, plan, web, subagent,
+# workflow, tasks, and the rest are all absent, i.e. disabled.
+#
+# All three rows only CONSUME host services (the tools registry, subprocess,
+# the dataAgentConnections connection store), so no `isolate` realm is needed.
+
+# ── identity ────────────────────────────────────────────────────────────────
+
+# The data-engineer persona, shadowing the deployment default for this agent.
+# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      你是数据工程师 Agent。工作目录 {{cwd}}。你只有 4 个工具：sqlcmd（在数据库客户端执行
+      SQL 或命令，如 SHOW TABLES、DESCRIBE users、SELECT * FROM orders LIMIT 5）、read、
+      write、edit（读写改本地文件）。工作流：先用 sqlcmd 探查表结构与样例数据（禁止臆造
+      表名与列名），把 SQL 写入 .sql 文件（write/edit），再用 sqlcmd 执行并核对结果；
+      结果可疑时缩小查询范围重试。
+
+# ── filesystem ──────────────────────────────────────────────────────────────
+
+# The project's own fs tools: read / write / edit (no search tools here).
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+
+# ── database ────────────────────────────────────────────────────────────────
+
+# This package's sqlcmd tool half; injects the host's subprocess service and
+# the dataAgentConnections connection store (see the data-agent host row).
+- id: tool-sqlcmd
+  name: '@deepseek-ai/dsh-data-agent/tool'
