@@ -4,7 +4,11 @@
 
 ![数据Agent 会话](assets/session.png)
 
-`@deepseek-ai/dsh-data-agent` 给 DSH 加了一个数据工程师场景：新建「数据Agent」会话后，数据库工作台（连接配置、库表浏览、SQL 命令框）直接内嵌在会话里——新建会话时位于输入框上方，开始对话后居左、对话记录居右。AI 的工具面只有 4 个（`sqlcmd` / `read` / `write` / `edit`），在 Chat 里用自然语言说需求，agent loop 会驱动它探查表结构、把 SQL 写进 `.sql` 文件、执行并核对结果。
+该插件为搭载在 DeepSeek Harness 上的 Data Agent，可使 DeepSeek 专注于数据库操作。
+
+充分利用 DeepSeek Harness 的 Agent 预设功能，新增数据 Agent 预设。该预设仅保留 read、edit、write 三个 DSH 自带的 tools，同时自定义 sqlcmd tool 替代 bash tool，不受无关工具和提示词的影响。
+
+使用该预设后，可在对话界面配置数据库连接，授予 AI 访问数据库的权限，完成数据库的增删改查操作。
 
 ## 主要功能
 

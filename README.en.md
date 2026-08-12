@@ -4,7 +4,11 @@
 
 ![Data Agent session](assets/session.png)
 
-`@deepseek-ai/dsh-data-agent` adds a data-engineer scenario to DSH: after creating a "Data Agent" session, a database workbench (connection config, schema explorer, SQL command box) is embedded right inside the session — above the input bar when the session is new, moving to the left column once the conversation starts. The AI's tool surface is exactly 4 tools (`sqlcmd` / `read` / `write` / `edit`): describe your needs in natural language in Chat, and the agent loop drives it to explore the schema, write SQL into `.sql` files, execute, and verify results.
+This plugin is a Data Agent built on DeepSeek Harness, letting DeepSeek focus on database operations.
+
+Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Agent preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds a custom sqlcmd tool in place of the bash tool, free from irrelevant tools and prompts.
+
+With this preset, you can configure a database connection right in the conversation UI, grant the AI access to the database, and complete CRUD operations.
 
 ## Features
 
