@@ -5,8 +5,6 @@
  * @module @deepseek-ai/dsh-data-agent/defaults
  */
 
-import type { DatabaseType } from './connections.ts'
-
 /** Preset directory name installed into `$DSH_HOME/.agent-presets/`. */
 export const DEFAULT_PRESET_ID = 'data-agent'
 
@@ -21,6 +19,9 @@ export const DEFAULT_QUERY_TIMEOUT_MS = 30_000
 
 /** In-memory cap on sqlcmd captured output (stdout and stderr each). */
 export const DEFAULT_MAX_RESULT_CHARS = 20_000
+
+/** Cap on one /query SQL text length (abuse guard; the wire body stays small). */
+export const DEFAULT_MAX_QUERY_CHARS = 65_536
 
 /** Grace period for the subprocess terminate escalation. */
 export const DEFAULT_GRACE_MS = 5_000

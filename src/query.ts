@@ -113,7 +113,9 @@ export async function runClientQuery(
       argv: [executable, ...template.args],
       cwd: process.cwd(),
       stdio: {
-        stdin: { data: `${sql}\n` },
+        // The Oracle/Hive connect prefix (template.stdinPrefix) is written
+        // before the SQL, so their credentials travel on stdin, never argv.
+        stdin: { data: `${template.stdinPrefix}${sql}\n` },
         stdout: { maxBytes: options.maxResultChars },
         stderr: { maxBytes: options.maxResultChars },
       },

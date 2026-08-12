@@ -99,7 +99,7 @@ export const Config = z.object({
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
   clients: clientsSchema,
   connections: z.dict(z.object({
-    type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite')]),
+    type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'), z.const('impala')]),
     host: z.string(),
     port: z.natural(),
     user: z.string(),

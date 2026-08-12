@@ -13,6 +13,11 @@
  * - `POST /plugins/data-agent/disconnect` — drop one session's connection.
  * - `GET  /plugins/data-agent/status`     — the current connection's
  *   password-stripped summary plus the table list.
+ * - `GET  /plugins/data-agent/schemas`    — schema/database list.
+ * - `GET  /plugins/data-agent/tables`     — table list of one schema.
+ * - `GET  /plugins/data-agent/describe`   — column structure of one table.
+ * - `POST /plugins/data-agent/query`      — run one SQL text (the workbench
+ *   command box; non-agent channel, same trust as sqlcmd).
  * @module @deepseek-ai/dsh-data-agent/routes
  */
 
@@ -30,9 +35,15 @@ import type {
   DatabaseConnection,
   DatabaseType,
 } from './connections.ts'
-import { parseTableListing, tableListingSql } from './clients.ts'
-import { DEFAULT_CONNECT_TIMEOUT_MS, DEFAULT_INTROSPECT_MAX_TABLES, DEFAULT_MAX_RESULT_CHARS } from './defaults.ts'
-import { runClientQuery } from './query.ts'
+import { metadataQuery, parseColumns, parseListing, parseTableListing, tableListingSql } from './clients.ts'
+import {
+  DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_INTROSPECT_MAX_TABLES,
+  DEFAULT_MAX_QUERY_CHARS,
+  DEFAULT_MAX_RESULT_CHARS,
+  DEFAULT_QUERY_TIMEOUT_MS,
+} from './defaults.ts'
+import { runClientQuery, type QueryResult } from './query.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-routes'
@@ -52,10 +63,14 @@ export const DATA_AGENT_PATH = '/plugins/data-agent'
 export interface Config {
   /** Deadline for one /connect connectivity check, milliseconds. */
   connectTimeoutMs: number
-  /** Cap on the table list returned by /connect and /status. */
+  /** Cap on metadata lists returned by /connect /status /schemas /tables. */
   introspectMaxTables: number
   /** In-memory cap on captured output. */
   maxResultChars: number
+  /** Deadline for one /query or metadata query, milliseconds. */
+  queryTimeoutMs: number
+  /** Cap on one /query SQL text length. */
+  maxQueryChars: number
 }
 
 /** Loader schema with deployment defaults (no library defaults). */
@@ -63,6 +78,8 @@ export const Config = z.object({
   connectTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_CONNECT_TIMEOUT_MS),
   introspectMaxTables: z.number().step(1).min(1).default(DEFAULT_INTROSPECT_MAX_TABLES),
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
+  queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
+  maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
 })
 
 /** The connection request wire body (validated in the /connect handler). */
@@ -79,7 +96,9 @@ export interface ConnectRequestBody {
 /**
  * Validate an untrusted /connect body; sqlite paths resolve to absolute
  * (the client resolves the path relative to its own cwd, so the server pins
- * it at connect time).
+ * it at connect time). Oracle/Hive/Impala follow the mysql/postgres shape:
+ * host/port/user/database (Oracle database = service name/SID, Hive/Impala
+ * database = default schema).
  */
 export function validateConnectBody(value: unknown, cwd = process.cwd()): ConnectRequestBody {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -91,8 +110,9 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
     throw new Error('sessionId 必须是非空字符串')
   }
   const type = candidate.type
-  if (type !== 'mysql' && type !== 'postgres' && type !== 'sqlite') {
-    throw new Error('type 必须是 "mysql"、"postgres" 或 "sqlite"')
+  if (type !== 'mysql' && type !== 'postgres' && type !== 'sqlite'
+    && type !== 'oracle' && type !== 'hive' && type !== 'impala') {
+    throw new Error('type 必须是 "mysql"、"postgres"、"sqlite"、"oracle"、"hive" 或 "impala"')
   }
   const database = candidate.database
   if (typeof database !== 'string' || database.length === 0) {
@@ -119,6 +139,18 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
   return { sessionId, type, database, ...connection.host !== undefined ? { host: connection.host } : {}, ...connection.port !== undefined ? { port: connection.port } : {}, ...connection.user !== undefined ? { user: connection.user } : {}, ...connection.password !== undefined ? { password: connection.password } : {} }
 }
 
+/** Identifier whitelist for schema/table names in metadata queries. */
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9_$#.-]+$/
+
+/** Validate one schema/table identifier (rejects any injection-shaped input). */
+function requireIdentifier(value: string | null, label: string): string {
+  if (value === null || value.length === 0) throw new Error(`${label} 不能为空`)
+  if (!IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(`${label} 含非法字符（仅允许字母、数字与 _ $ # . -）`)
+  }
+  return value
+}
+
 /**
  * Mount the data-agent routes against the host webserver, when one exists.
  * The registration rides a nested inject fiber so this row activates in every
@@ -129,9 +161,14 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
 export function apply(ctx: Context, config: Config): void {
   ctx.inject(['httpServer', 'subprocess', 'dataAgentConnections'], (scope) => {
     const store: DataAgentConnections = scope.dataAgentConnections
-    const queryOptions = {
+    const connectOptions = {
       clients: {},
       timeoutMs: config.connectTimeoutMs,
+      maxResultChars: config.maxResultChars,
+    }
+    const queryOptions = {
+      clients: {},
+      timeoutMs: config.queryTimeoutMs,
       maxResultChars: config.maxResultChars,
     }
     const introspectMaxTables = config.introspectMaxTables
@@ -143,6 +180,40 @@ export function apply(ctx: Context, config: Config): void {
       const raw = Buffer.concat(chunks).toString('utf8')
       if (raw.length === 0) return {}
       return JSON.parse(raw)
+    }
+
+    /** The stored connection for one session, failing loud when absent. */
+    const requireConnection = (sessionId: string): DatabaseConnection => {
+      const connection = store.getWithSecret(sessionId)
+      if (connection === undefined) {
+        throw new Error('请先连接数据库（未找到当前会话的连接），再执行该操作')
+      }
+      return connection
+    }
+
+    /**
+     * Run one metadata query in machine-readable mode and return its stdout;
+     * a non-zero exit throws with the client's stderr as the message.
+     */
+    const runMetadata = async (
+      connection: DatabaseConnection,
+      kind: 'schemas' | 'tables' | 'describe',
+      schema?: string,
+      table?: string,
+    ): Promise<string> => {
+      const result = await runClientQuery(
+        scope,
+        connection,
+        metadataQuery(kind, connection.type, schema, table),
+        queryOptions,
+        new AbortController().signal,
+        true,
+      )
+      if (result.exitCode !== 0) {
+        const detail = result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim()
+        throw new Error(`元数据查询失败（exit ${result.exitCode}）：${detail}`)
+      }
+      return result.stdout
     }
 
     scope.effect(() => {
@@ -173,8 +244,8 @@ export function apply(ctx: Context, config: Config): void {
               const listing = await runClientQuery(
                 scope,
                 connection,
-                tableListingSql(connection.type),
-                queryOptions,
+                tableListingSql(connection.type, connection),
+                connectOptions,
                 new AbortController().signal,
                 true,
               )
@@ -207,6 +278,68 @@ export function apply(ctx: Context, config: Config): void {
               writeJson(200, summary === undefined
                 ? { connected: false }
                 : { connected: true, summary })
+              return
+            }
+
+            if (req.method === 'GET' && segments.length === 1 && segments[0] === 'schemas') {
+              const sessionId = url.searchParams.get('sessionId') ?? ''
+              if (sessionId.length === 0) throw new Error('sessionId 不能为空')
+              const connection = requireConnection(sessionId)
+              const stdout = await runMetadata(connection, 'schemas')
+              const schemas = parseListing(connection.type, stdout).slice(0, introspectMaxTables)
+              writeJson(200, { ok: true, schemas })
+              return
+            }
+
+            if (req.method === 'GET' && segments.length === 1 && segments[0] === 'tables') {
+              const sessionId = url.searchParams.get('sessionId') ?? ''
+              if (sessionId.length === 0) throw new Error('sessionId 不能为空')
+              const connection = requireConnection(sessionId)
+              const schema = connection.type === 'sqlite'
+                ? undefined
+                : requireIdentifier(url.searchParams.get('schema'), 'schema')
+              const stdout = await runMetadata(connection, 'tables', schema)
+              const tables = parseListing(connection.type, stdout).slice(0, introspectMaxTables)
+              writeJson(200, { ok: true, tables })
+              return
+            }
+
+            if (req.method === 'GET' && segments.length === 1 && segments[0] === 'describe') {
+              const sessionId = url.searchParams.get('sessionId') ?? ''
+              if (sessionId.length === 0) throw new Error('sessionId 不能为空')
+              const connection = requireConnection(sessionId)
+              const schema = connection.type === 'sqlite'
+                ? undefined
+                : requireIdentifier(url.searchParams.get('schema'), 'schema')
+              const table = requireIdentifier(url.searchParams.get('table'), 'table')
+              const stdout = await runMetadata(connection, 'describe', schema, table)
+              const columns = parseColumns(connection.type, stdout)
+              writeJson(200, { ok: true, columns })
+              return
+            }
+
+            if (req.method === 'POST' && segments.length === 1 && segments[0] === 'query') {
+              const body = (await readJson(req)) as Record<string, unknown>
+              const sessionId = body.sessionId
+              if (typeof sessionId !== 'string' || sessionId.length === 0) {
+                throw new Error('sessionId 必须是非空字符串')
+              }
+              const sql = body.sql
+              if (typeof sql !== 'string' || sql.trim().length === 0) {
+                throw new Error('sql 必须是非空字符串')
+              }
+              if (sql.length > config.maxQueryChars) {
+                throw new Error(`sql 超过长度上限（${config.maxQueryChars} 字符）`)
+              }
+              const connection = requireConnection(sessionId)
+              const result: QueryResult = await runClientQuery(
+                scope,
+                connection,
+                sql,
+                queryOptions,
+                new AbortController().signal,
+              )
+              writeJson(200, { ok: true, result })
               return
             }
 
