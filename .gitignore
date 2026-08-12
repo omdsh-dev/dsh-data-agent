@@ -29,3 +29,5 @@ Thumbs.db
 .vscode/
 .agents/
 openspec/
+docs/
+sql/
