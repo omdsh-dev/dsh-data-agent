@@ -1,0 +1,324 @@
+.workbench {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* ── hero: full-width stacked strip above the input bar ─────────────── */
+
+.strip {
+  width: 100%;
+}
+
+/* ── fallback: docked bottom panel when the left rail cannot be measured ── */
+
+.docked {
+  width: 100%;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+/* ── active: fixed left rail (geometry arrives as an inline style) ─────── */
+
+.rail {
+  z-index: 8;
+  border-right: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.03));
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+/*
+ * Split layout: shift the chat records and the composer (input bar) right
+ * by the rail width while a data-agent conversation is active. The class is
+ * toggled on <html> by the workbench (css['da-split']), so ordinary sessions
+ * never see these rules.
+ */
+html.da-split [data-phase="active"] [data-conversation-scroll] > :first-child {
+  margin-left: 380px;
+}
+
+html.da-split [data-phase="active"] [data-composer-seat] {
+  padding-left: 380px;
+}
+
+/* ── shared internals ──────────────────────────────────────────────────── */
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardTitle {
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  letter-spacing: 0.04em;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.label {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.input {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  font: inherit;
+}
+
+.input:disabled {
+  opacity: 0.55;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.primary,
+.ghost {
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primary {
+  background: var(--dsh-color-accent, #3b82f6);
+  border-color: transparent;
+  color: #fff;
+}
+
+.primary:disabled,
+.ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.statusOk {
+  color: var(--dsh-color-success, #22c55e);
+  font-size: 12px;
+}
+
+.hint {
+  opacity: 0.6;
+  font-size: 12px;
+}
+
+/* ── connected summary row（连接配置折叠） ─────────────────────────────── */
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.summaryType {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.summaryDb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--dsh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+.summaryActions {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+/* ── schema explorer Modal ─────────────────────────────────────────────── */
+
+.schemaModal {
+  width: min(760px, 92vw);
+}
+
+.modalBody {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.modalCol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modalColTitle {
+  font-size: 11px;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* 表列表：单页最多 5 条，超出内置垂直滚动条滑动查看 */
+.tableScroll {
+  max-height: 120px; /* 5 × 24px */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: 2px;
+}
+
+@media (max-width: 640px) {
+  .modalBody {
+    flex-direction: column;
+  }
+}
+
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tree .tree {
+  padding-left: 14px;
+}
+
+.treeItem {
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.treeItem:hover {
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.06));
+}
+
+.treeItem.active {
+  background: var(--dsh-color-accent, rgba(59, 130, 246, 0.25));
+}
+
+.columns {
+  margin-top: 4px;
+  border-top: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.25));
+  padding-top: 4px;
+}
+
+.columnsTitle {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+.columnsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--dsh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+.columnsTable th,
+.columnsTable td {
+  text-align: left;
+  padding: 1px 4px;
+  border-bottom: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.15));
+}
+
+.sqlInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-border, rgba(128, 128, 128, 0.35));
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  font-family: var(--dsh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.sqlActions {
+  display: flex;
+}
+
+.sqlResult {
+  margin: 0;
+  padding: 6px;
+  border-radius: 4px;
+  background: var(--dsh-color-surface, rgba(255, 255, 255, 0.04));
+  font-family: var(--dsh-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.errorBar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-danger, rgba(239, 68, 68, 0.5));
+  background: var(--dsh-color-danger-soft, rgba(239, 68, 68, 0.08));
+}
+
+.errorTitle {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.errorText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chatHint {
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--dsh-color-accent, rgba(59, 130, 246, 0.4));
+  font-size: 12px;
+}
