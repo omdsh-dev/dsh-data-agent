@@ -36,6 +36,7 @@ export const zh = {
   'wb.sql.placeholder': '在此输入 SQL，例如 SELECT * FROM orders LIMIT 10;',
   'wb.sql.run': '运行',
   'wb.sql.running': '运行中…',
+  'wb.sql.shortcut': 'Ctrl / ⌘ + Enter 运行',
   'wb.sql.empty': '-- 尚无输出 --',
   'wb.loading': '加载中…',
   'wb.empty': '（空）',
@@ -46,7 +47,6 @@ export const zh = {
   'action.close': '关闭',
   'action.collapse': '收起',
   'error.title': '操作失败',
-  'hint.chat': '已连接！也可以切到 Chat 让数据 Agent 帮你写 SQL。',
 } satisfies Record<string, string>
 
 /** The data-agent namespace key union. */
@@ -85,6 +85,7 @@ export const en = {
   'wb.sql.placeholder': 'Write SQL here, e.g. SELECT * FROM orders LIMIT 10;',
   'wb.sql.run': 'Run',
   'wb.sql.running': 'Running…',
+  'wb.sql.shortcut': 'Ctrl / ⌘ + Enter to run',
   'wb.sql.empty': '-- no output --',
   'wb.loading': 'Loading…',
   'wb.empty': '(empty)',
@@ -95,5 +96,4 @@ export const en = {
   'action.close': 'Close',
   'action.collapse': 'Collapse',
   'error.title': 'Operation failed',
-  'hint.chat': 'Connected! Switch to Chat and let the data agent write SQL for you.',
 } satisfies Record<DataAgentKey, string>

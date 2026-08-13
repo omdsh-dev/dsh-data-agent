@@ -16,8 +16,9 @@
  * - after a successful connect the connection form collapses into a summary
  *   row (click 连接配置 to expand the readonly form again);
  * - the schema explorer lives in a Modal (ui-primitives) opened by the
- *   库表 button; a single click on a database toggles its table list
- *   (max 5 rows visible, scrolled inside the container);
+ *   库表 button; a single click on a database toggles its table list in a
+ *   file-explorer style tree (folder rows with chevrons, indented table rows
+ *   with guide lines, the whole tree scrolls inside the column);
  * - clicking a table loads its columns into the Modal's structure panel.
  *
  * Non-data-agent sessions render null — zero impact on ordinary sessions.
@@ -25,8 +26,9 @@
  * remounts never lose it — this component mirrors `/status` on mount.
  */
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation slot declarations (conversation.input.dock)
 // and the framework-standard view props into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -39,6 +41,91 @@ import css from './DataAgentWorkbench.module.css'
 
 /** The plugin's preset id, matching the installed agent preset directory. */
 const DATA_AGENT_PRESET = 'data-agent'
+
+/** 16×16 stroke icons drawn inline (the primitives package does not export icon atoms). */
+function Icon({ className, children, size = 14 }: { className?: string; children: ReactNode; size?: number }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      {children}
+    </svg>
+  )
+}
+
+/** Database cylinder: section header of the connection form. */
+function DatabaseIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <ellipse cx="8" cy="4" rx="5.5" ry="2.1" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 4V12C2.5 13.16 4.96 14.1 8 14.1C11.04 14.1 13.5 13.16 13.5 12V4" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2.5 8C2.5 9.16 4.96 10.1 8 10.1C11.04 10.1 13.5 9.16 13.5 8" stroke="currentColor" strokeWidth="1.2" />
+    </Icon>
+  )
+}
+
+/** Table grid: browse row + table rows in the tree. */
+function TableIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M2 6.5H14" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M6.5 6.5V13" stroke="currentColor" strokeWidth="1.2" />
+    </Icon>
+  )
+}
+
+/** Folder: schema rows in the tree. */
+function FolderIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path
+        d="M1.8 4.6C1.8 4.05 2.25 3.6 2.8 3.6H5.9L7.1 5.1H13.2C13.75 5.1 14.2 5.55 14.2 6.1V11.4C14.2 11.95 13.75 12.4 13.2 12.4H2.8C2.25 12.4 1.8 11.95 1.8 11.4V4.6Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </Icon>
+  )
+}
+
+/** Terminal prompt: section header of the SQL box. */
+function TerminalIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M4.5 6L6.5 8L4.5 10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8 10.5H11.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </Icon>
+  )
+}
+
+/** Chevron: tree expand indicator (rotates 90° when open). */
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Alert triangle: error bar heading. */
+function AlertIcon({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M8 2.2L14.2 13H1.8L8 2.2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M8 6.4V9.2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="8" cy="11" r="0.9" fill="currentColor" />
+    </Icon>
+  )
+}
+
+/** Play triangle: SQL run button. */
+function PlayIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <path d="M3.4 2.1C3.4 1.66 3.88 1.4 4.26 1.62L9.9 5.02C10.26 5.23 10.26 5.77 9.9 5.98L4.26 9.38C3.88 9.6 3.4 9.34 3.4 8.9V2.1Z" />
+    </svg>
+  )
+}
 
 /** Database kinds offered by the connection form. */
 export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
@@ -451,14 +538,15 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
           // ── connected summary row (form collapsed) ──────────────────────
           <section className={css.card}>
             <div className={css.summaryRow}>
+              <StateDot state="done" size={8} className={css.dot} />
+              <span className={css.statusOk}>{t('state.connected')}</span>
               <span className={css.summaryType}>{t(`type.${type}`)}</span>
               <span className={css.summaryDb} title={database}>{database}</span>
-              <span className={css.statusOk}>{t('state.connected')}</span>
               <span className={css.summaryActions}>
-                <button type="button" className={css.ghost} onClick={() => setConfigOpen(true)}>
+                <button type="button" className={`${css.ghost} ${css.small}`} onClick={() => setConfigOpen(true)}>
                   {t('action.config')}
                 </button>
-                <button type="button" className={css.ghost} disabled={busy} onClick={() => { void disconnect() }}>
+                <button type="button" className={`${css.ghost} ${css.small}`} disabled={busy} onClick={() => { void disconnect() }}>
                   {t('action.disconnect')}
                 </button>
               </span>
@@ -467,67 +555,70 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         ) : (
           // ── connection form (editable when disconnected, readonly when expanded) ──
           <section className={css.card}>
-            <div className={css.cardTitle}>{t('form.title')}</div>
-            <label className={css.field}>
-              <span className={css.label}>{t('form.type')}</span>
-              <select
-                className={css.input}
-                value={type}
-                disabled={formDisabled}
-                onChange={(event) => {
-                  const next = event.target.value as DatabaseType
-                  setType(next)
-                  setPort(next === 'postgres' ? '5432' : next === 'mysql' ? '3306' : next === 'oracle' ? '1521' : next === 'hive' ? '10000' : next === 'impala' ? '21050' : '')
-                }}
-              >
-                <option value="mysql">{t('type.mysql')}</option>
-                <option value="postgres">{t('type.postgres')}</option>
-                <option value="sqlite">{t('type.sqlite')}</option>
-                <option value="oracle">{t('type.oracle')}</option>
-                <option value="hive">{t('type.hive')}</option>
-                <option value="impala">{t('type.impala')}</option>
-              </select>
-            </label>
-
-            {!sqlite && (
+            <div className={css.cardTitle}>
+              <DatabaseIcon className={css.titleIcon} />
+              <span>{t('form.title')}</span>
+            </div>
+            <div className={css.fieldGrid}>
               <label className={css.field}>
-                <span className={css.label}>{t('form.host')}</span>
-                <input className={css.input} type="text" value={host} disabled={formDisabled} onChange={(event) => setHost(event.target.value)} />
+                <span className={css.label}>{t('form.type')}</span>
+                <select
+                  className={css.input}
+                  value={type}
+                  disabled={formDisabled}
+                  onChange={(event) => {
+                    const next = event.target.value as DatabaseType
+                    setType(next)
+                    setPort(next === 'postgres' ? '5432' : next === 'mysql' ? '3306' : next === 'oracle' ? '1521' : next === 'hive' ? '10000' : next === 'impala' ? '21050' : '')
+                  }}
+                >
+                  <option value="mysql">{t('type.mysql')}</option>
+                  <option value="postgres">{t('type.postgres')}</option>
+                  <option value="sqlite">{t('type.sqlite')}</option>
+                  <option value="oracle">{t('type.oracle')}</option>
+                  <option value="hive">{t('type.hive')}</option>
+                  <option value="impala">{t('type.impala')}</option>
+                </select>
               </label>
-            )}
 
-            {!sqlite && (
+              {!sqlite && (
+                <div className={css.fieldRow2}>
+                  <label className={css.field}>
+                    <span className={css.label}>{t('form.host')}</span>
+                    <input className={css.input} type="text" value={host} disabled={formDisabled} onChange={(event) => setHost(event.target.value)} />
+                  </label>
+                  <label className={css.field}>
+                    <span className={css.label}>{t('form.port')}</span>
+                    <input className={css.input} type="number" min={1} max={65535} value={port} disabled={formDisabled} onChange={(event) => setPort(event.target.value)} />
+                  </label>
+                </div>
+              )}
+
+              {!sqlite && (
+                <div className={css.fieldRow2}>
+                  <label className={css.field}>
+                    <span className={css.label}>{t('form.user')}</span>
+                    <input className={css.input} type="text" value={user} disabled={formDisabled} onChange={(event) => setUser(event.target.value)} />
+                  </label>
+                  <label className={css.field}>
+                    <span className={css.label}>{t('form.password')}</span>
+                    <input className={css.input} type="password" value={password} autoComplete="new-password" disabled={formDisabled} onChange={(event) => setPassword(event.target.value)} />
+                  </label>
+                </div>
+              )}
+
               <label className={css.field}>
-                <span className={css.label}>{t('form.port')}</span>
-                <input className={css.input} type="number" min={1} max={65535} value={port} disabled={formDisabled} onChange={(event) => setPort(event.target.value)} />
+                <span className={css.label}>{databaseLabel}</span>
+                <input
+                  className={css.input}
+                  type="text"
+                  value={database}
+                  placeholder={sqlite ? t('form.database.sqlite.placeholder') : undefined}
+                  disabled={formDisabled}
+                  onChange={(event) => setDatabase(event.target.value)}
+                />
               </label>
-            )}
-
-            {!sqlite && (
-              <label className={css.field}>
-                <span className={css.label}>{t('form.user')}</span>
-                <input className={css.input} type="text" value={user} disabled={formDisabled} onChange={(event) => setUser(event.target.value)} />
-              </label>
-            )}
-
-            {!sqlite && (
-              <label className={css.field}>
-                <span className={css.label}>{t('form.password')}</span>
-                <input className={css.input} type="password" value={password} autoComplete="new-password" disabled={formDisabled} onChange={(event) => setPassword(event.target.value)} />
-              </label>
-            )}
-
-            <label className={css.field}>
-              <span className={css.label}>{databaseLabel}</span>
-              <input
-                className={css.input}
-                type="text"
-                value={database}
-                placeholder={sqlite ? t('form.database.sqlite.placeholder') : undefined}
-                disabled={formDisabled}
-                onChange={(event) => setDatabase(event.target.value)}
-              />
-            </label>
+            </div>
 
             <div className={css.actions}>
               {!connected ? (
@@ -556,29 +647,42 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         {connected && (
           // ── schema explorer entry ───────────────────────────────────────
           <section className={css.card}>
-            <button type="button" className={css.primary} onClick={() => setSchemaModalOpen(true)}>
-              {t('action.browse')}
+            <button type="button" className={css.browseRow} onClick={() => setSchemaModalOpen(true)}>
+              <TableIcon className={css.browseIcon} />
+              <span>{t('action.browse')}</span>
+              <ChevronIcon className={css.browseChevron} />
             </button>
           </section>
         )}
 
         <section className={css.card}>
-          <div className={css.cardTitle}>{t('wb.sql')}</div>
+          <div className={css.cardTitle}>
+            <TerminalIcon className={css.titleIcon} />
+            <span>{t('wb.sql')}</span>
+          </div>
           <textarea
             className={css.sqlInput}
             value={sql}
-            rows={4}
+            rows={8}
             spellCheck={false}
             placeholder={t('wb.sql.placeholder')}
             onChange={(event) => setSql(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void runSql()
+              }
+            }}
           />
           <div className={css.sqlActions}>
+            <span className={css.shortcutHint}>{t('wb.sql.shortcut')}</span>
             <button
               type="button"
               className={css.primary}
               disabled={sqlBusy || !connected || sql.trim() === ''}
               onClick={() => { void runSql() }}
             >
+              <PlayIcon />
               {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
             </button>
           </div>
@@ -588,11 +692,13 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
       {error !== null && (
         <div className={css.errorBar}>
-          <span className={css.errorTitle}>{t('error.title')}</span>
+          <div className={css.errorHead}>
+            <AlertIcon className={css.errorIcon} />
+            <span>{t('error.title')}</span>
+          </div>
           <span className={css.errorText}>{error}</span>
         </div>
       )}
-      {connected && <div className={css.chatHint}>{t('hint.chat')}</div>}
 
       {schemaModalOpen && (
         <Modal
@@ -604,57 +710,76 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         >
           <div className={css.modalBody}>
             <div className={css.modalCol}>
-              <div className={css.modalColTitle}>{t('wb.schemas')}</div>
-              {schemas.length === 0 && <div className={css.hint}>{t('wb.loading')}</div>}
-              <ul className={css.tree}>
-                {schemas.map(schema => (
-                  <li key={schema}>
-                    <button
-                      type="button"
-                      className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
-                      onClick={() => { void toggleSchema(schema) }}
-                    >
-                      {schema}
-                    </button>
-                    {activeSchema === schema && (
-                      <div className={css.tableScroll}>
-                        {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
-                        {tables.map(table => (
-                          <button
-                            key={table}
-                            type="button"
-                            className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
-                            onClick={() => { void selectTable(table) }}
-                          >
-                            {table}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <div className={css.hint}>{t('wb.hint.click')}</div>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.schemas')}</span>
+                {schemas.length > 0 && <span className={css.colCount}>{schemas.length}</span>}
+              </div>
+              <div className={css.treeScroll}>
+                {schemas.length === 0 && <div className={css.hint}>{t('wb.loading')}</div>}
+                <ul className={css.tree}>
+                  {schemas.map(schema => (
+                    <li key={schema} className={css.treeNode}>
+                      <button
+                        type="button"
+                        className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
+                        onClick={() => { void toggleSchema(schema) }}
+                      >
+                        <ChevronIcon className={`${css.treeChevron}${activeSchema === schema ? ` ${css.open}` : ''}`} />
+                        <FolderIcon className={css.treeIcon} />
+                        <span className={css.treeName}>{schema}</span>
+                        {activeSchema === schema && tables.length > 0 && (
+                          <span className={css.treeCount}>{tables.length}</span>
+                        )}
+                      </button>
+                      {activeSchema === schema && (
+                        <div className={css.treeChildren}>
+                          {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
+                          {tables.map(table => (
+                            <button
+                              key={table}
+                              type="button"
+                              className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
+                              onClick={() => { void selectTable(table) }}
+                            >
+                              <TableIcon className={css.treeIcon} />
+                              <span className={css.treeName}>{table}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className={css.modalHint}>{t('wb.hint.click')}</div>
             </div>
 
             <div className={css.modalCol}>
-              <div className={css.modalColTitle}>{`${t('wb.columns')} · ${activeTable ?? ''}`}</div>
-              {columns === null && <div className={css.hint}>{t('wb.hint.click')}</div>}
-              {columns !== null && (
-                <table className={css.columnsTable}>
-                  <thead>
-                    <tr><th>name</th><th>type</th><th>null</th></tr>
-                  </thead>
-                  <tbody>
-                    {columns.map(column => (
-                      <tr key={column.name}>
-                        <td>{column.name}</td>
-                        <td>{column.type}</td>
-                        <td>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.columns')}{activeTable !== null && ` · ${activeTable}`}</span>
+              </div>
+              {columns === null ? (
+                <div className={css.emptyState}>
+                  <TableIcon className={css.emptyStateIcon} />
+                  <span className={css.emptyStateText}>{t('wb.hint.click')}</span>
+                </div>
+              ) : (
+                <div className={css.colScroll}>
+                  <table className={css.columnsTable}>
+                    <thead>
+                      <tr><th>name</th><th>type</th><th>null</th></tr>
+                    </thead>
+                    <tbody>
+                      {columns.map(column => (
+                        <tr key={column.name}>
+                          <td>{column.name}</td>
+                          <td className={css.typeCell}>{column.type}</td>
+                          <td className={css.nullCell}>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>

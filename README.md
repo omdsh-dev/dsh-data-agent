@@ -20,6 +20,8 @@
 
   ![数据库连接](assets/connection.png)
 - **数据库工作台**（内嵌于会话输入框上方）：连接配置卡（连接成功后折叠为摘要行，可展开查看）；库表浏览（点击「库表」按钮弹出 Modal：单击库展开表列表，表列表单页 5 条可滚动，点击表查看结构）；SQL 命令框（编辑并运行 SQL，非 agent 通道，结果等宽展示）。连接配置持久化到浏览器 localStorage，切换页面/重启自动回填并重连。开始对话后工作台自动变为左侧栏，对话记录与输入框在右侧。
+
+  ![数据库工作台](assets/tables.png)
 - **sqlcmd 工具**：在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行 SQL/命令；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断。
 - **数据Agent 预设**：新建会话可选「数据Agent」——工具面恰好是 `sqlcmd`/`read`/`write`/`edit` 四个，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据Agent 会话不渲染工作台，零影响。
 
