@@ -55,7 +55,7 @@ import type {
   DatabaseConnection,
   DatabaseType,
 } from './connections.ts'
-import { metadataQuery, parseColumns, parseListing, parseTableListing, tableListingSql } from './clients.ts'
+import { metadataQuery, parseColumns, parseListing, parseTableListing, sanitizeIdentifier, classifyStatement, tableListingSql } from './clients.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_INTROSPECT_MAX_TABLES,
@@ -91,6 +91,8 @@ export interface Config {
   queryTimeoutMs: number
   /** Cap on one /query SQL text length. */
   maxQueryChars: number
+  /** Read-only guard: true rejects write statements in /query. */
+  readonly: boolean
 }
 
 /** Loader schema with deployment defaults (no library defaults). */
@@ -100,6 +102,7 @@ export const Config = z.object({
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
   maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
+  readonly: z.boolean().default(false),
 })
 
 /** The connection request wire body (validated in the /connect handler). */
@@ -111,6 +114,7 @@ export interface ConnectRequestBody {
   user?: string
   database: string
   password?: string
+  readonly?: boolean
 }
 
 /**
@@ -151,23 +155,21 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
   if (user !== undefined && typeof user !== 'string') throw new Error('user 必须是字符串')
   const password = candidate.password
   if (password !== undefined && typeof password !== 'string') throw new Error('password 必须是字符串')
+  const readonly = candidate.readonly
+  if (readonly !== undefined && typeof readonly !== 'boolean') throw new Error('readonly 必须是布尔值')
   const connection: DatabaseConnection = { type, database }
   if (typeof host === 'string' && host.length > 0) connection.host = host
   if (port !== undefined) connection.port = port
   if (typeof user === 'string' && user.length > 0) connection.user = user
   if (typeof password === 'string' && password.length > 0) connection.password = password
-  return { sessionId, type, database, ...connection.host !== undefined ? { host: connection.host } : {}, ...connection.port !== undefined ? { port: connection.port } : {}, ...connection.user !== undefined ? { user: connection.user } : {}, ...connection.password !== undefined ? { password: connection.password } : {} }
+  if (readonly !== undefined) connection.readonly = readonly
+  return { sessionId, type, database, ...connection.host !== undefined ? { host: connection.host } : {}, ...connection.port !== undefined ? { port: connection.port } : {}, ...connection.user !== undefined ? { user: connection.user } : {}, ...connection.password !== undefined ? { password: connection.password } : {}, ...connection.readonly !== undefined ? { readonly: connection.readonly } : {} }
 }
 
-/** Identifier whitelist for schema/table names in metadata queries. */
-const IDENTIFIER_PATTERN = /^[A-Za-z0-9_$#.-]+$/
-
-/** Validate one schema/table identifier (rejects any injection-shaped input). */
-function requireIdentifier(value: string | null, label: string): string {
+/** Validate one schema/table identifier: reuse the clients' sanitizer (validation + quoting). */
+function requireIdentifier(type: DatabaseType, value: string | null, label: string): string {
   if (value === null || value.length === 0) throw new Error(`${label} 不能为空`)
-  if (!IDENTIFIER_PATTERN.test(value)) {
-    throw new Error(`${label} 含非法字符（仅允许字母、数字与 _ $ # . -）`)
-  }
+  sanitizeIdentifier(type, value) // throws on illegal characters (injection guard)
   return value
 }
 
@@ -259,6 +261,7 @@ export function apply(ctx: Context, config: Config): void {
                 ...request.port !== undefined ? { port: request.port } : {},
                 ...request.user !== undefined ? { user: request.user } : {},
                 ...request.password !== undefined ? { password: request.password } : {},
+                ...request.readonly !== undefined ? { readonly: request.readonly } : {},
               }
               // Connectivity proof FIRST: a failed check must not leave a
               // stored connection behind.
@@ -318,7 +321,7 @@ export function apply(ctx: Context, config: Config): void {
               const connection = requireConnection(sessionId)
               const schema = connection.type === 'sqlite'
                 ? undefined
-                : requireIdentifier(url.searchParams.get('schema'), 'schema')
+                : requireIdentifier(connection.type, url.searchParams.get('schema'), 'schema')
               const stdout = await runMetadata(connection, 'tables', schema)
               const tables = parseListing(connection.type, stdout).slice(0, introspectMaxTables)
               writeJson(200, { ok: true, tables })
@@ -331,8 +334,8 @@ export function apply(ctx: Context, config: Config): void {
               const connection = requireConnection(sessionId)
               const schema = connection.type === 'sqlite'
                 ? undefined
-                : requireIdentifier(url.searchParams.get('schema'), 'schema')
-              const table = requireIdentifier(url.searchParams.get('table'), 'table')
+                : requireIdentifier(connection.type, url.searchParams.get('schema'), 'schema')
+              const table = requireIdentifier(connection.type, url.searchParams.get('table'), 'table')
               const stdout = await runMetadata(connection, 'describe', schema, table)
               const columns = parseColumns(connection.type, stdout)
               writeJson(200, { ok: true, columns })
@@ -353,6 +356,9 @@ export function apply(ctx: Context, config: Config): void {
                 throw new Error(`sql 超过长度上限（${config.maxQueryChars} 字符）`)
               }
               const connection = requireConnection(sessionId)
+              if ((connection.readonly ?? config.readonly) && classifyStatement(sql, connection.type) === 'write') {
+                throw new Error('当前连接为只读模式，拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等）')
+              }
               const result: QueryResult = await runClientQuery(
                 scope,
                 connection,

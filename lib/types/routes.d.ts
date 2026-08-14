@@ -63,6 +63,8 @@ export interface Config {
     queryTimeoutMs: number;
     /** Cap on one /query SQL text length. */
     maxQueryChars: number;
+    /** Read-only guard: true rejects write statements in /query. */
+    readonly: boolean;
 }
 /** Loader schema with deployment defaults (no library defaults). */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
@@ -71,12 +73,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>, Schemastery.ObjectT<{
     connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
 }>>;
 /** The connection request wire body (validated in the /connect handler). */
 export interface ConnectRequestBody {
@@ -87,6 +91,7 @@ export interface ConnectRequestBody {
     user?: string;
     database: string;
     password?: string;
+    readonly?: boolean;
 }
 /**
  * Validate an untrusted /connect body; sqlite paths resolve to absolute

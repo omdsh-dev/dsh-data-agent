@@ -107,12 +107,13 @@ dsh --profile web
 | `introspectMaxTables` | 表清单上限（默认 500） |
 | `queryTimeoutMs` | sqlcmd 单次查询超时（默认 30000 毫秒） |
 | `maxResultChars` | sqlcmd 捕获输出上限（stdout/stderr 各自，默认 20000 字符） |
+| `readonly` | 只读护栏（默认 false）：true 时 `sqlcmd` 与 `/query` 仅放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），写语句直接拒绝 |
 | `clients` | 各数据库类型 CLI 客户端覆盖：`{ command?, args? }`，键为 `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala`（内置默认 mysql/psql/sqlite3/sqlplus/beeline/impala-shell） |
-| `connections` | 配置预置连接，键为 sessionId（`'*'` = 通配符默认，任何无自有连接的会话回落它；headless/keyless 运行与部署固定默认库场景）。**不含 password 字段**——密码只允许经 /connect 路由进入内存 |
+| `connections` | 配置预置连接，键为 sessionId（`'*'` = 通配符默认，任何无自有连接的会话回落它；headless/keyless 运行与部署固定默认库场景）。**不含 password 字段**——密码只允许经 /connect 路由进入内存；可选 `readonly` 字段按连接锁定只读 |
 
-工具行 `tool-sqlcmd`（data-agent 预设内）另有 `maxRows`（默认 100，注入工具描述的 LIMIT 引导），`queryTimeoutMs` / `maxResultChars` / `clients` 与宿主行同名可配。
+工具行 `tool-sqlcmd`（data-agent 预设内）另有 `maxRows`（默认 100，注入工具描述的 LIMIT 引导）与 `readonly`，`queryTimeoutMs` / `maxResultChars` / `clients` 与宿主行同名可配。
 
-路由行 `data-agent-routes` 独立配置：`connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` 与主行同名同默认；另有 `queryTimeoutMs`（/query 与元数据查询超时，默认 30000）与 `maxQueryChars`（/query 单条 SQL 长度上限，默认 65536）。
+路由行 `data-agent-routes` 独立配置：`connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` / `readonly` 与主行同名同默认；另有 `queryTimeoutMs`（/query 与元数据查询超时，默认 30000）与 `maxQueryChars`（/query 单条 SQL 长度上限，默认 65536）。
 
 ```yaml
 # cordis.patch.yml 或 profile 层覆盖示例
@@ -143,22 +144,22 @@ dsh --profile web
 
 | 方法/路径 | 说明 |
 |---|---|
-| `POST /connect` | body `{ sessionId, type, host?, port?, user?, database, password? }`；校验 → 连通性验证（列出所有表）→ 成功才保存连接，返回 `{ ok, tables }`，失败返回 `{ ok: false, error }` 且不保存 |
+| `POST /connect` | body `{ sessionId, type, host?, port?, user?, database, password?, readonly? }`；校验 → 连通性验证（列出所有表）→ 成功才保存连接，返回 `{ ok, tables }`，失败返回 `{ ok: false, error }` 且不保存 |
 | `POST /disconnect` | body `{ sessionId }`；清除该会话连接 |
-| `GET /status?sessionId=` | `{ connected, summary? }`；summary 为脱敏连接概要（无密码）+ 表清单 |
+| `GET /status?sessionId=` | `{ connected, summary? }`；summary 为脱敏连接概要（无密码，含 `readonly` 当连接显式设定时）+ 表清单 |
 | `GET /schemas?sessionId=` | `{ ok, schemas: string[] }`；库/数据库列表（sqlite 为 `['main']`） |
 | `GET /tables?sessionId=&schema=` | `{ ok, tables: string[] }`；某库的表列表（sqlite 忽略 schema 参数） |
 | `GET /describe?sessionId=&schema=&table=` | `{ ok, columns: [{ name, type, nullable? }] }`；表结构（sqlite 忽略 schema） |
-| `POST /query` | body `{ sessionId, sql }`；运行任意 SQL（工作台命令框，非 agent 通道），返回 `{ ok, result: { exitCode, stdout, stderr, truncated } }`；`sql` 长度上限 `maxQueryChars` |
+| `POST /query` | body `{ sessionId, sql }`；运行任意 SQL（工作台命令框，非 agent 通道），返回 `{ ok, result: { exitCode, stdout, stderr, truncated } }`；`sql` 长度上限 `maxQueryChars`；readonly 开启时拒绝写语句 |
 
-schema/table 标识符仅允许 `[A-Za-z0-9_$#.-]`（服务端白名单校验，拒绝注入形字符）。
+schema/table 标识符仅允许 `[A-Za-z0-9_$]`（服务端白名单校验并转义引用，拒绝注入形字符）。
 
 ## 安全说明
 
 - **密码**：服务端仅存内存，传递通道按类型：mysql 经 `MYSQL_PWD`、postgres 经 `PGPASSWORD` 环境变量；oracle 经 sqlplus `connect user/pass@...` stdin 前缀、hive 经 beeline `!connect` stdin 前缀（均不进 argv）；impala 默认不传密码（LDAP/kerberos 由部署侧 `clients` 覆盖）。`/status` 与连接存储的公开读取面均剥离密码。
-- **连接配置持久化**：工作台在连接成功后把连接配置（**含密码**，明文）保存到浏览器 localStorage（键 `dsh-data-agent.connection.v1`，用户确认的本机单用户场景），用于切换页面/重启后回填表单并自动重连一次；断开不清除。如需清除：浏览器控制台执行 `localStorage.removeItem('dsh-data-agent.connection.v1')`。
-- **无 shell 层**：`ctx.subprocess.spawn` 参数数组化，SQL 与连接前缀经 stdin 传入，不存在 shell 拼接注入面；元数据路由的 schema/table 标识符过白名单校验。
-- **SQL 执行权**：审批策略为 never 时，sqlcmd 与 `/query` 的 DDL/DML 会直接执行——连接按 session 隔离，请自行评估数据面风险（只读模式 `readonly` 列为后续版本）。
+- **连接配置持久化**：工作台把连接配置（type/host/port/user/database）保存到浏览器 localStorage（键 `dsh-data-agent.connection.v1`），用于切换页面/重启后回填表单并自动重连一次。**密码默认不落盘**：仅当用户勾选「记住密码」时才持久化密码（明文 localStorage，本机单用户场景的显式 opt-in）。若需清除：浏览器控制台执行 `localStorage.removeItem('dsh-data-agent.connection.v1')`。
+- **无 shell 层**：`ctx.subprocess.spawn` 参数数组化，SQL 与连接前缀经 stdin 传入，不存在 shell 拼接注入面；元数据路由的 schema/table 标识符经收紧白名单 `[A-Za-z0-9_$]` 校验并按类型转义引用（反引号/双引号），拒绝 `#`、`--`、`;`、`'` 等注入形字符。
+- **SQL 执行权**：审批策略为 never 时，sqlcmd 与 `/query` 的 DDL/DML 会直接执行——连接按 session 隔离，请自行评估数据面风险。可设 `readonly: true`（宿主/工具/路由三行同名，或 `/connect` 传 `readonly: true` 按连接锁定）强制只放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），作为误操作防护；对更强对手防护，仍建议配合数据库侧只读账号。
 - **超时与上限**：查询超时、输出截断、表清单上限、/query 单条 SQL 长度均为配置项，无硬编码 tunables。
 
 ## 卸载与回滚

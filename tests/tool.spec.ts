@@ -51,6 +51,7 @@ function makeContext(overrides: {
     queryTimeoutMs: 5000,
     maxResultChars: 20000,
     maxRows: 100,
+    readonly: false,
     clients: {},
     ...configOverrides,
   }
@@ -199,5 +200,50 @@ describe('sqlcmd tool', () => {
     const pending = definition.execute!({ sql: 'SELECT 1;' }, { agent: { id: 'session-a' }, signal: controller.signal })
     controller.abort(new Error('caller cancelled'))
     await expect(pending).rejects.toThrow('caller cancelled')
+  })
+
+  it('rejects write statements when the connection is readonly', async () => {
+    let spawned = false
+    const { definition, store } = makeContext({
+      spawn() {
+        spawned = true
+        return { done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }
+      },
+    })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db', readonly: true })
+    await expect(definition.execute!({ sql: 'DELETE FROM orders;' }, execOf('session-a')))
+      .rejects.toThrow(/只读模式/)
+    expect(spawned).toBe(false)
+  })
+
+  it('rejects write statements when the config readonly is true', async () => {
+    let spawned = false
+    const { definition, store } = makeContext({
+      spawn() {
+        spawned = true
+        return { done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }
+      },
+    }, { readonly: true })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    await expect(definition.execute!({ sql: 'DROP TABLE orders;' }, execOf('session-a')))
+      .rejects.toThrow(/只读模式/)
+    expect(spawned).toBe(false)
+  })
+
+  it('allows read statements when readonly is active', async () => {
+    let captured: SpawnSpec | undefined
+    const { definition, store } = makeContext({
+      spawn(spec) {
+        captured = spec
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: { stdout: { readFrom: () => ({ text: 'ok\n', nextOffset: 0, lossy: false }) }, stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) } },
+        }
+      },
+    }, { readonly: true })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    const result = await definition.execute!({ sql: 'SELECT * FROM orders;' }, execOf('session-a'))
+    expect(result.exitCode).toBe(0)
+    expect(captured).toBeDefined()
   })
 })

@@ -26,6 +26,8 @@ export interface Config {
     maxResultChars: number;
     /** Row-count guidance injected into the tool description. */
     maxRows: number;
+    /** Read-only guard: true rejects write statements. */
+    readonly: boolean;
     /** CLI client overrides keyed by database type. */
     clients: Partial<Record<string, ClientConfig>>;
 }
@@ -34,6 +36,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
     maxRows: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
@@ -45,6 +48,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
     maxRows: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;

@@ -15,6 +15,10 @@ export declare const zh: {
     'form.port': string;
     'form.user': string;
     'form.password': string;
+    'form.rememberPassword': string;
+    'form.rememberPassword.hint': string;
+    'form.readonly': string;
+    'form.readonly.hint': string;
     'form.database': string;
     'form.database.oracle': string;
     'form.database.hive': string;
@@ -62,6 +66,10 @@ export declare const en: {
     'form.port': string;
     'form.user': string;
     'form.password': string;
+    'form.rememberPassword': string;
+    'form.rememberPassword.hint': string;
+    'form.readonly': string;
+    'form.readonly.hint': string;
     'form.database': string;
     'form.database.oracle': string;
     'form.database.hive': string;

@@ -29,11 +29,38 @@ const fullConnection = {
 }
 
 describe('persistence', () => {
-  it('saves and loads a full connection (password included)', () => {
+  it('does not persist the password by default (opt-in)', () => {
     const storage = memoryStorage()
     saveConnection(fullConnection, storage)
-    expect(loadConnection(storage)).toEqual(fullConnection)
+    expect(storage.map.get(CONNECTION_STORAGE_KEY)).not.toContain('"password"')
+    const loaded = loadConnection(storage)!
+    expect(loaded.password).toBeUndefined()
+    expect(loaded.host).toBe('127.0.0.1')
+    expect(loaded.user).toBe('dsh_demo')
+    expect(loaded.database).toBe('dsh_data_agent_demo')
+  })
+
+  it('persists the password only when persistPassword is true', () => {
+    const storage = memoryStorage()
+    saveConnection({ ...fullConnection, persistPassword: true }, storage)
     expect(storage.map.get(CONNECTION_STORAGE_KEY)).toContain('"password":"dsh_demo_pw"')
+    expect(loadConnection(storage)!.password).toBe('dsh_demo_pw')
+  })
+
+  it('strips the password from legacy records on load', () => {
+    const storage = memoryStorage()
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(fullConnection))
+    const loaded = loadConnection(storage)!
+    expect(loaded.password).toBeUndefined()
+    expect(loaded.persistPassword).toBeUndefined()
+  })
+
+  it('keeps the password on load only when persistPassword is true', () => {
+    const storage = memoryStorage()
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({ ...fullConnection, persistPassword: true }))
+    const loaded = loadConnection(storage)!
+    expect(loaded.password).toBe('dsh_demo_pw')
+    expect(loaded.persistPassword).toBe(true)
   })
 
   it('round-trips a sqlite-shaped connection (no host/port/user)', () => {

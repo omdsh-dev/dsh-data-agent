@@ -114,6 +114,31 @@ html.da-split [data-phase="active"] [data-composer-seat] {
   color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.7));
 }
 
+/* 「记住密码」opt-in 行：勾选框 + 标签 + 说明，紧贴密码字段下方。 */
+.rememberRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary, inherit);
+  cursor: pointer;
+  user-select: none;
+}
+
+.rememberRow input[type='checkbox'] {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--dsw-alias-button-info-fill, #3b82f6);
+  cursor: pointer;
+}
+
+.rememberHint {
+  font-size: 11px;
+  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
+}
+
 .input {
   box-sizing: border-box;
   width: 100%;

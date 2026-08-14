@@ -37,6 +37,8 @@ export interface DatabaseConnection {
     database: string;
     /** In-memory only; never exposed through {@link DataAgentConnections.get}. */
     password?: string;
+    /** Optional per-session read-only guard (defaults to the plugin's `readonly`). */
+    readonly?: boolean;
     tables?: string[];
 }
 /** Password-free view of one connection (the wire/UI face). */
@@ -46,6 +48,8 @@ export interface ConnectionSummary {
     port?: number;
     user?: string;
     database: string;
+    /** Present only when the connection explicitly set it. */
+    readonly?: boolean;
     tables?: string[];
 }
 /** The host-plane connection store service (`ctx.dataAgentConnections`). */

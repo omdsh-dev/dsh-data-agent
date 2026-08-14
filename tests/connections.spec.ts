@@ -117,4 +117,9 @@ describe('summarize', () => {
     summary.tables!.push('mutated')
     expect(mysqlConnection.tables).toEqual(['customers', 'orders'])
   })
+
+  it('carries readonly only when the connection explicitly set it', () => {
+    expect(summarize(mysqlConnection).readonly).toBeUndefined()
+    expect(summarize({ ...mysqlConnection, readonly: true }).readonly).toBe(true)
+  })
 })

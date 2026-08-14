@@ -15,14 +15,17 @@ import type { DatabaseType } from './DataAgentWorkbench.tsx'
 /** localStorage key holding the most recent connection configuration. */
 export const CONNECTION_STORAGE_KEY = 'dsh-data-agent.connection.v1'
 
-/** The persisted connection configuration (password included). */
+/** The persisted connection configuration. */
 export interface SavedConnection {
   type: DatabaseType
   host?: string
   port?: number
   user?: string
   database: string
+  /** Present only when the user explicitly opted in to persist the password. */
   password?: string
+  /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
+  persistPassword?: boolean
   /** Diagnostic timestamp of the save. */
   savedAt: string
 }
@@ -65,7 +68,11 @@ function parseSaved(value: unknown): SavedConnection | null {
   if (typeof candidate.host === 'string') saved.host = candidate.host
   if (typeof candidate.port === 'number' && Number.isInteger(candidate.port)) saved.port = candidate.port
   if (typeof candidate.user === 'string') saved.user = candidate.user
-  if (typeof candidate.password === 'string') saved.password = candidate.password
+  // Legacy records may carry a password; strip it unless the opt-in flag is set
+  // (a persisted password only survives when persistPassword was explicitly true).
+  const persistPassword = candidate.persistPassword === true
+  if (persistPassword) saved.persistPassword = true
+  if (persistPassword && typeof candidate.password === 'string') saved.password = candidate.password
   return saved
 }
 
@@ -73,7 +80,10 @@ function parseSaved(value: unknown): SavedConnection | null {
 export function saveConnection(connection: SavedConnection, storage: StorageLike | undefined = defaultStorage()): void {
   if (storage === undefined) return
   try {
-    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(connection))
+    const toWrite: SavedConnection = { ...connection }
+    // Password is opt-in only; strip it unless persistPassword is explicitly set.
+    if (toWrite.persistPassword !== true) delete toWrite.password
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(toWrite))
   } catch {
     // Quota / serialization failure: degrade silently, the UI stays usable.
   }

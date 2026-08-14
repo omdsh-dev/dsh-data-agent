@@ -44,6 +44,8 @@ export interface SeededConnectionConfig {
     port?: number;
     user?: string;
     database: string;
+    /** Optional per-seed read-only guard. */
+    readonly?: boolean;
 }
 /** Required plugin configuration (loader schema with deployment defaults). */
 export interface Config {
@@ -59,6 +61,8 @@ export interface Config {
     queryTimeoutMs: number;
     /** In-memory cap on sqlcmd captured output. */
     maxResultChars: number;
+    /** Default read-only guard: true rejects write statements in sqlcmd//query. */
+    readonly: boolean;
     /** CLI client overrides keyed by database type. */
     clients: ClientsConfig;
     /** Config-seeded connections keyed by session id (`'*'` = wildcard default). */
@@ -72,6 +76,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
@@ -85,12 +90,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
+        readonly?: boolean | null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
         type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
         port: import("@deepseek-ai/schemastery").default<number, number>;
         user: import("@deepseek-ai/schemastery").default<string, string>;
         database: import("@deepseek-ai/schemastery").default<string, string>;
+        readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     }>, string>>;
 }>, Schemastery.ObjectT<{
     presetId: import("@deepseek-ai/schemastery").default<string, string>;
@@ -99,6 +106,7 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
@@ -112,12 +120,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
+        readonly?: boolean | null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
         type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
         port: import("@deepseek-ai/schemastery").default<number, number>;
         user: import("@deepseek-ai/schemastery").default<string, string>;
         database: import("@deepseek-ai/schemastery").default<string, string>;
+        readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     }>, string>>;
 }>>;
 /**

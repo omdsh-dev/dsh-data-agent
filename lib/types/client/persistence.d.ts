@@ -12,14 +12,17 @@
 import type { DatabaseType } from './DataAgentWorkbench.tsx';
 /** localStorage key holding the most recent connection configuration. */
 export declare const CONNECTION_STORAGE_KEY = "dsh-data-agent.connection.v1";
-/** The persisted connection configuration (password included). */
+/** The persisted connection configuration. */
 export interface SavedConnection {
     type: DatabaseType;
     host?: string;
     port?: number;
     user?: string;
     database: string;
+    /** Present only when the user explicitly opted in to persist the password. */
     password?: string;
+    /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
+    persistPassword?: boolean;
     /** Diagnostic timestamp of the save. */
     savedAt: string;
 }

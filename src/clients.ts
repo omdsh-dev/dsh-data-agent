@@ -15,6 +15,181 @@
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
 import z from 'schemastery'
 
+/**
+ * Whitespace / comment stripping for {@link classifyStatement}: remove
+ * leading whitespace, `--` line comments, and nested `/* ... *​/` block
+ * comments so the first meaningful token can be read reliably.
+ */
+function stripLeadingComments(sql: string): string {
+  let rest = sql
+  for (;;) {
+    let changed = false
+    // Leading whitespace.
+    const trimmed = rest.replace(/^\s+/, '')
+    if (trimmed !== rest) { rest = trimmed; changed = true }
+    // `--` line comment (to end of line).
+    if (rest.startsWith('--')) {
+      const newline = rest.indexOf('\n')
+      rest = newline === -1 ? '' : rest.slice(newline + 1)
+      changed = true
+      continue
+    }
+    // Nested `/* ... */` block comment.
+    if (rest.startsWith('/*')) {
+      const end = scanBlockCommentEnd(rest, 2)
+      rest = end === -1 ? '' : rest.slice(end)
+      changed = true
+      continue
+    }
+    // Nothing stripped this pass; also re-trim if the above left whitespace.
+    if (!changed) {
+      const retrim = rest.replace(/^\s+/, '')
+      if (retrim !== rest) { rest = retrim; continue }
+      break
+    }
+  }
+  return rest
+}
+
+/** Find the index just past a `/* ... *​/` block starting at `start` (nesting-aware). */
+function scanBlockCommentEnd(sql: string, start: number): number {
+  let depth = 1
+  let i = start
+  while (i < sql.length) {
+    if (sql.startsWith('/*', i)) { depth += 1; i += 2; continue }
+    if (sql.startsWith('*/', i)) {
+      depth -= 1
+      i += 2
+      if (depth === 0) return i
+      continue
+    }
+    i += 1
+  }
+  return -1
+}
+
+/**
+ * Strip a `WITH` prefix down to the main query: remove `WITH [RECURSIVE]`,
+ * then consume successive `name [ (cols) ] AS ( ... )` clauses (comma
+ * separated, parenthesis-aware) until the leading keyword of the main
+ * statement. Falls back to the whole (comment-stripped) input when the CTE
+ * shape does not parse cleanly, in which case {@link classifyStatement} treats
+ * it as a write (conservative).
+ */
+function stripWithBody(sql: string): string {
+  let rest = stripLeadingComments(sql).replace(/^[A-Za-z_]+/, '') // drop WITH
+  rest = stripLeadingComments(rest)
+  if (/^RECURSIVE\b/i.test(rest)) rest = stripLeadingComments(rest.replace(/^[A-Za-z_]+/, ''))
+  for (;;) {
+    rest = stripLeadingComments(rest)
+    if (rest === '' || !/^[A-Za-z_][A-Za-z0-9_$]*/.test(rest)) break
+    // consume the CTE name and its optional column list
+    rest = stripLeadingComments(rest.replace(/^[A-Za-z_][A-Za-z0-9_$]*/, ''))
+    rest = stripLeadingComments(rest)
+    if (rest.startsWith('(')) {
+      const afterCols = skipParens(rest, 0)
+      rest = stripLeadingComments(afterCols === -1 ? rest : rest.slice(afterCols))
+    }
+    rest = stripLeadingComments(rest)
+    if (!/^AS\b/i.test(rest)) break
+    rest = stripLeadingComments(rest.replace(/^[A-Za-z_]+/, ''))
+    rest = stripLeadingComments(rest)
+    if (!rest.startsWith('(')) break
+    const afterBody = skipParens(rest, 0)
+    if (afterBody === -1) return sql // malformed: conservative write
+    rest = stripLeadingComments(rest.slice(afterBody))
+    rest = stripLeadingComments(rest)
+    if (rest.startsWith(',')) { rest = stripLeadingComments(rest.slice(1)); continue }
+    break
+  }
+  return stripLeadingComments(rest)
+}
+
+/** Index just past a balanced parenthesis group starting at `start` (0-based). */
+function skipParens(sql: string, start: number): number {
+  let depth = 0
+  let i = start
+  while (i < sql.length) {
+    const ch = sql[i]!
+    if (ch === '(') { depth += 1; i += 1; continue }
+    if (ch === ')') {
+      depth -= 1
+      i += 1
+      if (depth === 0) return i
+      continue
+    }
+    i += 1
+  }
+  return -1
+}
+
+/**
+ * Classify a SQL text as a read or write statement by its FIRST effective
+ * token (a conservative read whitelist, not a parser). `with` is read only
+ * when its body's first token is `select`. `pragma` is read-only for SQLite.
+ */
+export function classifyStatement(sql: string, type: DatabaseType): 'read' | 'write' {
+  const rest = stripLeadingComments(sql)
+  const tokenMatch = rest.match(/^[A-Za-z_]+/)
+  if (tokenMatch === null) return 'write'
+  const token = tokenMatch[0].toLowerCase()
+  switch (token) {
+    case 'select':
+    case 'show':
+    case 'describe':
+    case 'desc':
+    case 'explain':
+      return 'read'
+    case 'pragma':
+      return type === 'sqlite' ? 'read' : 'write'
+    case 'with': {
+      // `WITH <name> [ (cols) ] AS ( ... ) [, ...] <main>`: strip the CTE
+      // definitions, then classify the remaining main query's first token.
+      const body = stripWithBody(rest)
+      const bodyToken = body.match(/^[A-Za-z_]+/)?.[0]?.toLowerCase()
+      return bodyToken === 'select' ? 'read' : 'write'
+    }
+    default:
+      return 'write'
+  }
+}
+
+/**
+ * Validate and quote one schema/table identifier for a safe metadata query.
+ * Identifiers are restricted to `[A-Za-z0-9_$]+` and then wrapped per type:
+ * backticks (mysql/hive/impala) or double quotes (postgres/oracle/sqlite),
+ * with the wrapping quote doubled for any interior occurrence. Rejects any
+ * input that could cross the identifier boundary (`#`, `--`, `;`, `'`, `` ` ``,
+ * `"`, `.`, `-` are all refused).
+ */
+export function sanitizeIdentifier(type: DatabaseType, identifier: string): string {
+  if (!/^[A-Za-z0-9_$]+$/.test(identifier)) {
+    throw new Error(`标识符含非法字符（仅允许字母、数字与 _ $）：${identifier}`)
+  }
+  switch (type) {
+    case 'mysql':
+    case 'hive':
+    case 'impala':
+      return '`' + identifier.replace(/`/g, '``') + '`'
+    case 'postgres':
+    case 'oracle':
+    case 'sqlite':
+      return '"' + identifier.replace(/"/g, '""') + '"'
+  }
+}
+
+/**
+ * Quote one identifier-shaped value as a SQL string literal (single quotes,
+ * interior `'` doubled). postgres/oracle metadata queries filter system
+ * catalogs by NAME (a string value), not by identifier, so those positions
+ * need a quoted literal — not {@link sanitizeIdentifier}'s identifier quoting.
+ * The whitelist already excludes `'`, so doubling is a defense-in-depth no-op
+ * here but keeps the helper correct for any future widened charset.
+ */
+function quoteStringLiteral(value: string): string {
+  return "'" + value.replace(/'/g, "''") + "'"
+}
+
 /** One deployment override for a database type's CLI client. */
 export interface ClientConfig {
   /** Executable name (resolved through PATH) or absolute path. */
@@ -250,21 +425,21 @@ export function metadataQuery(
       }
     case 'tables':
       switch (type) {
-        case 'mysql': return `SHOW TABLES FROM \`${schema}\`;`
-        case 'postgres': return `SELECT tablename FROM pg_tables WHERE schemaname='${schema}' ORDER BY 1;`
+        case 'mysql': return `SHOW TABLES FROM ${sanitizeIdentifier(type, schema!)};`
+        case 'postgres': return `SELECT tablename FROM pg_tables WHERE schemaname=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'sqlite': return "SELECT name FROM sqlite_master WHERE type='table' ORDER BY 1;"
-        case 'oracle': return `SELECT table_name FROM all_tables WHERE owner='${schema}' ORDER BY 1;`
+        case 'oracle': return `SELECT table_name FROM all_tables WHERE owner=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'hive':
-        case 'impala': return `SHOW TABLES IN ${schema};`
+        case 'impala': return `SHOW TABLES IN ${sanitizeIdentifier(type, schema!)};`
       }
     case 'describe':
       switch (type) {
-        case 'mysql': return `DESCRIBE \`${schema}\`.\`${table}\`;`
-        case 'postgres': return `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='${schema}' AND table_name='${table}' ORDER BY ordinal_position;`
-        case 'sqlite': return `PRAGMA table_info("${table}");`
-        case 'oracle': return `SELECT column_name, data_type, nullable FROM all_tab_columns WHERE owner='${schema}' AND table_name='${table}' ORDER BY column_id;`
+        case 'mysql': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'postgres': return `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY ordinal_position;`
+        case 'sqlite': return `PRAGMA table_info(${sanitizeIdentifier(type, table!)});`
+        case 'oracle': return `SELECT column_name, data_type, nullable FROM all_tab_columns WHERE owner=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY column_id;`
         case 'hive':
-        case 'impala': return `DESCRIBE ${schema}.${table};`
+        case 'impala': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
       }
   }
 }

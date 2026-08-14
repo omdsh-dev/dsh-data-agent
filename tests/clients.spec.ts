@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   buildClientTemplate,
   buildIntrospectTemplate,
+  classifyStatement,
   metadataQuery,
   parseColumns,
   parseListing,
   parseTableListing,
+  sanitizeIdentifier,
   tableListingSql,
 } from '../src/clients.ts'
 
@@ -229,7 +231,7 @@ describe('metadataQuery', () => {
     expect(metadataQuery('tables', 'postgres', 'public')).toContain("schemaname='public'")
     expect(metadataQuery('tables', 'sqlite')).toContain('sqlite_master')
     expect(metadataQuery('tables', 'oracle', 'SCOTT')).toContain("owner='SCOTT'")
-    expect(metadataQuery('tables', 'hive', 'default')).toBe('SHOW TABLES IN default;')
+    expect(metadataQuery('tables', 'hive', 'default')).toBe('SHOW TABLES IN `default`;')
   })
 
   it('builds the describe query per type', () => {
@@ -237,7 +239,7 @@ describe('metadataQuery', () => {
     expect(metadataQuery('describe', 'postgres', 'public', 'orders')).toContain("table_schema='public'")
     expect(metadataQuery('describe', 'sqlite', undefined, 'orders')).toBe('PRAGMA table_info("orders");')
     expect(metadataQuery('describe', 'oracle', 'SCOTT', 'EMP')).toContain("owner='SCOTT' AND table_name='EMP'")
-    expect(metadataQuery('describe', 'impala', 'analytics', 'orders')).toBe('DESCRIBE analytics.orders;')
+    expect(metadataQuery('describe', 'impala', 'analytics', 'orders')).toBe('DESCRIBE `analytics`.`orders`;')
   })
 })
 
@@ -291,5 +293,72 @@ describe('parseListing — new types', () => {
   it('parses hive and impala batch output', () => {
     expect(parseListing('hive', 'default\nanalytics\n')).toEqual(['default', 'analytics'])
     expect(parseListing('impala', 'default\nanalytics\n')).toEqual(['default', 'analytics'])
+  })
+})
+
+describe('classifyStatement', () => {
+  it('classifies plain read statements', () => {
+    expect(classifyStatement('SELECT * FROM orders', 'mysql')).toBe('read')
+    expect(classifyStatement('  SHOW TABLES;', 'mysql')).toBe('read')
+    expect(classifyStatement('describe users', 'postgres')).toBe('read')
+    expect(classifyStatement('DESC users', 'postgres')).toBe('read')
+    expect(classifyStatement('EXPLAIN SELECT 1', 'mysql')).toBe('read')
+  })
+
+  it('classifies read statements after line and block comments', () => {
+    expect(classifyStatement('-- 注释\n  SELECT 1', 'postgres')).toBe('read')
+    expect(classifyStatement('/* multi\nline */ SELECT 1', 'mysql')).toBe('read')
+    expect(classifyStatement('/* nested /* x */ y */ SELECT 1', 'sqlite')).toBe('read')
+  })
+
+  it('classifies write statements', () => {
+    expect(classifyStatement('DELETE FROM orders', 'mysql')).toBe('write')
+    expect(classifyStatement('DROP TABLE t', 'postgres')).toBe('write')
+    expect(classifyStatement('UPDATE orders SET x=1', 'sqlite')).toBe('write')
+    expect(classifyStatement('INSERT INTO t VALUES (1)', 'mysql')).toBe('write')
+    expect(classifyStatement('ALTER TABLE t ADD c int', 'postgres')).toBe('write')
+  })
+
+  it('classifies a SELECT-leading CTE as read', () => {
+    expect(classifyStatement('WITH recent AS (SELECT * FROM orders) SELECT * FROM recent', 'sqlite')).toBe('read')
+  })
+
+  it('classifies a write-bodied CTE as write', () => {
+    expect(classifyStatement('WITH d AS (SELECT 1) DELETE FROM orders', 'postgres')).toBe('write')
+  })
+
+  it('treats PRAGMA as read only for sqlite', () => {
+    expect(classifyStatement('PRAGMA table_info("orders")', 'sqlite')).toBe('read')
+    expect(classifyStatement('PRAGMA user_version', 'mysql')).toBe('write')
+  })
+
+  it('returns write for empty or token-less input', () => {
+    expect(classifyStatement('', 'mysql')).toBe('write')
+    expect(classifyStatement('   ', 'postgres')).toBe('write')
+    expect(classifyStatement('-- only a comment', 'mysql')).toBe('write')
+  })
+})
+
+describe('sanitizeIdentifier', () => {
+  it('wraps mysql identifiers in backticks', () => {
+    expect(sanitizeIdentifier('mysql', 'orders')).toBe('`orders`')
+  })
+
+  it('wraps hive and impala identifiers in backticks', () => {
+    expect(sanitizeIdentifier('hive', 'default')).toBe('`default`')
+    expect(sanitizeIdentifier('impala', 'analytics')).toBe('`analytics`')
+  })
+
+  it('wraps postgres/oracle/sqlite identifiers in double quotes', () => {
+    expect(sanitizeIdentifier('postgres', 'orders')).toBe('"orders"')
+    expect(sanitizeIdentifier('oracle', 'SCOTT')).toBe('"SCOTT"')
+    expect(sanitizeIdentifier('sqlite', 'orders')).toBe('"orders"')
+  })
+
+  it('allows $ and _ but rejects injection-shaped characters', () => {
+    expect(sanitizeIdentifier('postgres', 'a$b_c')).toBe('"a$b_c"')
+    for (const bad of ['a#b', 'a--b', 'a;b', "a'b", 'a`b', 'a"b', 'a.b', 'a-b', '']) {
+      expect(() => sanitizeIdentifier('mysql', bad)).toThrow()
+    }
   })
 })

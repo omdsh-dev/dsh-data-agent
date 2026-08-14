@@ -67,6 +67,8 @@ export interface SeededConnectionConfig {
   port?: number
   user?: string
   database: string
+  /** Optional per-seed read-only guard. */
+  readonly?: boolean
 }
 
 /** Required plugin configuration (loader schema with deployment defaults). */
@@ -83,6 +85,8 @@ export interface Config {
   queryTimeoutMs: number
   /** In-memory cap on sqlcmd captured output. */
   maxResultChars: number
+  /** Default read-only guard: true rejects write statements in sqlcmd//query. */
+  readonly: boolean
   /** CLI client overrides keyed by database type. */
   clients: ClientsConfig
   /** Config-seeded connections keyed by session id (`'*'` = wildcard default). */
@@ -97,6 +101,7 @@ export const Config = z.object({
   introspectMaxTables: z.number().step(1).min(1).default(DEFAULT_INTROSPECT_MAX_TABLES),
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
+  readonly: z.boolean().default(false),
   clients: clientsSchema,
   connections: z.dict(z.object({
     type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'), z.const('impala')]),
@@ -104,6 +109,7 @@ export const Config = z.object({
     port: z.natural(),
     user: z.string(),
     database: z.string(),
+    readonly: z.boolean(),
   })).default({}),
 })
 
@@ -162,6 +168,7 @@ export function apply(ctx: Context, config: Config): void {
     introspectMaxTables: config.introspectMaxTables,
     queryTimeoutMs: config.queryTimeoutMs,
     maxResultChars: config.maxResultChars,
+    readonly: config.readonly,
     clients: config.clients,
     connections: config.connections,
   }
@@ -181,6 +188,7 @@ export function apply(ctx: Context, config: Config): void {
       ...spec.host !== undefined ? { host: spec.host } : {},
       ...spec.port !== undefined ? { port: spec.port } : {},
       ...spec.user !== undefined ? { user: spec.user } : {},
+      ...spec.readonly !== undefined ? { readonly: spec.readonly } : {},
     }
     store.set(sessionId, connection)
   }

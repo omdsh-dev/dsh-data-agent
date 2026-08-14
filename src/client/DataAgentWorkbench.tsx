@@ -152,6 +152,7 @@ interface StatusResponse {
     port?: number
     user?: string
     database: string
+    readonly?: boolean
     tables?: string[]
   }
 }
@@ -245,6 +246,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   )
   const [user, setUser] = useState(initialSaved?.user ?? '')
   const [password, setPassword] = useState(initialSaved?.password ?? '')
+  const [rememberPassword, setRememberPassword] = useState(initialSaved?.persistPassword === true)
+  const [readonly, setReadonly] = useState(false)
   const [database, setDatabase] = useState(initialSaved?.database ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -317,10 +320,11 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       ...type !== 'sqlite' ? { host, user } : {},
       ...type !== 'sqlite' && port !== '' ? { port: Number(port) } : {},
       ...password !== '' ? { password } : {},
+      ...rememberPassword ? { persistPassword: true } : {},
       savedAt: new Date().toISOString(),
     }
     saveConnection(draft)
-  }, [type, host, port, user, database, password])
+  }, [type, host, port, user, database, password, rememberPassword])
 
   // Mirror the server-side connection on mount; auto-reconnect once when the
   // server store was lost (restart).
@@ -340,6 +344,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             setPort(body.summary.port !== undefined ? String(body.summary.port) : '')
             setUser(body.summary.user ?? '')
             setDatabase(body.summary.database)
+            setReadonly(body.summary.readonly === true)
           }
           const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
           const schemasBody = await response.json() as SchemasResponse
@@ -381,7 +386,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const connect = async (): Promise<void> => {
     setBusy(true)
     setError(null)
-    const body: Record<string, unknown> = { sessionId, type }
+    const body: Record<string, unknown> = { sessionId, type, readonly }
     if (sqlite) {
       body.database = database
     } else {
@@ -421,6 +426,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       })
       setConnected(false)
       setConfigOpen(false)
+      setReadonly(false)
       setSchemaModalOpen(false)
       setSchemas([])
       setActiveSchema(null)
@@ -606,6 +612,30 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   </label>
                 </div>
               )}
+
+              {!sqlite && (
+                <label className={css.rememberRow}>
+                  <input
+                    type="checkbox"
+                    checked={rememberPassword}
+                    disabled={formDisabled}
+                    onChange={(event) => setRememberPassword(event.target.checked)}
+                  />
+                  <span>{t('form.rememberPassword')}</span>
+                  <span className={css.rememberHint}>{t('form.rememberPassword.hint')}</span>
+                </label>
+              )}
+
+              <label className={css.rememberRow}>
+                <input
+                  type="checkbox"
+                  checked={readonly}
+                  disabled={formDisabled}
+                  onChange={(event) => setReadonly(event.target.checked)}
+                />
+                <span>{t('form.readonly')}</span>
+                <span className={css.rememberHint}>{t('form.readonly.hint')}</span>
+              </label>
 
               <label className={css.field}>
                 <span className={css.label}>{databaseLabel}</span>

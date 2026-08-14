@@ -12,6 +12,21 @@
  * @module @yejiming/dsh-data-agent/clients
  */
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
+/**
+ * Classify a SQL text as a read or write statement by its FIRST effective
+ * token (a conservative read whitelist, not a parser). `with` is read only
+ * when its body's first token is `select`. `pragma` is read-only for SQLite.
+ */
+export declare function classifyStatement(sql: string, type: DatabaseType): 'read' | 'write';
+/**
+ * Validate and quote one schema/table identifier for a safe metadata query.
+ * Identifiers are restricted to `[A-Za-z0-9_$]+` and then wrapped per type:
+ * backticks (mysql/hive/impala) or double quotes (postgres/oracle/sqlite),
+ * with the wrapping quote doubled for any interior occurrence. Rejects any
+ * input that could cross the identifier boundary (`#`, `--`, `;`, `'`, `` ` ``,
+ * `"`, `.`, `-` are all refused).
+ */
+export declare function sanitizeIdentifier(type: DatabaseType, identifier: string): string;
 /** One deployment override for a database type's CLI client. */
 export interface ClientConfig {
     /** Executable name (resolved through PATH) or absolute path. */

@@ -40,6 +40,8 @@ export interface DatabaseConnection {
   database: string
   /** In-memory only; never exposed through {@link DataAgentConnections.get}. */
   password?: string
+  /** Optional per-session read-only guard (defaults to the plugin's `readonly`). */
+  readonly?: boolean
   tables?: string[]
 }
 
@@ -50,6 +52,8 @@ export interface ConnectionSummary {
   port?: number
   user?: string
   database: string
+  /** Present only when the connection explicitly set it. */
+  readonly?: boolean
   tables?: string[]
 }
 
@@ -76,6 +80,7 @@ export function summarize(connection: DatabaseConnection): ConnectionSummary {
   if (connection.host !== undefined) summary.host = connection.host
   if (connection.port !== undefined) summary.port = connection.port
   if (connection.user !== undefined) summary.user = connection.user
+  if (connection.readonly !== undefined) summary.readonly = connection.readonly
   if (connection.tables !== undefined) summary.tables = [...connection.tables]
   return summary
 }
