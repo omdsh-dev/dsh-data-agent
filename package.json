@@ -1,11 +1,17 @@
 {
   "name": "@deepseek-ai/dsh-data-agent",
   "description": "Data Agent for the dsh web GUI: session-scoped database connections (MySQL/PostgreSQL/SQLite), the sqlcmd tool, the data-agent agent preset, and the database conversation-view tab",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0-rc.6",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omdsh-dev/dsh-data-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/omdsh-dev/dsh-data-agent/issues"
+  },
   "exports": {
     ".": {
       "types": "./lib/types/index.d.ts",
