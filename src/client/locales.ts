@@ -6,6 +6,8 @@ export const NS = 'data-agent'
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'form.title': '数据库连接',
+  'form.hero.title': '连接数据库',
+  'form.hero.hint': '连接 MySQL / PostgreSQL / SQLite 等，开始与数据 Agent 对话',
   'form.type': '数据库类型',
   'type.mysql': 'MySQL',
   'type.postgres': 'PostgreSQL',
@@ -49,7 +51,6 @@ export const zh = {
   'action.config': '连接配置',
   'action.browse': '库表',
   'action.close': '关闭',
-  'action.collapse': '收起',
   'error.title': '操作失败',
 } satisfies Record<string, string>
 
@@ -59,6 +60,8 @@ export type DataAgentKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
   'form.title': 'Database connection',
+  'form.hero.title': 'Connect database',
+  'form.hero.hint': 'Connect MySQL / PostgreSQL / SQLite and start chatting with the data agent',
   'form.type': 'Database type',
   'type.mysql': 'MySQL',
   'type.postgres': 'PostgreSQL',
@@ -102,6 +105,5 @@ export const en = {
   'action.config': 'Connection settings',
   'action.browse': 'Tables',
   'action.close': 'Close',
-  'action.collapse': 'Collapse',
   'error.title': 'Operation failed',
 } satisfies Record<DataAgentKey, string>

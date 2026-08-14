@@ -4,6 +4,8 @@ export declare const NS = "data-agent";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
     'form.title': string;
+    'form.hero.title': string;
+    'form.hero.hint': string;
     'form.type': string;
     'type.mysql': string;
     'type.postgres': string;
@@ -47,7 +49,6 @@ export declare const zh: {
     'action.config': string;
     'action.browse': string;
     'action.close': string;
-    'action.collapse': string;
     'error.title': string;
 };
 /** The data-agent namespace key union. */
@@ -55,6 +56,8 @@ export type DataAgentKey = keyof typeof zh;
 /** English dictionary, checked complete against the zh key set. */
 export declare const en: {
     'form.title': string;
+    'form.hero.title': string;
+    'form.hero.hint': string;
     'form.type': string;
     'type.mysql': string;
     'type.postgres': string;
@@ -98,6 +101,5 @@ export declare const en: {
     'action.config': string;
     'action.browse': string;
     'action.close': string;
-    'action.collapse': string;
     'error.title': string;
 };

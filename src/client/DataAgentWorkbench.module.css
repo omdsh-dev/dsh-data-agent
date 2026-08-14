@@ -306,6 +306,69 @@ select.input {
   gap: 6px;
 }
 
+/* ── disconnected hero connect entry ────────────────────────────────────── */
+
+.heroConnect {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.heroConnect:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
+  border-color: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.5));
+}
+
+.heroConnect:focus-visible {
+  outline: none;
+  border-color: var(--dsw-alias-button-info-fill, #3b82f6);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 18%, transparent);
+}
+
+.heroIcon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--dsw-alias-button-info-fill, #3b82f6);
+}
+
+.heroText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.heroTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.heroHint {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
+}
+
+.heroChevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
+}
+
 /* ── schema explorer entry row ─────────────────────────────────────────── */
 
 .browseRow {
@@ -449,6 +512,18 @@ select.input {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ── connection config Modal ───────────────────────────────────────────── */
+
+.connectModal {
+  width: min(440px, 92vw);
+}
+
+.connectModalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
 /* ── schema explorer Modal ─────────────────────────────────────────────── */

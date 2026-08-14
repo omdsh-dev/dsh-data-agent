@@ -253,8 +253,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
 
-  // Connection form collapsed into a summary row once connected.
-  const [configOpen, setConfigOpen] = useState(false)
+  // Connection config Modal (form lives here now, not inline in the strip/rail).
+  const [connectModalOpen, setConnectModalOpen] = useState(false)
   // Mount-time auto-reconnect in flight (from the saved connection).
   const [restoring, setRestoring] = useState(false)
   // Schema explorer Modal.
@@ -360,7 +360,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             if (cancelled) return
             if (result.ok) {
               setConnected(true)
-              setConfigOpen(false)
+              setConnectModalOpen(false)
               const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
               const schemasBody = await response.json() as SchemasResponse
               if (!cancelled && schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
@@ -400,8 +400,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       const result = await performConnect(sessionId, body)
       if (result.ok) {
         setConnected(true)
-        // Collapse the form into the summary row. 密码保留在输入框（草稿已持久化）。
-        setConfigOpen(false)
+        // Close the config Modal after a successful connect.
+        setConnectModalOpen(false)
         const schemasResponse = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
         const schemasBody = await schemasResponse.json() as SchemasResponse
         if (schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
@@ -425,7 +425,6 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         body: JSON.stringify({ sessionId }),
       })
       setConnected(false)
-      setConfigOpen(false)
       setReadonly(false)
       setSchemaModalOpen(false)
       setSchemas([])
@@ -540,8 +539,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       style={railStyle}
     >
       <div className={css.sections}>
-        {connected && !configOpen ? (
-          // ── connected summary row (form collapsed) ──────────────────────
+        {connected ? (
+          // ── connected summary row (config lives in a Modal now) ─────────
           <section className={css.card}>
             <div className={css.summaryRow}>
               <StateDot state="done" size={8} className={css.dot} />
@@ -549,7 +548,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
               <span className={css.summaryType}>{t(`type.${type}`)}</span>
               <span className={css.summaryDb} title={database}>{database}</span>
               <span className={css.summaryActions}>
-                <button type="button" className={`${css.ghost} ${css.small}`} onClick={() => setConfigOpen(true)}>
+                <button type="button" className={`${css.ghost} ${css.small}`} onClick={() => setConnectModalOpen(true)}>
                   {t('action.config')}
                 </button>
                 <button type="button" className={`${css.ghost} ${css.small}`} disabled={busy} onClick={() => { void disconnect() }}>
@@ -559,12 +558,172 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             </div>
           </section>
         ) : (
-          // ── connection form (editable when disconnected, readonly when expanded) ──
+          // ── disconnected hero: a single connect entry, no inline form ────
           <section className={css.card}>
-            <div className={css.cardTitle}>
-              <DatabaseIcon className={css.titleIcon} />
-              <span>{t('form.title')}</span>
+            <button type="button" className={css.heroConnect} onClick={() => setConnectModalOpen(true)}>
+              <DatabaseIcon className={css.heroIcon} />
+              <span className={css.heroText}>
+                <span className={css.heroTitle}>{t('form.hero.title')}</span>
+                <span className={css.heroHint}>{t('form.hero.hint')}</span>
+              </span>
+              <ChevronIcon className={css.heroChevron} />
+            </button>
+          </section>
+        )}
+
+        {connected && (
+          // ── schema explorer entry ───────────────────────────────────────
+          <section className={css.card}>
+            <button type="button" className={css.browseRow} onClick={() => setSchemaModalOpen(true)}>
+              <TableIcon className={css.browseIcon} />
+              <span>{t('action.browse')}</span>
+              <ChevronIcon className={css.browseChevron} />
+            </button>
+          </section>
+        )}
+
+        {connected && (
+        <section className={css.card}>
+          <div className={css.cardTitle}>
+            <TerminalIcon className={css.titleIcon} />
+            <span>{t('wb.sql')}</span>
+          </div>
+          <textarea
+            className={css.sqlInput}
+            value={sql}
+            rows={8}
+            spellCheck={false}
+            placeholder={t('wb.sql.placeholder')}
+            onChange={(event) => setSql(event.target.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void runSql()
+              }
+            }}
+          />
+          <div className={css.sqlActions}>
+            <span className={css.shortcutHint}>{t('wb.sql.shortcut')}</span>
+            <button
+              type="button"
+              className={css.primary}
+              disabled={sqlBusy || !connected || sql.trim() === ''}
+              onClick={() => { void runSql() }}
+            >
+              <PlayIcon />
+              {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
+            </button>
+          </div>
+          <pre className={css.sqlResult}>{sqlResult ?? t('wb.sql.empty')}</pre>
+        </section>
+        )}
+      </div>
+
+      {error !== null && !connectModalOpen && (
+        <div className={css.errorBar}>
+          <div className={css.errorHead}>
+            <AlertIcon className={css.errorIcon} />
+            <span>{t('error.title')}</span>
+          </div>
+          <span className={css.errorText}>{error}</span>
+        </div>
+      )}
+
+      {schemaModalOpen && (
+        <Modal
+          open={schemaModalOpen}
+          onClose={() => setSchemaModalOpen(false)}
+          title={t('wb.modal.title')}
+          closeLabel={t('action.close')}
+          className={css.schemaModal}
+        >
+          <div className={css.modalBody}>
+            <div className={css.modalCol}>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.schemas')}</span>
+                {schemas.length > 0 && <span className={css.colCount}>{schemas.length}</span>}
+              </div>
+              <div className={css.treeScroll}>
+                {schemas.length === 0 && <div className={css.hint}>{t('wb.loading')}</div>}
+                <ul className={css.tree}>
+                  {schemas.map(schema => (
+                    <li key={schema} className={css.treeNode}>
+                      <button
+                        type="button"
+                        className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
+                        onClick={() => { void toggleSchema(schema) }}
+                      >
+                        <ChevronIcon className={`${css.treeChevron}${activeSchema === schema ? ` ${css.open}` : ''}`} />
+                        <FolderIcon className={css.treeIcon} />
+                        <span className={css.treeName}>{schema}</span>
+                        {activeSchema === schema && tables.length > 0 && (
+                          <span className={css.treeCount}>{tables.length}</span>
+                        )}
+                      </button>
+                      {activeSchema === schema && (
+                        <div className={css.treeChildren}>
+                          {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
+                          {tables.map(table => (
+                            <button
+                              key={table}
+                              type="button"
+                              className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
+                              onClick={() => { void selectTable(table) }}
+                            >
+                              <TableIcon className={css.treeIcon} />
+                              <span className={css.treeName}>{table}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className={css.modalHint}>{t('wb.hint.click')}</div>
             </div>
+
+            <div className={css.modalCol}>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.columns')}{activeTable !== null && ` · ${activeTable}`}</span>
+              </div>
+              {columns === null ? (
+                <div className={css.emptyState}>
+                  <TableIcon className={css.emptyStateIcon} />
+                  <span className={css.emptyStateText}>{t('wb.hint.click')}</span>
+                </div>
+              ) : (
+                <div className={css.colScroll}>
+                  <table className={css.columnsTable}>
+                    <thead>
+                      <tr><th>name</th><th>type</th><th>null</th></tr>
+                    </thead>
+                    <tbody>
+                      {columns.map(column => (
+                        <tr key={column.name}>
+                          <td>{column.name}</td>
+                          <td className={css.typeCell}>{column.type}</td>
+                          <td className={css.nullCell}>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {connectModalOpen && (
+        <Modal
+          open={connectModalOpen}
+          onClose={() => setConnectModalOpen(false)}
+          title={t('form.title')}
+          closeLabel={t('action.close')}
+          className={css.connectModal}
+        >
+          <div className={css.connectModalBody}>
             <div className={css.fieldGrid}>
               <label className={css.field}>
                 <span className={css.label}>{t('form.type')}</span>
@@ -661,157 +820,21 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   {restoring ? t('state.reconnecting') : busy ? t('state.checking') : t('action.connect')}
                 </button>
               ) : (
-                <>
-                  <button type="button" className={css.ghost} onClick={() => setConfigOpen(false)}>
-                    {t('action.collapse')}
-                  </button>
-                  <button type="button" className={css.ghost} disabled={busy} onClick={() => { void disconnect() }}>
-                    {t('action.disconnect')}
-                  </button>
-                </>
+                <button type="button" className={css.ghost} disabled={busy} onClick={() => { void disconnect() }}>
+                  {t('action.disconnect')}
+                </button>
               )}
             </div>
-          </section>
-        )}
 
-        {connected && (
-          // ── schema explorer entry ───────────────────────────────────────
-          <section className={css.card}>
-            <button type="button" className={css.browseRow} onClick={() => setSchemaModalOpen(true)}>
-              <TableIcon className={css.browseIcon} />
-              <span>{t('action.browse')}</span>
-              <ChevronIcon className={css.browseChevron} />
-            </button>
-          </section>
-        )}
-
-        <section className={css.card}>
-          <div className={css.cardTitle}>
-            <TerminalIcon className={css.titleIcon} />
-            <span>{t('wb.sql')}</span>
-          </div>
-          <textarea
-            className={css.sqlInput}
-            value={sql}
-            rows={8}
-            spellCheck={false}
-            placeholder={t('wb.sql.placeholder')}
-            onChange={(event) => setSql(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault()
-                void runSql()
-              }
-            }}
-          />
-          <div className={css.sqlActions}>
-            <span className={css.shortcutHint}>{t('wb.sql.shortcut')}</span>
-            <button
-              type="button"
-              className={css.primary}
-              disabled={sqlBusy || !connected || sql.trim() === ''}
-              onClick={() => { void runSql() }}
-            >
-              <PlayIcon />
-              {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
-            </button>
-          </div>
-          <pre className={css.sqlResult}>{sqlResult ?? t('wb.sql.empty')}</pre>
-        </section>
-      </div>
-
-      {error !== null && (
-        <div className={css.errorBar}>
-          <div className={css.errorHead}>
-            <AlertIcon className={css.errorIcon} />
-            <span>{t('error.title')}</span>
-          </div>
-          <span className={css.errorText}>{error}</span>
-        </div>
-      )}
-
-      {schemaModalOpen && (
-        <Modal
-          open={schemaModalOpen}
-          onClose={() => setSchemaModalOpen(false)}
-          title={t('wb.modal.title')}
-          closeLabel={t('action.close')}
-          className={css.schemaModal}
-        >
-          <div className={css.modalBody}>
-            <div className={css.modalCol}>
-              <div className={css.modalColTitle}>
-                <span>{t('wb.schemas')}</span>
-                {schemas.length > 0 && <span className={css.colCount}>{schemas.length}</span>}
-              </div>
-              <div className={css.treeScroll}>
-                {schemas.length === 0 && <div className={css.hint}>{t('wb.loading')}</div>}
-                <ul className={css.tree}>
-                  {schemas.map(schema => (
-                    <li key={schema} className={css.treeNode}>
-                      <button
-                        type="button"
-                        className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
-                        onClick={() => { void toggleSchema(schema) }}
-                      >
-                        <ChevronIcon className={`${css.treeChevron}${activeSchema === schema ? ` ${css.open}` : ''}`} />
-                        <FolderIcon className={css.treeIcon} />
-                        <span className={css.treeName}>{schema}</span>
-                        {activeSchema === schema && tables.length > 0 && (
-                          <span className={css.treeCount}>{tables.length}</span>
-                        )}
-                      </button>
-                      {activeSchema === schema && (
-                        <div className={css.treeChildren}>
-                          {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
-                          {tables.map(table => (
-                            <button
-                              key={table}
-                              type="button"
-                              className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
-                              onClick={() => { void selectTable(table) }}
-                            >
-                              <TableIcon className={css.treeIcon} />
-                              <span className={css.treeName}>{table}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className={css.modalHint}>{t('wb.hint.click')}</div>
-            </div>
-
-            <div className={css.modalCol}>
-              <div className={css.modalColTitle}>
-                <span>{t('wb.columns')}{activeTable !== null && ` · ${activeTable}`}</span>
-              </div>
-              {columns === null ? (
-                <div className={css.emptyState}>
-                  <TableIcon className={css.emptyStateIcon} />
-                  <span className={css.emptyStateText}>{t('wb.hint.click')}</span>
+            {error !== null && (
+              <div className={css.errorBar}>
+                <div className={css.errorHead}>
+                  <AlertIcon className={css.errorIcon} />
+                  <span>{t('error.title')}</span>
                 </div>
-              ) : (
-                <div className={css.colScroll}>
-                  <table className={css.columnsTable}>
-                    <thead>
-                      <tr><th>name</th><th>type</th><th>null</th></tr>
-                    </thead>
-                    <tbody>
-                      {columns.map(column => (
-                        <tr key={column.name}>
-                          <td>{column.name}</td>
-                          <td className={css.typeCell}>{column.type}</td>
-                          <td className={css.nullCell}>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+                <span className={css.errorText}>{error}</span>
+              </div>
+            )}
           </div>
         </Modal>
       )}
