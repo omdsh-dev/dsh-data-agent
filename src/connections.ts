@@ -17,7 +17,7 @@
  * every session without its own entry (a deployment seeding a default
  * database, or a headless/keyless run). Config-seeded entries cannot carry
  * passwords, so the wildcard is always password-free.
- * @module @deepseek-ai/dsh-data-agent/connections
+ * @module @yejiming/dsh-data-agent/connections
  */
 
 /** Key of the wildcard (default) connection applied to any session without its own. */

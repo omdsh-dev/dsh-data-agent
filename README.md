@@ -34,10 +34,13 @@
 与本地目录安装都直接使用产物，**无需在安装时构建**。
 
 ```sh
-# 从 git 安装（推荐；首次使用会初始化该 profile）
+# 从 npm 安装（推荐；已发布，首次使用会初始化该 profile）
+dsh plugin --profile demo add @yejiming/dsh-data-agent
+
+# 或从 git 安装（仓库已提交构建产物 lib/，无需构建）
 dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
 
-# 或从本地源码目录安装（lib/ 已提交，同样无需构建）
+# 或从本地源码目录安装（同样无需构建）
 dsh plugin --profile demo add .
 ```
 
@@ -63,7 +66,7 @@ dsh --profile demo
 ```text
 浏览器 (apps/web)                         宿主进程 (dsh --profile demo)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
-│ 数据库工作台 (input.dock)    │  fetch   │ @deepseek-ai/dsh-data-agent (宿主行)   │
+│ 数据库工作台 (input.dock)    │  fetch   │ @yejiming/dsh-data-agent (宿主行)   │
 │  · 连接配置 (6 类型)         │ ───────▶ │  · /plugins/data-agent/* 路由          │
 │  · 库表浏览 + SQL 命令框     │          │  · 连接存储服务 dataAgentConnections   │
 │  · hero 堆叠 / active 左栏   │          │  · 预设自安装 → $DSH_HOME/.agent-presets│
@@ -111,7 +114,7 @@ dsh --profile demo
 ```yaml
 # cordis.patch.yml 或 profile 层覆盖示例
 - id: data-agent
-  name: '@deepseek-ai/dsh-data-agent'
+  name: '@yejiming/dsh-data-agent'
   config:
     clients:
       mysql:
@@ -158,7 +161,7 @@ schema/table 标识符仅允许 `[A-Za-z0-9_$#.-]`（服务端白名单校验，
 ## 卸载与回滚
 
 ```sh
-dsh plugin --profile demo remove @deepseek-ai/dsh-data-agent   # 移除依赖与对应层
+dsh plugin --profile demo remove @yejiming/dsh-data-agent   # 移除依赖与对应层
 rm -rf $DSH_HOME/.agent-presets/data-agent                      # 手动删除自安装的预设
 ```
 

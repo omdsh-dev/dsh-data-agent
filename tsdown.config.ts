@@ -15,7 +15,7 @@ import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
 
 /** Plugin id (package name), stamped into the __ModuleLoader__.load handoff. */
-const PLUGIN_ID = '@deepseek-ai/dsh-data-agent'
+const PLUGIN_ID = '@yejiming/dsh-data-agent'
 
 /** Shared browser platform modules the shell seeds into the frozen module table. */
 const PLATFORM_MODULES = [

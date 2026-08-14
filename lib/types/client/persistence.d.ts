@@ -7,7 +7,7 @@
  * Security note: the password is persisted in PLAIN TEXT by explicit user
  * decision (local single-user scenario) — see README 安全说明. The storage
  * key is versioned so a future shape change can migrate or ignore old data.
- * @module @deepseek-ai/dsh-data-agent/persistence
+ * @module @yejiming/dsh-data-agent/persistence
  */
 import type { DatabaseType } from './DataAgentWorkbench.tsx';
 /** localStorage key holding the most recent connection configuration. */

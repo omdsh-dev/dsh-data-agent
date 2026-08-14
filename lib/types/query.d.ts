@@ -5,7 +5,7 @@
  * SQL on stdin, credentials in env entries — with a caller-owned timeout
  * (AbortController → process-tree terminate escalation) and bounded captured
  * output.
- * @module @deepseek-ai/dsh-data-agent/query
+ * @module @yejiming/dsh-data-agent/query
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { DatabaseConnection, DatabaseType } from './connections.ts';

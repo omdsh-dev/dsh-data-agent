@@ -1,5 +1,5 @@
 /**
- * Data Agent routes half (`@deepseek-ai/dsh-data-agent/routes`): the
+ * Data Agent routes half (`@yejiming/dsh-data-agent/routes`): the
  * `/plugins/data-agent` HTTP surface. A separate row from the main `data-agent`
  * row so the plugin keeps working in headless profiles (no webserver): the
  * connection store, preset self-install, and config-seeded connections all
@@ -18,7 +18,7 @@
  * - `GET  /plugins/data-agent/describe`   — column structure of one table.
  * - `POST /plugins/data-agent/query`      — run one SQL text (the workbench
  *   command box; non-agent channel, same trust as sqlcmd).
- * @module @deepseek-ai/dsh-data-agent/routes
+ * @module @yejiming/dsh-data-agent/routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';

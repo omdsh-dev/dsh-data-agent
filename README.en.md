@@ -31,10 +31,13 @@ The repository ships its prebuilt output in `lib/` and declares no
 use the committed artifacts — **no build step at install time**.
 
 ```sh
-# Install from git (recommended; initializes the profile on first use)
+# Install from npm (recommended; published, initializes the profile on first use)
+dsh plugin --profile demo add @yejiming/dsh-data-agent
+
+# Or install from git (the repository ships its prebuilt lib/, no build needed)
 dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
 
-# Or install from the local source directory (lib/ is committed, no build needed)
+# Or install from the local source directory (no build needed either)
 dsh plugin --profile demo add .
 ```
 
@@ -60,7 +63,7 @@ In the Web GUI: create a session → choose the "Data Agent" preset → the data
 ```text
 Browser (apps/web)                        Host process (dsh --profile demo)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
-│ Database workbench (input.dock) │ fetch │ @deepseek-ai/dsh-data-agent (host row)│
+│ Database workbench (input.dock) │ fetch │ @yejiming/dsh-data-agent (host row)│
 │  · connection config (6 types) │ ─────▶ │  · /plugins/data-agent/* routes       │
 │  · schema explorer + SQL box   │        │  · dataAgentConnections store         │
 │  · hero stacked / active rail  │        │  · preset self-install → $DSH_HOME/   │
@@ -108,7 +111,7 @@ The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspect
 ```yaml
 # Example override in cordis.patch.yml or a profile layer
 - id: data-agent
-  name: '@deepseek-ai/dsh-data-agent'
+  name: '@yejiming/dsh-data-agent'
   config:
     clients:
       mysql:
@@ -156,7 +159,7 @@ Schema/table identifiers allow only `[A-Za-z0-9_$#.-]` (server-side whitelist; i
 ## Uninstall & Rollback
 
 ```sh
-dsh plugin --profile demo remove @deepseek-ai/dsh-data-agent   # removes the dependency and its layer
+dsh plugin --profile demo remove @yejiming/dsh-data-agent   # removes the dependency and its layer
 rm -rf $DSH_HOME/.agent-presets/data-agent                      # manually delete the self-installed preset
 ```
 

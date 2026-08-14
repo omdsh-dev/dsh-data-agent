@@ -7,11 +7,11 @@
  * directory).
  *
  * The HTTP routes live in the separate `./routes` entry
- * (`@deepseek-ai/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
+ * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
  * this row keeps working in headless profiles without a webserver; the sqlcmd
  * tool itself lives in the `./tool` entry and is mounted only by the
  * data-agent preset.
- * @module @deepseek-ai/dsh-data-agent
+ * @module @yejiming/dsh-data-agent
  */
 
 import { access, cp, mkdir } from 'node:fs/promises'

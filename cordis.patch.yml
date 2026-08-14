@@ -7,10 +7,10 @@
 # (lib/client.js) ships in the same package and loads under the data-agent id
 # through the `dsh.client` declaration in package.json; the tool half
 # (lib/tool.js) is mounted only by the `data-agent` agent preset as the
-# `@deepseek-ai/dsh-data-agent/tool` row, so no further rows belong here
+# `@yejiming/dsh-data-agent/tool` row, so no further rows belong here
 # (duplicate ids fail the load).
 - insert:
     - id: data-agent
-      name: '@deepseek-ai/dsh-data-agent'
+      name: '@yejiming/dsh-data-agent'
     - id: data-agent-routes
-      name: '@deepseek-ai/dsh-data-agent/routes'
+      name: '@yejiming/dsh-data-agent/routes'

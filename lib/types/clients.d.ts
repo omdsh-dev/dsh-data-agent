@@ -9,7 +9,7 @@
  *
  * Metadata (schemas / tables / describe) queries and their per-type output
  * parsers live here too, so the /schemas /tables /describe routes stay thin.
- * @module @deepseek-ai/dsh-data-agent/clients
+ * @module @yejiming/dsh-data-agent/clients
  */
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
 /** One deployment override for a database type's CLI client. */

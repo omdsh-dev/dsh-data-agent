@@ -42,4 +42,4 @@
 # This package's sqlcmd tool half; injects the host's subprocess service and
 # the dataAgentConnections connection store (see the data-agent host row).
 - id: tool-sqlcmd
-  name: '@deepseek-ai/dsh-data-agent/tool'
+  name: '@yejiming/dsh-data-agent/tool'

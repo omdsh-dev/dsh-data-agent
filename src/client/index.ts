@@ -6,7 +6,7 @@
  * Connection state lives in the server-side connection store, so layout and
  * session switches never lose it — the view only mirrors what
  * `/plugins/data-agent/status` reports.
- * @module @deepseek-ai/dsh-data-agent/client
+ * @module @yejiming/dsh-data-agent/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) into this program.
