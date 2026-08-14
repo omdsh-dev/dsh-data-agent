@@ -16,7 +16,7 @@ With this preset, you can configure a database connection right in the conversat
 
   ![Database connection](assets/connection.png)
 
-- **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its table list, up to 5 rows visible with a built-in scrollbar, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
+- **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its scrollable table list, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
 - **sqlcmd tool**: runs SQL/commands through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated.
 - **Data Agent preset**: choose "Data Agent" when creating a session — the tool surface is exactly `sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Agent sessions render no workbench at all.
 
@@ -56,7 +56,7 @@ Start the Web GUI:
 dsh --profile demo
 ```
 
-In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (double… single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
+In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
 
 > Database client binaries: sqlite3 usually ships with macOS/Linux; mysql / psql / sqlplus / beeline / impala-shell must be provided by the deployment and can be overridden per type via the `clients` config (missing clients are named in the connect error).
 
@@ -89,7 +89,7 @@ One npm package, three loadable faces, two host rows:
 | Tool half | `lib/tool.js` (exports subpath `./tool`) | Only mounted by the data-agent preset (`tool-sqlcmd` row) |
 | Browser half | `lib/client.js` (`dsh.client` declaration) | Browser: the database workbench in the input dock (`conversation.input.dock`) |
 
-The tool half only consumes host services (`subprocess`, `dataAgentConnections`) and provides none, so the preset guard needs no `isolate` realm.
+The tool half only consumes host services (`tools`, `subprocess`, `dataAgentConnections`) and provides none, so the preset guard needs no `isolate` realm.
 
 ## Configuration
 

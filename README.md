@@ -19,7 +19,7 @@
 - **数据库连接管理**：按会话连接 MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala（SQLite 走文件路径，Oracle 填服务名/SID，Hive/Impala 填默认库），连接状态驻留服务端内存，布局切换不丢；密码仅内存、经环境变量或 stdin 连接前缀传给客户端，绝不落盘。
 
   ![数据库连接](assets/connection.png)
-- **数据库工作台**（内嵌于会话输入框上方）：连接配置卡（连接成功后折叠为摘要行，可展开查看）；库表浏览（点击「库表」按钮弹出 Modal：单击库展开表列表，表列表单页 5 条可滚动，点击表查看结构）；SQL 命令框（编辑并运行 SQL，非 agent 通道，结果等宽展示）。连接配置持久化到浏览器 localStorage，切换页面/重启自动回填并重连。开始对话后工作台自动变为左侧栏，对话记录与输入框在右侧。
+- **数据库工作台**（内嵌于会话输入框上方）：连接配置卡（连接成功后折叠为摘要行，可展开查看）；库表浏览（点击「库表」按钮弹出 Modal：单击库展开表列表（可滚动），点击表查看结构）；SQL 命令框（编辑并运行 SQL，非 agent 通道，结果等宽展示）。连接配置持久化到浏览器 localStorage，切换页面/重启自动回填并重连。开始对话后工作台自动变为左侧栏，对话记录与输入框在右侧。
 
   ![数据库工作台](assets/tables.png)
 - **sqlcmd 工具**：在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行 SQL/命令；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断。
@@ -60,7 +60,7 @@ ls $DSH_HOME/.agent-presets/data-agent/   # 应有 agent.cordis.yml + preset.yml
 dsh --profile demo
 ```
 
-在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（双击库看表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
+在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
 
 > 数据库客户端二进制要求：sqlite3 一般系统自带（macOS/Linux）；mysql / psql / sqlplus / beeline / impala-shell 需部署方安装，且可在插件配置 `clients` 中覆盖命令名或绝对路径（缺失时连接报错会点名缺失的命令）。
 
@@ -93,7 +93,7 @@ dsh --profile demo
 | 工具半体 | `lib/tool.js`（exports 子路径 `./tool`） | 仅 data-agent 预设装载（`tool-sqlcmd` 行） |
 | 浏览器半体 | `lib/client.js`（package.json `dsh.client` 声明） | 浏览器：输入条带内嵌数据库工作台（`conversation.input.dock`） |
 
-工具半体只消费宿主服务（`subprocess`、`dataAgentConnections`），不提供服务，因此预设守卫无需 `isolate` realm。
+工具半体只消费宿主服务（`tools`、`subprocess`、`dataAgentConnections`），不提供服务，因此预设守卫无需 `isolate` realm。
 
 ## 配置
 
