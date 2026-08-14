@@ -26,12 +26,15 @@ With this preset, you can configure a database connection right in the conversat
 
 ## Quick Install
 
-```sh
-# Inside the plugin directory (build output goes to lib/)
-pnpm install  # or prepare node_modules as described in "Development"
-pnpm build
+The repository ships its prebuilt output in `lib/` and declares no
+`prepare`/`prepack` scripts, so git, tarball, and local-directory installs all
+use the committed artifacts — **no build step at install time**.
 
-# Install into a profile (initializes the profile on first use)
+```sh
+# Install from git (recommended; initializes the profile on first use)
+dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
+
+# Or install from the local source directory (lib/ is committed, no build needed)
 dsh plugin --profile demo add .
 ```
 
@@ -164,11 +167,19 @@ Connections are in-memory; there is no persisted data to clean up.
 Build and test:
 
 ```sh
-pnpm build   # tsdown (lib/index.js, lib/tool.js, lib/invariant.js, lib/client.js) + tsc declarations
+pnpm build   # cleans and rebuilds lib/ (tsdown: lib/index.js, lib/routes.js, lib/tool.js, lib/invariant.js, lib/client.js) + tsc declarations
 pnpm test    # vitest: connection store / CLI templates / sqlcmd execution (mocked subprocess)
 ```
 
-`node_modules` is prepared the same way as dsh-gomoku: `@deepseek-ai/*`, `cordis`, `schemastery`, and the build tools (typescript / tsdown / lightningcss / vitest) are symlinked from the local DSH checkout (`~/.dsh/source/current/...`); `pnpm-workspace.yaml` disables `verifyDepsBeforeRun` so pnpm does not try to fetch the unpublished `@deepseek-ai/*` packages from the registry.
+`lib/` is committed, so installing and debugging (including `dsh plugin add .`)
+never requires a build and no longer depends on how `node_modules` was prepared.
+You only need dependencies when rebuilding the artifacts: `@deepseek-ai/*`,
+`cordis`, `schemastery`, etc. are unpublished on npm and cannot be fetched with
+`pnpm install` — copy or link them from a local DSH checkout
+(`~/.dsh/source/current/...`) into this repository's `node_modules` (build tools
+typescript / tsdown / lightningcss / vitest come from the same checkout);
+`pnpm-workspace.yaml` disables `verifyDepsBeforeRun` so pnpm does not try to
+fetch the unpublished `@deepseek-ai/*` packages from the registry.
 
 ## License
 

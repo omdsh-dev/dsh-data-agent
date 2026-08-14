@@ -30,12 +30,14 @@
 
 ## 快速安装
 
-```sh
-# 在插件目录内执行（构建产物为 lib/）
-pnpm install 或按下方「本地开发」准备 node_modules
-pnpm build
+仓库已提交构建产物 `lib/`（且不设 `prepare`/`prepack` 脚本），因此 git、tarball
+与本地目录安装都直接使用产物，**无需在安装时构建**。
 
-# 安装进 profile（首次使用会初始化该 profile）
+```sh
+# 从 git 安装（推荐；首次使用会初始化该 profile）
+dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
+
+# 或从本地源码目录安装（lib/ 已提交，同样无需构建）
 dsh plugin --profile demo add .
 ```
 
@@ -167,11 +169,16 @@ rm -rf $DSH_HOME/.agent-presets/data-agent                      # 手动删除�
 构建与测试：
 
 ```sh
-pnpm build   # tsdown（lib/index.js、lib/tool.js、lib/invariant.js、lib/client.js）+ tsc 声明
+pnpm build   # 清空并重建 lib/（tsdown：lib/index.js、lib/routes.js、lib/tool.js、lib/invariant.js、lib/client.js）+ tsc 声明
 pnpm test    # vitest：连接存储 / CLI 模板 / sqlcmd 执行（mock subprocess）
 ```
 
-node_modules 按 dsh-gomoku 同款方式准备：`@deepseek-ai/*`、`cordis`、`schemastery` 等以符号链接指向本地 DSH checkout（`~/.dsh/source/current/...`），构建工具（typescript / tsdown / lightningcss / vitest）亦来自该 checkout；`pnpm-workspace.yaml` 关闭 `verifyDepsBeforeRun` 以避免 pnpm 尝试从 registry 安装未发布的 `@deepseek-ai/*` 包。
+`lib/` 已提交进仓库，安装与调试（含 `dsh plugin add .`）都不需要先构建，也
+不再依赖 node_modules 的准备方式。仅在重新构建产物时需要依赖：`@deepseek-ai/*`、
+`cordis`、`schemastery` 等未发布到 npm，无法用 `pnpm install` 拉取，需从本地
+DSH checkout（`~/.dsh/source/current/...`）复制或链接到本仓库 node_modules
+（构建工具 typescript / tsdown / lightningcss / vitest 同源）；`pnpm-workspace.yaml`
+关闭 `verifyDepsBeforeRun` 以避免 pnpm 尝试从 registry 安装未发布的 `@deepseek-ai/*` 包。
 
 ## 许可
 

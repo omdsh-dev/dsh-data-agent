@@ -4,7 +4,7 @@
  * row so the plugin keeps working in headless profiles (no webserver): the
  * connection store, preset self-install, and config-seeded connections all
  * live on the main row, and this row simply never activates where
- * `httpServer` is absent.
+ * `webServer` is absent.
  *
  * Routes:
  * - `POST /plugins/data-agent/connect`    — validate and store one session's
@@ -21,14 +21,34 @@
  * @module @deepseek-ai/dsh-data-agent/routes
  */
 
-import type { IncomingMessage } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import type { Context } from 'cordis'
 import z from 'schemastery'
-// Type-only: pulls the ctx.httpServer merge (the webserver host plugin) and
-// the ctx.dataAgentConnections merge (the main data-agent row).
-import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: pulls the ctx.dataAgentConnections merge (the main data-agent
+// row). The webserver service face is declared locally below (instead of
+// importing from @deepseek-ai/dsh-host-webserver) so this row type-checks
+// against any installed dsh-host-webserver generation.
 import type {} from './index.ts'
+
+/**
+ * Minimal face of the host webserver service used by this row.
+ * The service was renamed from `httpServer` to `webServer` in
+ * dsh 0.1.0-rc.6; the nested inject below waits on `webServer`.
+ */
+interface WebServerLike {
+  register(route: {
+    kind: 'exact' | 'prefix'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  }): () => void
+}
+
+declare module 'cordis' {
+  interface Context {
+    webServer: WebServerLike
+  }
+}
 import type {
   ConnectionSummary,
   DataAgentConnections,
@@ -50,7 +70,7 @@ export const name = 'data-agent-routes'
 
 /**
  * No top-level `inject` export: the row must ACTIVATE even in headless
- * profiles where `httpServer` never exists (a permanently pending entry
+ * profiles where `webServer` never exists (a permanently pending entry
  * breaks one-shot runs). The routes register through a nested inject fiber
  * the moment the webserver and the connection store are both available.
  */
@@ -159,7 +179,8 @@ function requireIdentifier(value: string | null, label: string): string {
  * @param config - validated loader configuration.
  */
 export function apply(ctx: Context, config: Config): void {
-  ctx.inject(['httpServer', 'subprocess', 'dataAgentConnections'], (scope) => {
+  // `webServer` since dsh 0.1.0-rc.6 (the service was previously `httpServer`).
+  ctx.inject(['webServer', 'subprocess', 'dataAgentConnections'], (scope) => {
     const store: DataAgentConnections = scope.dataAgentConnections
     const connectOptions = {
       clients: {},
@@ -217,7 +238,7 @@ export function apply(ctx: Context, config: Config): void {
     }
 
     scope.effect(() => {
-      const dispose = scope.httpServer.register({
+      const dispose = scope.webServer.register({
         kind: 'prefix',
         path: DATA_AGENT_PATH,
         handler: async (req, res) => {

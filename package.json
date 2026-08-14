@@ -45,22 +45,14 @@
     }
   },
   "scripts": {
-    "bundle": "tsdown",
+    "bundle": "rm -rf lib && tsdown",
     "watch": "tsdown --watch",
-    "build": "tsdown && tsc -p tsconfig.build.json && tsc -p tsconfig.client.json",
-    "prepare": "pnpm run build",
-    "prepack": "pnpm run build",
+    "build": "rm -rf lib && tsdown && tsc -p tsconfig.build.json && tsc -p tsconfig.client.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "files": [
-    "lib/index.js",
-    "lib/routes.js",
-    "lib/tool.js",
-    "lib/invariant.js",
-    "lib/client.js",
-    "lib/client.js.map",
-    "lib/types/**/*.d.ts",
+    "lib/**",
     "cordis.patch.yml",
     "preset/**"
   ],
