@@ -33,27 +33,27 @@ Two install methods, neither requires a local build (the prebuilt output in
 
 ```sh
 # Install from npm (initializes the profile on first use)
-dsh plugin --profile demo add @yejiming/dsh-data-agent
+dsh plugin --profile web add @yejiming/dsh-data-agent
 ```
 
 ### Method 2: GitHub source
 
 ```sh
 # Install from the GitHub source (lib/ is committed, no build at install time)
-dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
+dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
 ```
 
 Verify the install:
 
 ```sh
-dsh --profile demo --dump-config   # the data-agent layer should appear
+dsh --profile web --dump-config   # the data-agent layer should appear
 ls $DSH_HOME/.agent-presets/data-agent/   # agent.cordis.yml + preset.yml (auto-installed)
 ```
 
 Start the Web GUI:
 
 ```sh
-dsh --profile demo
+dsh --profile web
 ```
 
 In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
@@ -63,7 +63,7 @@ In the Web GUI: create a session → choose the "Data Agent" preset → the data
 ## Architecture
 
 ```text
-Browser (apps/web)                        Host process (dsh --profile demo)
+Browser (apps/web)                        Host process (dsh --profile web)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
 │ Database workbench (input.dock) │ fetch │ @yejiming/dsh-data-agent (host row)│
 │  · connection config (6 types) │ ─────▶ │  · /plugins/data-agent/* routes       │
@@ -161,7 +161,7 @@ Schema/table identifiers allow only `[A-Za-z0-9_$#.-]` (server-side whitelist; i
 ## Uninstall & Rollback
 
 ```sh
-dsh plugin --profile demo remove @yejiming/dsh-data-agent   # removes the dependency and its layer
+dsh plugin --profile web remove @yejiming/dsh-data-agent   # removes the dependency and its layer
 rm -rf $DSH_HOME/.agent-presets/data-agent                      # manually delete the self-installed preset
 ```
 

@@ -37,27 +37,27 @@
 
 ```sh
 # 从 npm 安装（首次使用会初始化该 profile）
-dsh plugin --profile demo add @yejiming/dsh-data-agent
+dsh plugin --profile web add @yejiming/dsh-data-agent
 ```
 
 ### 方式二：GitHub 源码安装
 
 ```sh
 # 从 GitHub 源码安装（仓库已提交构建产物 lib/，安装时无需构建）
-dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
+dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
 ```
 
 安装后验证：
 
 ```sh
-dsh --profile demo --dump-config   # 输出中应出现 data-agent 层
+dsh --profile web --dump-config   # 输出中应出现 data-agent 层
 ls $DSH_HOME/.agent-presets/data-agent/   # 应有 agent.cordis.yml + preset.yml（由插件自动安装）
 ```
 
 启动 Web GUI：
 
 ```sh
-dsh --profile demo
+dsh --profile web
 ```
 
 在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
@@ -67,7 +67,7 @@ dsh --profile demo
 ## 架构
 
 ```text
-浏览器 (apps/web)                         宿主进程 (dsh --profile demo)
+浏览器 (apps/web)                         宿主进程 (dsh --profile web)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
 │ 数据库工作台 (input.dock)    │  fetch   │ @yejiming/dsh-data-agent (宿主行)   │
 │  · 连接配置 (6 类型)         │ ───────▶ │  · /plugins/data-agent/* 路由          │
@@ -164,7 +164,7 @@ schema/table 标识符仅允许 `[A-Za-z0-9_$#.-]`（服务端白名单校验，
 ## 卸载与回滚
 
 ```sh
-dsh plugin --profile demo remove @yejiming/dsh-data-agent   # 移除依赖与对应层
+dsh plugin --profile web remove @yejiming/dsh-data-agent   # 移除依赖与对应层
 rm -rf $DSH_HOME/.agent-presets/data-agent                      # 手动删除自安装的预设
 ```
 
