@@ -26,19 +26,21 @@ With this preset, you can configure a database connection right in the conversat
 
 ## Quick Install
 
-The repository ships its prebuilt output in `lib/` and declares no
-`prepare`/`prepack` scripts, so git, tarball, and local-directory installs all
-use the committed artifacts — **no build step at install time**.
+Two install methods, neither requires a local build (the prebuilt output in
+`lib/` is committed, and no `prepare`/`prepack` scripts are declared).
+
+### Method 1: npm (recommended)
 
 ```sh
-# Install from npm (recommended; published, initializes the profile on first use)
+# Install from npm (initializes the profile on first use)
 dsh plugin --profile demo add @yejiming/dsh-data-agent
+```
 
-# Or install from git (the repository ships its prebuilt lib/, no build needed)
+### Method 2: GitHub source
+
+```sh
+# Install from the GitHub source (lib/ is committed, no build at install time)
 dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
-
-# Or install from the local source directory (no build needed either)
-dsh plugin --profile demo add .
 ```
 
 Verify the install:
@@ -186,3 +188,9 @@ family) and `allowBuilds: esbuild`.
 ## License
 
 MIT
+
+## Friends
+
+- [dshfind.com](https://dshfind.com): Chinese learning & sharing community for DeepSeek Harness — read the papers, write plugins, see the whole ecosystem.
+- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): Plugins & skins collection for the DeepSeek Harness (DSH) Web UI
+- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): Claude Code style fullscreen interactive terminal plugin

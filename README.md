@@ -30,18 +30,21 @@
 
 ## 快速安装
 
-仓库已提交构建产物 `lib/`（且不设 `prepare`/`prepack` 脚本），因此 git、tarball
-与本地目录安装都直接使用产物，**无需在安装时构建**。
+支持两种安装方式，均**无需本地构建**（构建产物 `lib/` 已提交进仓库，且不设
+`prepare`/`prepack` 脚本）。
+
+### 方式一：npm 安装（推荐）
 
 ```sh
-# 从 npm 安装（推荐；已发布，首次使用会初始化该 profile）
+# 从 npm 安装（首次使用会初始化该 profile）
 dsh plugin --profile demo add @yejiming/dsh-data-agent
+```
 
-# 或从 git 安装（仓库已提交构建产物 lib/，无需构建）
+### 方式二：GitHub 源码安装
+
+```sh
+# 从 GitHub 源码安装（仓库已提交构建产物 lib/，安装时无需构建）
 dsh plugin --profile demo add github:omdsh-dev/dsh-data-agent
-
-# 或从本地源码目录安装（同样无需构建）
-dsh plugin --profile demo add .
 ```
 
 安装后验证：
@@ -186,3 +189,9 @@ dsh 同款约定（`nodeLinker: hoisted`）；pnpm 11 的供应链策略会拦�
 ## 许可
 
 MIT
+
+## 友情链接
+
+- [dshfind.com](https://dshfind.com)：DeepSeek Harness 的中文学习与分享社区。读懂论文，写出插件，看见整个生态。
+- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui)：DeepSeek Harness（DSH）Web UI 的插件与皮肤集合
+- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui)：Claude Code 风格全屏交互终端插件
