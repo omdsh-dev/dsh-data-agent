@@ -23,7 +23,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import z from 'schemastery'
 // Type-only: pulls the ctx.dataAgentConnections merge (the main data-agent
 // row). The webserver service face is declared locally below (instead of
@@ -44,7 +44,7 @@ interface WebServerLike {
   }): () => void
 }
 
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     webServer: WebServerLike
   }

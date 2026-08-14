@@ -172,14 +172,13 @@ pnpm test    # vitest: connection store / CLI templates / sqlcmd execution (mock
 ```
 
 `lib/` is committed, so installing and debugging (including `dsh plugin add .`)
-never requires a build and no longer depends on how `node_modules` was prepared.
-You only need dependencies when rebuilding the artifacts: `@deepseek-ai/*`,
-`cordis`, `schemastery`, etc. are unpublished on npm and cannot be fetched with
-`pnpm install` — copy or link them from a local DSH checkout
-(`~/.dsh/source/current/...`) into this repository's `node_modules` (build tools
-typescript / tsdown / lightningcss / vitest come from the same checkout);
-`pnpm-workspace.yaml` disables `verifyDepsBeforeRun` so pnpm does not try to
-fetch the unpublished `@deepseek-ai/*` packages from the registry.
+never requires a build. To rebuild the artifacts, just run `pnpm install`: all
+`@deepseek-ai/*` dependencies are published on npm, so there is no need to copy
+or symlink `node_modules` from a local DSH checkout anymore.
+`pnpm-workspace.yaml` follows the dsh convention (`nodeLinker: hoisted`); pnpm
+11's supply-chain policy blocks freshly published packages and dependency build
+scripts, so the repository pre-declares `minimumReleaseAgeExclude` (the rc.6
+family) and `allowBuilds: esbuild`.
 
 ## License
 

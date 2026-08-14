@@ -21,8 +21,7 @@
  * @module @deepseek-ai/dsh-data-agent/routes
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { Context } from 'cordis';
-import z from 'schemastery';
+import type { Context } from '@deepseek-ai/cordis';
 /**
  * Minimal face of the host webserver service used by this row.
  * The service was renamed from `httpServer` to `webServer` in
@@ -35,7 +34,7 @@ interface WebServerLike {
         handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
     }): () => void;
 }
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
     interface Context {
         webServer: WebServerLike;
     }
@@ -66,18 +65,18 @@ export interface Config {
     maxQueryChars: number;
 }
 /** Loader schema with deployment defaults (no library defaults). */
-export declare const Config: z<Schemastery.ObjectS<{
-    connectTimeoutMs: z<number, number>;
-    introspectMaxTables: z<number, number>;
-    maxResultChars: z<number, number>;
-    queryTimeoutMs: z<number, number>;
-    maxQueryChars: z<number, number>;
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
 }>, Schemastery.ObjectT<{
-    connectTimeoutMs: z<number, number>;
-    introspectMaxTables: z<number, number>;
-    maxResultChars: z<number, number>;
-    queryTimeoutMs: z<number, number>;
-    maxQueryChars: z<number, number>;
+    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
 }>>;
 /** The connection request wire body (validated in the /connect handler). */
 export interface ConnectRequestBody {

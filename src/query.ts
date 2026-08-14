@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-data-agent/query
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin).
 import type {} from '@deepseek-ai/dsh-subprocess'

@@ -12,7 +12,6 @@
  * @module @deepseek-ai/dsh-data-agent/clients
  */
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
-import z from 'schemastery';
 /** One deployment override for a database type's CLI client. */
 export interface ClientConfig {
     /** Executable name (resolved through PATH) or absolute path. */
@@ -21,20 +20,20 @@ export interface ClientConfig {
     args?: readonly string[];
 }
 /** Loader schema for one client override (all fields optional at input). */
-export declare const clientConfigSchema: z<Schemastery.ObjectS<{
-    command: z<string, string>;
-    args: z<string[], string[]>;
+export declare const clientConfigSchema: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    command: import("@deepseek-ai/schemastery").default<string, string>;
+    args: import("@deepseek-ai/schemastery").default<string[], string[]>;
 }>, Schemastery.ObjectT<{
-    command: z<string, string>;
-    args: z<string[], string[]>;
+    command: import("@deepseek-ai/schemastery").default<string, string>;
+    args: import("@deepseek-ai/schemastery").default<string[], string[]>;
 }>>;
 /** Loader schema for the whole `clients` config object (any type key). */
-export declare const clientsSchema: z<import("cosmokit").Dict<{
+export declare const clientsSchema: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
     command?: string | null | undefined;
     args?: string[] | null | undefined;
-} & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-    command: z<string, string>;
-    args: z<string[], string[]>;
+} & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+    command: import("@deepseek-ai/schemastery").default<string, string>;
+    args: import("@deepseek-ai/schemastery").default<string[], string[]>;
 }>, string>>;
 /**
  * A fully constructed client invocation: argv (command + flags, no SQL),

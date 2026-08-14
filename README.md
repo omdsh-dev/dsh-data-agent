@@ -173,12 +173,12 @@ pnpm build   # 清空并重建 lib/（tsdown：lib/index.js、lib/routes.js、li
 pnpm test    # vitest：连接存储 / CLI 模板 / sqlcmd 执行（mock subprocess）
 ```
 
-`lib/` 已提交进仓库，安装与调试（含 `dsh plugin add .`）都不需要先构建，也
-不再依赖 node_modules 的准备方式。仅在重新构建产物时需要依赖：`@deepseek-ai/*`、
-`cordis`、`schemastery` 等未发布到 npm，无法用 `pnpm install` 拉取，需从本地
-DSH checkout（`~/.dsh/source/current/...`）复制或链接到本仓库 node_modules
-（构建工具 typescript / tsdown / lightningcss / vitest 同源）；`pnpm-workspace.yaml`
-关闭 `verifyDepsBeforeRun` 以避免 pnpm 尝试从 registry 安装未发布的 `@deepseek-ai/*` 包。
+`lib/` 已提交进仓库，安装与调试（含 `dsh plugin add .`）都不需要先构建。重新
+构建产物时直接 `pnpm install` 即可：`@deepseek-ai/*` 等依赖均已发布到 npm，
+无需再从本地 DSH checkout 复制/链接 node_modules。`pnpm-workspace.yaml` 采用
+dsh 同款约定（`nodeLinker: hoisted`）；pnpm 11 的供应链策略会拦截「发布不久」
+的包与依赖构建脚本，仓库已预置 `minimumReleaseAgeExclude`（rc.6 全家桶）与
+`allowBuilds: esbuild`。
 
 ## 许可
 

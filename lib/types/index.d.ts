@@ -13,14 +13,13 @@
  * data-agent preset.
  * @module @deepseek-ai/dsh-data-agent
  */
-import type { Context } from 'cordis';
+import type { Context } from '@deepseek-ai/cordis';
 /** The `dataAgentConnections` service face on the cordis context. */
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
     interface Context {
         dataAgentConnections: DataAgentConnections;
     }
 }
-import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
 import { type ClientConfig } from './clients.ts';
 /** Cordis plugin name (diagnostics only). */
@@ -66,59 +65,59 @@ export interface Config {
     connections: Record<string, SeededConnectionConfig>;
 }
 /** Loader schema with deployment defaults (no library defaults). */
-export declare const Config: z<Schemastery.ObjectS<{
-    presetId: z<string, string>;
-    installPreset: z<boolean, boolean>;
-    connectTimeoutMs: z<number, number>;
-    introspectMaxTables: z<number, number>;
-    queryTimeoutMs: z<number, number>;
-    maxResultChars: z<number, number>;
-    clients: z<import("cosmokit").Dict<{
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    presetId: import("@deepseek-ai/schemastery").default<string, string>;
+    installPreset: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        command: z<string, string>;
-        args: z<string[], string[]>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
-    connections: z<import("cosmokit").Dict<{
+    connections: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
-        host: z<string, string>;
-        port: z<number, number>;
-        user: z<string, string>;
-        database: z<string, string>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        host: import("@deepseek-ai/schemastery").default<string, string>;
+        port: import("@deepseek-ai/schemastery").default<number, number>;
+        user: import("@deepseek-ai/schemastery").default<string, string>;
+        database: import("@deepseek-ai/schemastery").default<string, string>;
     }>, string>>;
 }>, Schemastery.ObjectT<{
-    presetId: z<string, string>;
-    installPreset: z<boolean, boolean>;
-    connectTimeoutMs: z<number, number>;
-    introspectMaxTables: z<number, number>;
-    queryTimeoutMs: z<number, number>;
-    maxResultChars: z<number, number>;
-    clients: z<import("cosmokit").Dict<{
+    presetId: import("@deepseek-ai/schemastery").default<string, string>;
+    installPreset: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        command: z<string, string>;
-        args: z<string[], string[]>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
-    connections: z<import("cosmokit").Dict<{
+    connections: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
-        host: z<string, string>;
-        port: z<number, number>;
-        user: z<string, string>;
-        database: z<string, string>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        host: import("@deepseek-ai/schemastery").default<string, string>;
+        port: import("@deepseek-ai/schemastery").default<number, number>;
+        user: import("@deepseek-ai/schemastery").default<string, string>;
+        database: import("@deepseek-ai/schemastery").default<string, string>;
     }>, string>>;
 }>>;
 /**

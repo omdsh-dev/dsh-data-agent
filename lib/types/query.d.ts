@@ -7,7 +7,7 @@
  * output.
  * @module @deepseek-ai/dsh-data-agent/query
  */
-import type { Context } from 'cordis';
+import type { Context } from '@deepseek-ai/cordis';
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
 import { type ClientConfig } from './clients.ts';
 /** One bounded captured-output read (the tail when truncated). */

@@ -12,8 +12,7 @@
  * escalation. Output is bounded per stream and marked `truncated`.
  * @module @deepseek-ai/dsh-data-agent/tool
  */
-import type { Context } from 'cordis';
-import z from 'schemastery';
+import type { Context } from '@deepseek-ai/cordis';
 import { type ClientConfig } from './clients.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent-tool";
@@ -31,27 +30,27 @@ export interface Config {
     clients: Partial<Record<string, ClientConfig>>;
 }
 /** Loader schema with deployment defaults (no library defaults). */
-export declare const Config: z<Schemastery.ObjectS<{
-    queryTimeoutMs: z<number, number>;
-    maxResultChars: z<number, number>;
-    maxRows: z<number, number>;
-    clients: z<import("cosmokit").Dict<{
+export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    maxRows: import("@deepseek-ai/schemastery").default<number, number>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        command: z<string, string>;
-        args: z<string[], string[]>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
 }>, Schemastery.ObjectT<{
-    queryTimeoutMs: z<number, number>;
-    maxResultChars: z<number, number>;
-    maxRows: z<number, number>;
-    clients: z<import("cosmokit").Dict<{
+    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
+    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    maxRows: import("@deepseek-ai/schemastery").default<number, number>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
-    } & import("cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        command: z<string, string>;
-        args: z<string[], string[]>;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
 }>>;
 /**

@@ -18,10 +18,10 @@ import { access, cp, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 
 /** The `dataAgentConnections` service face on the cordis context. */
-declare module 'cordis' {
+declare module '@deepseek-ai/cordis' {
   interface Context {
     dataAgentConnections: DataAgentConnections
   }

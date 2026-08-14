@@ -13,7 +13,7 @@
  * @module @deepseek-ai/dsh-data-agent/tool
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import z from 'schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin) and
