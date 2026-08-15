@@ -2,13 +2,13 @@
 
 [English](README.en.md) | **中文**
 
-![数据Agent 会话](assets/session.png)
+![数据模式会话](assets/session.png)
 
 用AI写过SQL的同学都有这种体验，AI现在写代码能力已经很强了，但SQL逻辑老写不对。**原因是AI并没有与数据库操作形成Agent Loop**，它只能根据静态指令生成SQL，却无法感知执行结果、无法根据报错或返回数据动态调优。
 
 这个插件就是来填这个坑的。它复用DeepSeek Harness强大的Agent主循环能力，让AI连上数据库并获得实时反馈，同时删掉所有跟数据无关的上下文和工具，让AI专注于SQL生成和业务数据分析。
 
-我利用DeepSeek Harness的Agent预设功能，定义了专用的Data Agent预设。仅保留read、edit、write三个DSH自带的 tools，并自定义 sql-query / sql-write / sqlcmd 三个数据库 tools 替代 bash tool。
+我利用DeepSeek Harness的Agent预设功能，定义了专用的数据模式预设。仅保留read、edit、write三个DSH自带的 tools，并自定义 sql-query / sql-write / sqlcmd 三个数据库 tools 替代 bash tool。
 
 懂行的朋友一眼就能看出，这是借鉴了Pi Agent的设计，只使用最基本的工具。
 
@@ -23,9 +23,9 @@
 
   ![数据库工作台](assets/tables.png)
 - **数据库 tools**：`sql-query` 执行只读 SQL 并返回结构化 `{ columns, rows, affectedRows, elapsedMs }`；`sql-write` 执行写/管理 SQL（单条自动提交，写语义明确）；`sqlcmd` 保留原始终端输出。三者均在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断，单次调用只允许一条 SQL。
-- **数据Agent 预设**：新建会话可选「数据Agent」——工具面为 `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据Agent 会话不渲染工作台，零影响。
+- **数据模式 预设**：新建会话可选「数据模式」——工具面为 `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据模式会话不渲染工作台，零影响。
 
-  ![数据Agent 预设](assets/settings.png)
+  ![数据模式 预设](assets/settings.png)
 - **标准 agent loop**：data-agent 会话就是普通 DSH 会话，走标准 turn/step、流式输出、工具调度与持久化，零宿主改动。
 
 ## 快速安装
@@ -60,7 +60,7 @@ ls $DSH_HOME/.agent-presets/data-agent/   # 应有 agent.cordis.yml + preset.yml
 dsh --profile web
 ```
 
-在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
+在 Web GUI 中：新建会话 → 选择「数据模式」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
 
 > 数据库客户端二进制要求：sqlite3 一般系统自带（macOS/Linux）；mysql / psql / sqlplus / beeline / impala-shell 需部署方安装，且可在插件配置 `clients` 中覆盖命令名或绝对路径（缺失时连接报错会点名缺失的命令）。
 

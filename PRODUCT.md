@@ -6,11 +6,11 @@ product
 
 ## Users
 
-数据工程师、数据分析师与 DBA,他们在 DeepSeek Harness Web GUI 中创建「数据Agent」预设会话,通过对话让 AI 连数据库、写 SQL、做探查与数据分析。他们通常是重度键盘用户,一天之内多次切换会话与数据库,关心执行结果多于界面装饰。
+数据工程师、数据分析师与 DBA,他们在 DeepSeek Harness Web GUI 中创建「数据模式」预设会话,通过对话让 AI 连数据库、写 SQL、做探查与数据分析。他们通常是重度键盘用户,一天之内多次切换会话与数据库,关心执行结果多于界面装饰。
 
 ## Product Purpose
 
-dsh-data-agent 是一个 DSH 插件:为数据Agent 会话提供数据库工作台(连接配置、库表浏览、SQL 命令框),并提供一个只含 sql-query/sql-write/sqlcmd 与 read/write/edit 的专用 agent 预设,让 AI 与真实数据库形成 Agent Loop——写 SQL、执行、根据报错与结果动态调优。成功的样子是:用户配置好连接后,几乎不再碰工作台,把探索与查询交给 Chat 里的数据Agent。
+dsh-data-agent 是一个 DSH 插件:为数据模式会话提供数据库工作台(连接配置、库表浏览、SQL 命令框),并提供一个只含 sql-query/sql-write/sqlcmd 与 read/write/edit 的专用 agent 预设,让 AI 与真实数据库形成 Agent Loop——写 SQL、执行、根据报错与结果动态调优。成功的样子是:用户配置好连接后,几乎不再碰工作台,把探索与查询交给 Chat 里的数据Agent。
 
 ## Brand Personality
 

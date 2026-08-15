@@ -147,7 +147,7 @@ export async function installPreset(ctx: Context, presetId: string): Promise<voi
   } catch (error) {
     ctx.logger.warn(
       'data-agent: failed to install preset "%s" to %s (%s); '
-      + 'copy preset/data-agent/ manually to enable the 数据Agent preset',
+      + 'copy preset/data-agent/ manually to enable the 数据模式 preset',
       presetId, targetDir, error instanceof Error ? error.message : String(error),
     )
   }

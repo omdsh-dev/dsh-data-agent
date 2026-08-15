@@ -2,11 +2,11 @@
 
 [中文](README.md) | **English**
 
-![Data Agent session](assets/session.png)
+![Data Mode session](assets/session.png)
 
 This plugin is a Data Agent built on DeepSeek Harness, letting DeepSeek focus on database operations.
 
-Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Agent preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds custom sql-query / sql-write / sqlcmd database tools in place of the bash tool, free from irrelevant tools and prompts.
+Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Mode preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds custom sql-query / sql-write / sqlcmd database tools in place of the bash tool, free from irrelevant tools and prompts.
 
 With this preset, you can configure a database connection right in the conversation UI, grant the AI access to the database, and complete CRUD operations.
 
@@ -18,11 +18,11 @@ With this preset, you can configure a database connection right in the conversat
 
 - **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its scrollable table list, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
 - **Database tools**: `sql-query` runs read-only SQL and returns structured `{ columns, rows, affectedRows, elapsedMs }`; `sql-write` runs one write/management SQL per call with explicit autocommit semantics; `sqlcmd` keeps the original raw terminal output. All three run through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated, and one call carries at most one SQL statement.
-- **Data Agent preset**: choose "Data Agent" when creating a session — the tool surface is `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Agent sessions render no workbench at all.
+- **Data Mode preset**: choose "Data Mode" when creating a session — the tool surface is `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Mode sessions render no workbench at all.
 
-  ![Data Agent preset](assets/settings.png)
+  ![Data Mode preset](assets/settings.png)
 
-- **Standard agent loop**: a data-agent session is an ordinary DSH session — standard turn/step, streaming, tool scheduling, and persistence, with zero host changes.
+- **Standard agent loop**: a data-mode session is an ordinary DSH session — standard turn/step, streaming, tool scheduling, and persistence, with zero host changes.
 
 ## Quick Install
 
@@ -56,7 +56,7 @@ Start the Web GUI:
 dsh --profile web
 ```
 
-In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
+In the Web GUI: create a session → choose the "Data Mode" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
 
 > Database client binaries: sqlite3 usually ships with macOS/Linux; mysql / psql / sqlplus / beeline / impala-shell must be provided by the deployment and can be overridden per type via the `clients` config (missing clients are named in the connect error).
 
