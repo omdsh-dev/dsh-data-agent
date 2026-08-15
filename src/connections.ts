@@ -24,7 +24,16 @@
 export const WILDCARD_SESSION = '*'
 
 /** Supported database client kinds. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
+export type DatabaseType =
+  | 'mysql'
+  | 'postgres'
+  | 'sqlite'
+  | 'oracle'
+  | 'hive'
+  | 'impala'
+  | 'clickhouse'
+  | 'doris'
+  | 'sqlserver'
 
 /**
  * One session's database connection. `host`/`port`/`user` are empty for
