@@ -5,7 +5,7 @@
  * stdin SQL channel as the plugin's runClientQuery path.
  *
  * Run (skipped unless DSH_SMOKE_HOST is set):
- *   DSH_SMOKE_HOST=192.168.0.243 \
+ *   DSH_SMOKE_HOST=<smoke-host> \
  *   DSH_SMOKE_CH_PASSWORD=... \
  *   DSH_SMOKE_MSSQL_PASSWORD=... \
  *   PATH="/path/to/clickhouse-client:/path/to/mysql:/path/to/sqlcmd:$PATH" \

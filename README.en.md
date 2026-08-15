@@ -181,7 +181,7 @@ pnpm test    # vitest: connection store / CLI templates / sqlcmd execution (mock
 Optional real-environment integration smoke (auto-skipped unless `DSH_SMOKE_HOST` is set; creates and drops a `dsh_smoke` database/table set on each target):
 
 ```sh
-DSH_SMOKE_HOST=192.168.0.243 \
+DSH_SMOKE_HOST=<smoke-host> \
 DSH_SMOKE_CH_PASSWORD='...' DSH_SMOKE_MSSQL_PASSWORD='...' \
 PATH="/path/to/clickhouse-client:/path/to/mysql:/path/to/sqlcmd:$PATH" \
 pnpm vitest run tests/integration-smoke.spec.ts
