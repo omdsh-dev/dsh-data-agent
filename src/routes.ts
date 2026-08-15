@@ -64,6 +64,7 @@ import {
   DEFAULT_QUERY_TIMEOUT_MS,
 } from './defaults.ts'
 import { runClientQuery, type QueryResult } from './query.ts'
+import { assertSingleStatement } from './sql.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-routes'
@@ -355,6 +356,7 @@ export function apply(ctx: Context, config: Config): void {
               if (sql.length > config.maxQueryChars) {
                 throw new Error(`sql 超过长度上限（${config.maxQueryChars} 字符）`)
               }
+              assertSingleStatement(sql, '/query')
               const connection = requireConnection(sessionId)
               if ((connection.readonly ?? config.readonly) && classifyStatement(sql, connection.type) === 'write') {
                 throw new Error('当前连接为只读模式，拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等）')

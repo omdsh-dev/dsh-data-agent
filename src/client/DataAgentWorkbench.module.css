@@ -45,8 +45,14 @@
  * by the rail width while a data-agent conversation is active. The class is
  * toggled on <html> by the workbench (css['da-split']), so ordinary sessions
  * never see these rules.
+ *
+ * The slot renderer wraps `conversation.session` in a display:contents
+ * [data-slot] outlet. A margin on that wrapper has no layout effect, so the
+ * first rule is kept for older hosts without the outlet wrapper, and the
+ * second rule shifts the real session view inside the outlet.
  */
-html.da-split [data-phase="active"] [data-conversation-scroll] > :first-child {
+html.da-split [data-phase="active"] [data-conversation-scroll] > :first-child,
+html.da-split [data-phase="active"] [data-conversation-scroll] > [data-slot="conversation.session"] > * {
   margin-left: 380px;
 }
 

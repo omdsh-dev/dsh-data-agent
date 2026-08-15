@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   buildClientTemplate,
   buildIntrospectTemplate,
+  buildStructuredQueryTemplate,
   classifyStatement,
+  enforceReadRowLimit,
   metadataQuery,
   parseColumns,
   parseListing,
@@ -327,8 +329,10 @@ describe('classifyStatement', () => {
     expect(classifyStatement('WITH d AS (SELECT 1) DELETE FROM orders', 'postgres')).toBe('write')
   })
 
-  it('treats PRAGMA as read only for sqlite', () => {
+  it('treats query PRAGMA as read and assigned PRAGMA as write for sqlite', () => {
     expect(classifyStatement('PRAGMA table_info("orders")', 'sqlite')).toBe('read')
+    expect(classifyStatement('PRAGMA journal_mode = DELETE', 'sqlite')).toBe('write')
+    expect(classifyStatement('PRAGMA main.cache_size = -1', 'sqlite')).toBe('write')
     expect(classifyStatement('PRAGMA user_version', 'mysql')).toBe('write')
   })
 
@@ -360,5 +364,52 @@ describe('sanitizeIdentifier', () => {
     for (const bad of ['a#b', 'a--b', 'a;b', "a'b", 'a`b', 'a"b', 'a.b', 'a-b', '']) {
       expect(() => sanitizeIdentifier('mysql', bad)).toThrow()
     }
+  })
+})
+
+describe('structured query template and read row limit', () => {
+  it('builds the structured template with headers for the structured parser', () => {
+    expect(buildStructuredQueryTemplate('mysql', mysqlConnection).args).toEqual([
+      '--batch', '--raw', '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
+    ])
+    expect(buildStructuredQueryTemplate('sqlite', sqliteConnection).args).toEqual([
+      '-header', '-csv', '/tmp/orders.db',
+    ])
+    expect(buildStructuredQueryTemplate('postgres', postgresConnection).args).toEqual([
+      '-A', '-h', 'pg.internal', '-p', '5433', '-U', 'owner', '-d', 'analytics',
+    ])
+  })
+
+  it('appends a top-level LIMIT to an unbounded SELECT', () => {
+    expect(enforceReadRowLimit('SELECT * FROM orders', 'sqlite', 25)).toBe('SELECT * FROM orders LIMIT 25')
+    expect(enforceReadRowLimit('SELECT * FROM orders;', 'mysql', 50)).toBe('SELECT * FROM orders LIMIT 50;')
+    expect(enforceReadRowLimit('WITH x AS (SELECT 1) SELECT * FROM x', 'postgres', 10))
+      .toBe('WITH x AS (SELECT 1) SELECT * FROM x LIMIT 10')
+  })
+
+  it('inserts LIMIT before trailing terminators and comments', () => {
+    expect(enforceReadRowLimit('SELECT * FROM orders; -- keep', 'mysql', 50))
+      .toBe('SELECT * FROM orders LIMIT 50')
+    expect(enforceReadRowLimit('SELECT * FROM orders /* keep */', 'sqlite', 50))
+      .toBe('SELECT * FROM orders LIMIT 50')
+  })
+
+  it('caps an existing top-level LIMIT but leaves smaller limits alone', () => {
+    expect(enforceReadRowLimit('SELECT * FROM orders LIMIT 500', 'sqlite', 100))
+      .toBe('SELECT * FROM orders LIMIT 100')
+    expect(enforceReadRowLimit('SELECT * FROM orders LIMIT 5', 'sqlite', 100))
+      .toBe('SELECT * FROM orders LIMIT 5')
+    expect(enforceReadRowLimit('SELECT * FROM orders LIMIT 20, 500', 'mysql', 100))
+      .toBe('SELECT * FROM orders LIMIT 20, 100')
+  })
+
+  it('does not add LIMIT to SHOW/DESCRIBE or write statements', () => {
+    expect(enforceReadRowLimit('SHOW TABLES;', 'mysql', 10)).toBe('SHOW TABLES;')
+    expect(enforceReadRowLimit('DELETE FROM orders;', 'sqlite', 10)).toBe('DELETE FROM orders;')
+  })
+
+  it('wraps Oracle read queries with ROWNUM instead of LIMIT', () => {
+    expect(enforceReadRowLimit('SELECT * FROM orders ORDER BY id;', 'oracle', 10))
+      .toBe('SELECT * FROM (SELECT * FROM orders ORDER BY id) dsh_limit WHERE ROWNUM <= 10;')
   })
 })

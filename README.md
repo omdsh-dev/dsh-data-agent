@@ -8,7 +8,7 @@
 
 这个插件就是来填这个坑的。它复用DeepSeek Harness强大的Agent主循环能力，让AI连上数据库并获得实时反馈，同时删掉所有跟数据无关的上下文和工具，让AI专注于SQL生成和业务数据分析。
 
-我利用DeepSeek Harness的Agent预设功能，定义了专用的Data Agent预设。仅保留read、edit、write三个DSH自带的 tools，并自定义sqlcmd tool替代bash tool。
+我利用DeepSeek Harness的Agent预设功能，定义了专用的Data Agent预设。仅保留read、edit、write三个DSH自带的 tools，并自定义 sql-query / sql-write / sqlcmd 三个数据库 tools 替代 bash tool。
 
 懂行的朋友一眼就能看出，这是借鉴了Pi Agent的设计，只使用最基本的工具。
 
@@ -22,8 +22,8 @@
 - **数据库工作台**（内嵌于会话输入框上方）：连接配置卡（连接成功后折叠为摘要行，可展开查看）；库表浏览（点击「库表」按钮弹出 Modal：单击库展开表列表（可滚动），点击表查看结构）；SQL 命令框（编辑并运行 SQL，非 agent 通道，结果等宽展示）。连接配置持久化到浏览器 localStorage，切换页面/重启自动回填并重连。开始对话后工作台自动变为左侧栏，对话记录与输入框在右侧。
 
   ![数据库工作台](assets/tables.png)
-- **sqlcmd 工具**：在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行 SQL/命令；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断。
-- **数据Agent 预设**：新建会话可选「数据Agent」——工具面恰好是 `sqlcmd`/`read`/`write`/`edit` 四个，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据Agent 会话不渲染工作台，零影响。
+- **数据库 tools**：`sql-query` 执行只读 SQL 并返回结构化 `{ columns, rows, affectedRows, elapsedMs }`；`sql-write` 执行写/管理 SQL（单条自动提交，写语义明确）；`sqlcmd` 保留原始终端输出。三者均在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断，单次调用只允许一条 SQL。
+- **数据Agent 预设**：新建会话可选「数据Agent」——工具面为 `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据Agent 会话不渲染工作台，零影响。
 
   ![数据Agent 预设](assets/settings.png)
 - **标准 agent loop**：data-agent 会话就是普通 DSH 会话，走标准 turn/step、流式输出、工具调度与持久化，零宿主改动。
@@ -80,7 +80,7 @@ dsh --profile web
 │ agent.cordis.yml (预设层，仅 3 行)                                        │
 │  · persona             → 数据工程师系统提示词                             │
 │  · dsh-tool-fs         → read / write / edit（项目自带）                  │
-│  · dsh-data-agent/tool → sqlcmd（本包工具半体）                           │
+│  · dsh-data-agent/tool → sql-query / sql-write / sqlcmd（本包工具半体）  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -105,13 +105,13 @@ dsh --profile web
 | `installPreset` | 是否在启动时自安装预设（默认 true；已存在则跳过，保留用户编辑） |
 | `connectTimeoutMs` | /connect 连通性检查的端到端超时（默认 10000 毫秒） |
 | `introspectMaxTables` | 表清单上限（默认 500） |
-| `queryTimeoutMs` | sqlcmd 单次查询超时（默认 30000 毫秒） |
-| `maxResultChars` | sqlcmd 捕获输出上限（stdout/stderr 各自，默认 20000 字符） |
-| `readonly` | 只读护栏（默认 false）：true 时 `sqlcmd` 与 `/query` 仅放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），写语句直接拒绝 |
+| `queryTimeoutMs` | 数据库 tools 单次查询超时（默认 30000 毫秒） |
+| `maxResultChars` | 数据库 tools 捕获输出上限（stdout/stderr 各自，默认 20000 字符） |
+| `readonly` | 只读护栏（默认 false）：true 时数据库 tools 与 `/query` 仅放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），写语句直接拒绝 |
 | `clients` | 各数据库类型 CLI 客户端覆盖：`{ command?, args? }`，键为 `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala`（内置默认 mysql/psql/sqlite3/sqlplus/beeline/impala-shell） |
 | `connections` | 配置预置连接，键为 sessionId（`'*'` = 通配符默认，任何无自有连接的会话回落它；headless/keyless 运行与部署固定默认库场景）。**不含 password 字段**——密码只允许经 /connect 路由进入内存；可选 `readonly` 字段按连接锁定只读 |
 
-工具行 `tool-sqlcmd`（data-agent 预设内）另有 `maxRows`（默认 100，注入工具描述的 LIMIT 引导）与 `readonly`，`queryTimeoutMs` / `maxResultChars` / `clients` 与宿主行同名可配。
+工具行 `tool-sqlcmd`（data-agent 预设内）另有 `maxRows`（默认 100，强制生效：SELECT 未写 LIMIT 时自动追加，结构化结果解析时二次截断）与 `readonly`，`queryTimeoutMs` / `maxResultChars` / `clients` 与宿主行同名可配。
 
 路由行 `data-agent-routes` 独立配置：`connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` / `readonly` 与主行同名同默认；另有 `queryTimeoutMs`（/query 与元数据查询超时，默认 30000）与 `maxQueryChars`（/query 单条 SQL 长度上限，默认 65536）。
 
@@ -132,7 +132,7 @@ dsh --profile web
 
 ## Headless / 一次性运行
 
-**重要**：`dsh run`（headless bundle）不装载 agent-presets roster，也不会为会话挂载预设——预设机制属于 web 面（apiproxy 在会话创建时 mount）。因此 **headless 会话无法使用 sqlcmd/read/write/edit 四工具面**，sqlcmd 的验证与使用都在 web 面完成；headless 中如需数据库能力，只能靠宿主 base 自带工具（如 bash 直接调用客户端）。
+**重要**：`dsh run`（headless bundle）不装载 agent-presets roster，也不会为会话挂载预设——预设机制属于 web 面（apiproxy 在会话创建时 mount）。因此 **headless 会话无法使用 sql-query/sql-write/sqlcmd/read/write/edit 工具面**，数据库 tools 的验证与使用都在 web 面完成；headless 中如需数据库能力，只能靠宿主 base 自带工具（如 bash 直接调用客户端）。
 
 （注：插入 roster 行 + 禁用 base 工具行的 patch 组合无法在 headless 中复现预设工具面——agent 会得到一个零工具的空组合，模型无工具可调。如需 headless 冒烟，仅验证「连接配置预置 + 宿主工具可用」即可。）
 
@@ -150,7 +150,7 @@ dsh --profile web
 | `GET /schemas?sessionId=` | `{ ok, schemas: string[] }`；库/数据库列表（sqlite 为 `['main']`） |
 | `GET /tables?sessionId=&schema=` | `{ ok, tables: string[] }`；某库的表列表（sqlite 忽略 schema 参数） |
 | `GET /describe?sessionId=&schema=&table=` | `{ ok, columns: [{ name, type, nullable? }] }`；表结构（sqlite 忽略 schema） |
-| `POST /query` | body `{ sessionId, sql }`；运行任意 SQL（工作台命令框，非 agent 通道），返回 `{ ok, result: { exitCode, stdout, stderr, truncated } }`；`sql` 长度上限 `maxQueryChars`；readonly 开启时拒绝写语句 |
+| `POST /query` | body `{ sessionId, sql }`；运行一条 SQL（工作台命令框，非 agent 通道），返回 `{ ok, result: { exitCode, stdout, stderr, truncated } }`；`sql` 长度上限 `maxQueryChars`；单次只允许一条语句；readonly 开启时拒绝写语句 |
 
 schema/table 标识符仅允许 `[A-Za-z0-9_$]`（服务端白名单校验并转义引用，拒绝注入形字符）。
 
@@ -159,8 +159,8 @@ schema/table 标识符仅允许 `[A-Za-z0-9_$]`（服务端白名单校验并转
 - **密码**：服务端仅存内存，传递通道按类型：mysql 经 `MYSQL_PWD`、postgres 经 `PGPASSWORD` 环境变量；oracle 经 sqlplus `connect user/pass@...` stdin 前缀、hive 经 beeline `!connect` stdin 前缀（均不进 argv）；impala 默认不传密码（LDAP/kerberos 由部署侧 `clients` 覆盖）。`/status` 与连接存储的公开读取面均剥离密码。
 - **连接配置持久化**：工作台把连接配置（type/host/port/user/database）保存到浏览器 localStorage（键 `dsh-data-agent.connection.v1`），用于切换页面/重启后回填表单并自动重连一次。**密码默认不落盘**：仅当用户勾选「记住密码」时才持久化密码（明文 localStorage，本机单用户场景的显式 opt-in）。若需清除：浏览器控制台执行 `localStorage.removeItem('dsh-data-agent.connection.v1')`。
 - **无 shell 层**：`ctx.subprocess.spawn` 参数数组化，SQL 与连接前缀经 stdin 传入，不存在 shell 拼接注入面；元数据路由的 schema/table 标识符经收紧白名单 `[A-Za-z0-9_$]` 校验并按类型转义引用（反引号/双引号），拒绝 `#`、`--`、`;`、`'` 等注入形字符。
-- **SQL 执行权**：审批策略为 never 时，sqlcmd 与 `/query` 的 DDL/DML 会直接执行——连接按 session 隔离，请自行评估数据面风险。可设 `readonly: true`（宿主/工具/路由三行同名，或 `/connect` 传 `readonly: true` 按连接锁定）强制只放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），作为误操作防护；对更强对手防护，仍建议配合数据库侧只读账号。
-- **超时与上限**：查询超时、输出截断、表清单上限、/query 单条 SQL 长度均为配置项，无硬编码 tunables。
+- **SQL 执行权**：审批策略为 never 时，`sql-write`/`sqlcmd` 与 `/query` 的 DDL/DML 会直接执行——连接按 session 隔离，请自行评估数据面风险。可设 `readonly: true`（宿主/工具/路由三行同名，或 `/connect` 传 `readonly: true` 按连接锁定）强制只放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），作为误操作防护；对更强对手防护，仍建议配合数据库侧只读账号。每次数据库工具调用为独立客户端进程并自动提交，不支持跨调用事务。
+- **超时与上限**：查询超时、输出截断、表清单上限、读查询最大行数（`maxRows`）、/query 单条 SQL 长度均为配置项，无硬编码 tunables。
 
 ## 卸载与回滚
 

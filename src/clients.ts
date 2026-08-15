@@ -14,6 +14,8 @@
 
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
 import z from 'schemastery'
+import { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator } from './sql.ts'
+export { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator }
 
 /**
  * Whitespace / comment stripping for {@link classifyStatement}: remove
@@ -126,7 +128,8 @@ function skipParens(sql: string, start: number): number {
 /**
  * Classify a SQL text as a read or write statement by its FIRST effective
  * token (a conservative read whitelist, not a parser). `with` is read only
- * when its body's first token is `select`. `pragma` is read-only for SQLite.
+ * when its body's first token is `select`. SQLite `pragma` is read in its
+ * query form and write when a value is assigned.
  */
 export function classifyStatement(sql: string, type: DatabaseType): 'read' | 'write' {
   const rest = stripLeadingComments(sql)
@@ -140,8 +143,15 @@ export function classifyStatement(sql: string, type: DatabaseType): 'read' | 'wr
     case 'desc':
     case 'explain':
       return 'read'
-    case 'pragma':
-      return type === 'sqlite' ? 'read' : 'write'
+    case 'pragma': {
+      if (type !== 'sqlite') return 'write'
+      // SQLite PRAGMA is read-only in its query form (name or name(args))
+      // but becomes a write when a value is assigned (`PRAGMA name = value`).
+      const afterPragma = rest.replace(/^pragma\b/i, '').trimStart()
+      return /^(?:[A-Za-z_][A-Za-z0-9_$]*(?:\s*\.\s*[A-Za-z_][A-Za-z0-9_$]*)?|"[^"]+"|`[^`]+`)\s*=/.test(afterPragma)
+        ? 'write'
+        : 'read'
+    }
     case 'with': {
       // `WITH <name> [ (cols) ] AS ( ... ) [, ...] <main>`: strip the CTE
       // definitions, then classify the remaining main query's first token.
@@ -152,6 +162,100 @@ export function classifyStatement(sql: string, type: DatabaseType): 'read' | 'wr
     default:
       return 'write'
   }
+}
+
+/**
+ * Enforce the configured `maxRows` on a read query instead of relying on the
+ * prompt. SELECT/CTE-read statements get a real top-level LIMIT (Oracle uses
+ * a ROWNUM wrapper because it has no LIMIT); SHOW/DESCRIBE/EXPLAIN/PRAGMA are
+ * left untouched here and are capped while parsing structured output.
+ *
+ * An existing numeric top-level LIMIT is rewritten when it is larger than
+ * `maxRows`; a smaller existing LIMIT is preserved, and a non-numeric or
+ * unparseable LIMIT is left for the client (structured tools still truncate).
+ */
+export function enforceReadRowLimit(sql: string, type: DatabaseType, maxRows: number): string {
+  if (classifyStatement(sql, type) !== 'read') return sql
+  const first = stripLeadingComments(sql).match(/^[A-Za-z_]+/)?.[0]?.toLowerCase()
+  if (first !== 'select' && first !== 'with') return sql
+  const hadTrailingSemicolon = /;\s*$/.test(sql)
+  if (!hasTopLevelKeyword(sql, 'limit') && type !== 'oracle') {
+    const body = stripTrailingTerminator(sql)
+    return `${body} LIMIT ${maxRows}${hadTrailingSemicolon ? ';' : ''}`
+  }
+  if (type === 'oracle') {
+    return `SELECT * FROM (${stripTrailingTerminator(sql)}) dsh_limit WHERE ROWNUM <= ${maxRows}${hadTrailingSemicolon ? ';' : ''}`
+  }
+  if (!hasTopLevelKeyword(sql, 'limit')) return sql
+  return rewriteTopLevelLimit(sql, maxRows)
+}
+
+/** Rewrite the first top-level `LIMIT n` / `LIMIT n, m` with a capped row count. */
+function rewriteTopLevelLimit(sql: string, maxRows: number): string {
+  let depth = 0
+  let index = 0
+  while (index < sql.length) {
+    const char = sql[index]!
+    if (/\s/.test(char)) { index += 1; continue }
+    if (sql.startsWith('--', index)) {
+      const newline = sql.indexOf('\n', index + 2)
+      index = newline === -1 ? sql.length : newline + 1
+      continue
+    }
+    if (sql.startsWith('/*', index)) {
+      // Reuse the public scanner: `hasTopLevelKeyword` already proved there is
+      // a top-level LIMIT; this branch only needs to skip comments. Nested
+      // block comments are handled with the same depth loop.
+      let depthComment = 1
+      index += 2
+      while (index < sql.length && depthComment > 0) {
+        if (sql.startsWith('/*', index)) { depthComment += 1; index += 2; continue }
+        if (sql.startsWith('*/', index)) { depthComment -= 1; index += 2; continue }
+        index += 1
+      }
+      continue
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      const quote = char
+      index += 1
+      while (index < sql.length) {
+        if (sql[index] === '\\' && index + 1 < sql.length && quote !== '`') {
+          index += 2
+          continue
+        }
+        if (sql[index] === quote) {
+          if (sql[index + 1] === quote) { index += 2; continue }
+          index += 1
+          break
+        }
+        index += 1
+      }
+      continue
+    }
+    if (char === '(') { depth += 1; index += 1; continue }
+    if (char === ')') { depth = Math.max(0, depth - 1); index += 1; continue }
+
+    if (depth === 0 && sql.slice(index, index + 5).toLowerCase() === 'limit'
+      && (index === 0 || !/[A-Za-z0-9_$]/.test(sql[index - 1]!))
+      && (index + 5 >= sql.length || !/[A-Za-z0-9_$]/.test(sql[index + 5]!))) {
+      const match = sql.slice(index).match(/^LIMIT\s+(ALL|\d+)(\s*,\s*\d+)?/i)
+      if (match === null) return sql
+      const firstValue = match[1]!
+      const hasOffsetPart = match[2] !== undefined
+      let replacement = ''
+      if (hasOffsetPart) {
+        const rowCount = Number(match[2]!.match(/\d+/)![0])
+        replacement = `LIMIT ${firstValue === 'ALL' ? '0' : firstValue}, ${Math.min(rowCount, maxRows)}`
+      } else if (/^\d+$/.test(firstValue)) {
+        replacement = `LIMIT ${Math.min(Number(firstValue), maxRows)}`
+      } else {
+        replacement = `LIMIT ${maxRows}`
+      }
+      return sql.slice(0, index) + replacement + sql.slice(index + match[0].length)
+    }
+    index += 1
+  }
+  return sql
 }
 
 /**
@@ -241,6 +345,16 @@ const INTROSPECT_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B'],
+}
+
+/** Structured `sql-query` flag arguments: header + one row per line. */
+const STRUCTURED_QUERY_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
+  mysql: ['--batch', '--raw'],
+  postgres: ['-A'],
+  sqlite: ['-header', '-csv'],
+  oracle: ['-S', '/nolog'],
+  hive: ['--silent=true', '--outputformat=tsv2'],
+  impala: ['-B', '--print_header'],
 }
 
 /** Default ports when the connection does not carry one. */
@@ -348,6 +462,27 @@ function stdinPrefix(type: DatabaseType, connection: DatabaseConnection): string
   }
 }
 
+/**
+ * Oracle structured-query prefix: same connect block as {@link stdinPrefix},
+ * but with HEADING ON and UNDERLINE OFF so `sql-query` can read the column
+ * names from the first output line.
+ */
+function structuredStdinPrefix(type: DatabaseType, connection: DatabaseConnection): string {
+  if (type !== 'oracle') return stdinPrefix(type, connection)
+  const lines = [
+    'SET PAGESIZE 0',
+    'SET FEEDBACK OFF',
+    'SET HEADING ON',
+    'SET UNDERLINE OFF',
+    "SET COLSEP '|'",
+    'SET TRIMSPOOL ON',
+    connection.user !== undefined
+      ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.oracle}/${connection.database}`
+      : '',
+  ].filter(line => line !== '')
+  return `${lines.join('\n')}\n`
+}
+
 /** Apply one deployment override's extra args in front of the built-in flags. */
 function withOverrides(flags: readonly string[], override?: ClientConfig): readonly string[] {
   if (override === undefined || override.args === undefined) return flags
@@ -387,6 +522,24 @@ export function buildIntrospectTemplate(
 }
 
 /**
+ * Build one client invocation for the structured `sql-query` tool: every
+ * supported client prints a header row followed by one row per line (mysql
+ * tab, postgres pipe, sqlite csv, oracle pipe, hive/impala tsv).
+ */
+export function buildStructuredQueryTemplate(
+  type: DatabaseType,
+  connection: DatabaseConnection,
+  override?: ClientConfig,
+): ClientTemplate {
+  return {
+    command: override?.command ?? DEFAULT_CLIENTS_COMMAND[type],
+    args: [...withOverrides(STRUCTURED_QUERY_ARGS[type], override), ...connectionArgs(type, connection)],
+    env: credentialEnv(type, connection),
+    stdinPrefix: structuredStdinPrefix(type, connection),
+  }
+}
+
+/**
  * The table-listing SQL per type, run at /connect time to verify
  * connectivity: the connected database's own tables (mysql uses the
  * connection's database as the schema; postgres lists `public`; oracle lists
@@ -405,7 +558,7 @@ export function tableListingSql(type: DatabaseType, connection?: DatabaseConnect
 
 /**
  * Metadata query per kind × type. `schema`/`table` are identifier whitelist
- * validated by the caller (`[A-Za-z0-9_$#.-]`) before they reach here.
+ * validated by the caller (`[A-Za-z0-9_$]`) before they reach here.
  */
 export function metadataQuery(
   kind: 'schemas' | 'tables' | 'describe',

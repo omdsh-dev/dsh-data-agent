@@ -8,9 +8,9 @@
  *
  * The HTTP routes live in the separate `./routes` entry
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
- * this row keeps working in headless profiles without a webserver; the sqlcmd
- * tool itself lives in the `./tool` entry and is mounted only by the
- * data-agent preset.
+ * this row keeps working in headless profiles without a webserver; the
+ * database tools themselves live in the `./tool` entry and are mounted only
+ * by the data-agent preset.
  * @module @yejiming/dsh-data-agent
  */
 
@@ -81,11 +81,11 @@ export interface Config {
   connectTimeoutMs: number
   /** Cap on the table list returned by /connect and /status. */
   introspectMaxTables: number
-  /** Deadline for one sqlcmd query, milliseconds. */
+  /** Deadline for one database-tool query, milliseconds. */
   queryTimeoutMs: number
-  /** In-memory cap on sqlcmd captured output. */
+  /** In-memory cap on database-tool captured output. */
   maxResultChars: number
-  /** Default read-only guard: true rejects write statements in sqlcmd//query. */
+  /** Default read-only guard: true rejects write statements in database tools and /query. */
   readonly: boolean
   /** CLI client overrides keyed by database type. */
   clients: ClientsConfig
@@ -173,7 +173,7 @@ export function apply(ctx: Context, config: Config): void {
     connections: config.connections,
   }
 
-  // The connection store is host-plane state: the sqlcmd tool half (mounted
+  // The connection store is host-plane state: the database tool half (mounted
   // inside the data-agent preset) consumes it across the agent boundary, so
   // it must live here, keyed by session id, not inside any preset realm.
   const store = createConnectionStore()

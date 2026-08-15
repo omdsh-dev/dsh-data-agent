@@ -1,6 +1,6 @@
 /**
  * The shared client-process runner used by both halves: the /connect
- * connectivity check (server half) and the sqlcmd tool (tool half). All
+ * connectivity check (server half) and the database tools (tool half). All
  * execution goes through `ctx.subprocess` — no shell layer, argv arrays only,
  * SQL on stdin, credentials in env entries — with a caller-owned timeout
  * (AbortController → process-tree terminate escalation) and bounded captured
@@ -13,7 +13,7 @@ import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin).
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
-import { buildClientTemplate, buildIntrospectTemplate, type ClientConfig } from './clients.ts'
+import { buildClientTemplate, buildIntrospectTemplate, buildStructuredQueryTemplate, type ClientConfig } from './clients.ts'
 import { DEFAULT_GRACE_MS } from './defaults.ts'
 
 /** One bounded captured-output read (the tail when truncated). */
@@ -22,7 +22,7 @@ export interface CapturedOutput {
   truncated: boolean
 }
 
-/** The canonical sqlcmd / connectivity-check result. */
+/** The canonical database-tool / connectivity-check result. */
 export interface QueryResult {
   /** Process exit code; null when the process died from a signal. */
   exitCode: number | null
@@ -34,6 +34,9 @@ export interface QueryResult {
   truncated: boolean
 }
 
+/** Which CLI flag set to use for one run. */
+export type QueryTemplateMode = 'query' | 'introspect' | 'structured'
+
 /** Runner options: client overrides, deadlines, output caps. */
 export interface QueryOptions {
   /** Deployment client overrides keyed by database type. */
@@ -44,6 +47,8 @@ export interface QueryOptions {
   maxResultChars: number
   /** Grace period for the terminate escalation; defaults to 5s. */
   graceMs?: number
+  /** CLI flag set; overrides the legacy `introspect` parameter when set. */
+  mode?: QueryTemplateMode
 }
 
 /** Read one collected stream from offset 0. */
@@ -81,9 +86,11 @@ export async function runClientQuery(
   externalSignal: AbortSignal,
   introspect = false,
 ): Promise<QueryResult> {
-  const template = introspect
-    ? buildIntrospectTemplate(connection.type, connection, options.clients[connection.type])
-    : buildClientTemplate(connection.type, connection, options.clients[connection.type])
+  const template = options.mode === 'structured'
+    ? buildStructuredQueryTemplate(connection.type, connection, options.clients[connection.type])
+    : options.mode === 'introspect' || introspect
+      ? buildIntrospectTemplate(connection.type, connection, options.clients[connection.type])
+      : buildClientTemplate(connection.type, connection, options.clients[connection.type])
 
   // One controller owns the whole attempt: the internal deadline and the
   // caller's cancellation both abort it, and the subprocess terminate

@@ -1,9 +1,14 @@
 /**
- * The sqlcmd tool half (`@yejiming/dsh-data-agent/tool`): mounted ONLY by
+ * The data-agent tool half (`@yejiming/dsh-data-agent/tool`): mounted ONLY by
  * the data-agent agent preset (`preset/data-agent/agent.cordis.yml`), never
  * by the host composition. It consumes the host's `subprocess` service and
  * the host-provided `dataAgentConnections` connection store, so it needs no
  * realm and satisfies the preset guard (a preset row that only consumes).
+ *
+ * Tool surface:
+ * - `sql-query`: read-only statements, structured `{ columns, rows, ... }`;
+ * - `sql-write`: one write/management statement per call, explicit autocommit;
+ * - `sqlcmd`: the original raw-terminal tool (kept for compatibility).
  *
  * Execution model (see `src/query.ts`): the SQL text travels on the client's
  * stdin, argv carries flags only, credentials go through environment entries
@@ -20,11 +25,11 @@ export declare const name = "data-agent-tool";
 export declare const inject: string[];
 /** Tool-half configuration (loader schema with the same defaults as the host). */
 export interface Config {
-    /** Deadline for one sqlcmd query, milliseconds. */
+    /** Deadline for one sqlcmd / sql-query / sql-write query, milliseconds. */
     queryTimeoutMs: number;
     /** In-memory cap on captured output. */
     maxResultChars: number;
-    /** Row-count guidance injected into the tool description. */
+    /** Enforced read-query row cap (LIMIT injection + structured truncation). */
     maxRows: number;
     /** Read-only guard: true rejects write statements. */
     readonly: boolean;
@@ -58,7 +63,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     }>, string>>;
 }>>;
 /**
- * Mount the sqlcmd tool: register it into the current agent's tool registry.
+ * Mount the data-agent database tools: `sql-query` (structured read-only),
+ * `sql-write` (explicit write semantics), and `sqlcmd` (raw compatibility).
  * @param ctx - the preset-scoped agent context.
  * @param config - validated loader configuration.
  */

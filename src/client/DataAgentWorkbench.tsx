@@ -25,7 +25,7 @@
  * Connection state lives on the server (the dataAgentConnections store), so
  * remounts never lose it — this component mirrors `/status` on mount.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -272,32 +272,69 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
   // Track the conversation column phase and its bounds for the left-rail
   // layout; toggle the da-split class that shifts chat + input to the right.
-  useEffect(() => {
-    const column = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
-    if (column === null) return
-    const measure = (): void => {
-      const rect = column.getBoundingClientRect()
-      setRailRect({ left: rect.left, top: rect.top, bottom: window.innerHeight - rect.bottom })
+  //
+  // Keyed on `isDataAgent` on purpose: the input dock mounts for every
+  // session, and for non-data-agent sessions this component renders null
+  // (see the gate below). A `[]` deps effect would run once on that null
+  // render — rootRef.current is null, no `[data-phase]` ancestor is found,
+  // and the observer never attaches, leaving the workbench stacked forever
+  // even after the conversation goes active. A layout effect is used so the
+  // observer attaches synchronously with the commit, and the poll below
+  // self-heals against a replaced conversation root or a missed mutation.
+  useLayoutEffect(() => {
+    let column = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
+    const refreshPhase = (): void => {
+      if (column === null) return
+      setPhase((prev) => {
+        const next = isHeroPhase(column) ? 'hero' : 'active'
+        return next === prev ? prev : next
+      })
     }
-    const refreshPhase = (): void => { setPhase(isHeroPhase(column) ? 'hero' : 'active') }
-    refreshPhase()
-    measure()
+    const measure = (): void => {
+      if (column === null) return
+      const rect = column.getBoundingClientRect()
+      const bottom = window.innerHeight - rect.bottom
+      setRailRect((prev) =>
+        prev !== null && prev.left === rect.left && prev.top === rect.top && prev.bottom === bottom
+          ? prev
+          : { left: rect.left, top: rect.top, bottom },
+      )
+    }
     const observer = new MutationObserver(refreshPhase)
-    observer.observe(column, { attributes: true, attributeFilter: ['data-phase'] })
     const resizer = new ResizeObserver(measure)
-    resizer.observe(column)
+    const sync = (): void => {
+      const next = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
+      if (next === null) return
+      if (next !== column) {
+        observer.disconnect()
+        resizer.disconnect()
+        column = next
+        observer.observe(column, { attributes: true, attributeFilter: ['data-phase'] })
+        resizer.observe(column)
+      }
+      refreshPhase()
+      measure()
+    }
+    sync()
     window.addEventListener('resize', measure)
+    // Self-healing poll: re-find the column (the host may replace the
+    // [data-phase] node while the dock stays mounted) and re-sync the phase
+    // and rail bounds even if a mutation was missed.
+    const poll = window.setInterval(sync, 1000)
     return () => {
+      window.clearInterval(poll)
       observer.disconnect()
       resizer.disconnect()
       window.removeEventListener('resize', measure)
     }
-  }, [])
+  }, [isDataAgent])
 
   // Split layout is active only for a live conversation (phase active) with
   // a measurable column; everything else stays stacked above the input.
   const split = phase === 'active' && railRect !== null
-  useEffect(() => {
+  // da-split toggling is layout work: flip it in the same commit that
+  // switches to the rail, so chat and composer shift right synchronously.
+  useLayoutEffect(() => {
     const root = document.documentElement
     const splitClass = css['da-split']
     if (split && splitClass !== undefined) root.classList.add(splitClass)

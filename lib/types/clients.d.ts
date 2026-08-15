@@ -12,12 +12,26 @@
  * @module @yejiming/dsh-data-agent/clients
  */
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
+import { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator } from './sql.ts';
+export { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator };
 /**
  * Classify a SQL text as a read or write statement by its FIRST effective
  * token (a conservative read whitelist, not a parser). `with` is read only
- * when its body's first token is `select`. `pragma` is read-only for SQLite.
+ * when its body's first token is `select`. SQLite `pragma` is read in its
+ * query form and write when a value is assigned.
  */
 export declare function classifyStatement(sql: string, type: DatabaseType): 'read' | 'write';
+/**
+ * Enforce the configured `maxRows` on a read query instead of relying on the
+ * prompt. SELECT/CTE-read statements get a real top-level LIMIT (Oracle uses
+ * a ROWNUM wrapper because it has no LIMIT); SHOW/DESCRIBE/EXPLAIN/PRAGMA are
+ * left untouched here and are capped while parsing structured output.
+ *
+ * An existing numeric top-level LIMIT is rewritten when it is larger than
+ * `maxRows`; a smaller existing LIMIT is preserved, and a non-numeric or
+ * unparseable LIMIT is left for the client (structured tools still truncate).
+ */
+export declare function enforceReadRowLimit(sql: string, type: DatabaseType, maxRows: number): string;
 /**
  * Validate and quote one schema/table identifier for a safe metadata query.
  * Identifiers are restricted to `[A-Za-z0-9_$]+` and then wrapped per type:
@@ -74,6 +88,12 @@ export declare function buildClientTemplate(type: DatabaseType, connection: Data
 /** Build one client invocation for metadata runs (machine-readable flags). */
 export declare function buildIntrospectTemplate(type: DatabaseType, connection: DatabaseConnection, override?: ClientConfig): ClientTemplate;
 /**
+ * Build one client invocation for the structured `sql-query` tool: every
+ * supported client prints a header row followed by one row per line (mysql
+ * tab, postgres pipe, sqlite csv, oracle pipe, hive/impala tsv).
+ */
+export declare function buildStructuredQueryTemplate(type: DatabaseType, connection: DatabaseConnection, override?: ClientConfig): ClientTemplate;
+/**
  * The table-listing SQL per type, run at /connect time to verify
  * connectivity: the connected database's own tables (mysql uses the
  * connection's database as the schema; postgres lists `public`; oracle lists
@@ -82,7 +102,7 @@ export declare function buildIntrospectTemplate(type: DatabaseType, connection: 
 export declare function tableListingSql(type: DatabaseType, connection?: DatabaseConnection): string;
 /**
  * Metadata query per kind × type. `schema`/`table` are identifier whitelist
- * validated by the caller (`[A-Za-z0-9_$#.-]`) before they reach here.
+ * validated by the caller (`[A-Za-z0-9_$]`) before they reach here.
  */
 export declare function metadataQuery(kind: 'schemas' | 'tables' | 'describe', type: DatabaseType, schema?: string, table?: string): string;
 /**

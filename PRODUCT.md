@@ -10,7 +10,7 @@ product
 
 ## Product Purpose
 
-dsh-data-agent 是一个 DSH 插件:为数据Agent 会话提供数据库工作台(连接配置、库表浏览、SQL 命令框),并提供一个只含 sqlcmd/read/write/edit 四个工具的专用 agent 预设,让 AI 与真实数据库形成 Agent Loop——写 SQL、执行、根据报错与结果动态调优。成功的样子是:用户配置好连接后,几乎不再碰工作台,把探索与查询交给 Chat 里的数据Agent。
+dsh-data-agent 是一个 DSH 插件:为数据Agent 会话提供数据库工作台(连接配置、库表浏览、SQL 命令框),并提供一个只含 sql-query/sql-write/sqlcmd 与 read/write/edit 的专用 agent 预设,让 AI 与真实数据库形成 Agent Loop——写 SQL、执行、根据报错与结果动态调优。成功的样子是:用户配置好连接后,几乎不再碰工作台,把探索与查询交给 Chat 里的数据Agent。
 
 ## Brand Personality
 

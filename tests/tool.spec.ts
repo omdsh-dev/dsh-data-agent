@@ -25,11 +25,13 @@ function makeContext(overrides: {
   spawn?: (spec: SpawnSpec) => FakeHandle
 }, configOverrides?: Partial<Config>) {
   const store = createConnectionStore()
-  let definition: { execute?: (args: { sql: string }, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown> } = {}
+  let definition: { name?: string, execute?: (args: { sql: string }, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown> } = {}
+  const definitions: Record<string, typeof definition> = {}
   const ctx = {
     tools: {
       register(def: typeof definition) {
         definition = def
+        if (def.name !== undefined) definitions[def.name] = def
       },
     },
     subprocess: {
@@ -56,7 +58,7 @@ function makeContext(overrides: {
     ...configOverrides,
   }
   apply(ctx as never, config)
-  return { ctx, definition, store, config }
+  return { ctx, definition, definitions, store, config }
 }
 
 /** A done promise that settles when the spawn spec's signal fires (pre-aborted included). */
@@ -245,5 +247,107 @@ describe('sqlcmd tool', () => {
     const result = await definition.execute!({ sql: 'SELECT * FROM orders;' }, execOf('session-a'))
     expect(result.exitCode).toBe(0)
     expect(captured).toBeDefined()
+  })
+})
+
+describe('sql-query / sql-write / sqlcmd hardening', () => {
+  it('registers all three database tools with sqlcmd registered last', () => {
+    const { definitions } = makeContext({})
+    expect(definitions['sql-query']).toBeDefined()
+    expect(definitions['sql-write']).toBeDefined()
+    expect(definitions['sqlcmd']).toBeDefined()
+  })
+
+  it('sql-query returns structured rows and truncates at maxRows', async () => {
+    const { definitions, store } = makeContext({
+      spawn() {
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: {
+            stdout: { readFrom: () => ({ text: 'id\tname\n1\ta\n2\tb\n3\tc\n', nextOffset: 0, lossy: false }) },
+            stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+          },
+        }
+      },
+    }, { maxRows: 2 })
+    store.set('session-a', { type: 'mysql', host: 'h', port: 3306, user: 'u', database: 'd' })
+    const result = await definitions['sql-query']!.execute!({ sql: 'SELECT id, name FROM orders;' }, execOf('session-a'))
+    expect(result).toMatchObject({
+      columns: ['id', 'name'],
+      rows: [
+        { id: '1', name: 'a' },
+        { id: '2', name: 'b' },
+      ],
+      affectedRows: 0,
+      truncated: true,
+    })
+    expect(result.elapsedMs).toBeTypeOf('number')
+  })
+
+  it('sql-query forces LIMIT for unbounded SELECT and uses the structured sqlite template', async () => {
+    let captured: SpawnSpec | undefined
+    const { definitions, store } = makeContext({
+      spawn(spec) {
+        captured = spec
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: {
+            stdout: { readFrom: () => ({ text: 'id\n1\n', nextOffset: 0, lossy: false }) },
+            stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+          },
+        }
+      },
+    }, { maxRows: 25 })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    await definitions['sql-query']!.execute!({ sql: 'SELECT * FROM orders' }, execOf('session-a'))
+    expect(captured!.argv).toEqual(['/usr/bin/sqlite3', '-header', '-csv', '/tmp/orders.db'])
+    expect(captured!.stdio.stdin).toEqual({ data: 'SELECT * FROM orders LIMIT 25\n' })
+  })
+
+  it('sql-query rejects write statements', async () => {
+    let spawned = false
+    const { definitions, store } = makeContext({
+      spawn() {
+        spawned = true
+        return { done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }
+      },
+    })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    await expect(definitions['sql-query']!.execute!({ sql: 'DELETE FROM orders;' }, execOf('session-a')))
+      .rejects.toThrow(/只执行读语句/)
+    expect(spawned).toBe(false)
+  })
+
+  it('sql-write rejects read statements and rejects writes when readonly', async () => {
+    let spawned = 0
+    const { definitions, store } = makeContext({
+      spawn() {
+        spawned += 1
+        return { done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }
+      },
+    })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    await expect(definitions['sql-write']!.execute!({ sql: 'SELECT * FROM orders;' }, execOf('session-a')))
+      .rejects.toThrow(/sql-write 只执行写/)
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db', readonly: true })
+    await expect(definitions['sql-write']!.execute!({ sql: 'INSERT INTO orders VALUES (1);' }, execOf('session-a')))
+      .rejects.toThrow(/只读模式/)
+    expect(spawned).toBe(0)
+  })
+
+  it('rejects multiple statements in every database tool', async () => {
+    let spawned = 0
+    const { definitions, store } = makeContext({
+      spawn() {
+        spawned += 1
+        return { done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }
+      },
+    })
+    store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
+    for (const tool of ['sql-query', 'sql-write', 'sqlcmd']) {
+      await expect(definitions[tool]!.execute!({ sql: 'SELECT 1; SELECT 2;' }, execOf('session-a')))
+        .rejects.toThrow(/一次只允许执行一条 SQL 语句/)
+    }
+    expect(spawned).toBe(0)
   })
 })

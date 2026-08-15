@@ -6,7 +6,7 @@
 
 This plugin is a Data Agent built on DeepSeek Harness, letting DeepSeek focus on database operations.
 
-Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Agent preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds a custom sqlcmd tool in place of the bash tool, free from irrelevant tools and prompts.
+Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Agent preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds custom sql-query / sql-write / sqlcmd database tools in place of the bash tool, free from irrelevant tools and prompts.
 
 With this preset, you can configure a database connection right in the conversation UI, grant the AI access to the database, and complete CRUD operations.
 
@@ -17,8 +17,8 @@ With this preset, you can configure a database connection right in the conversat
   ![Database connection](assets/connection.png)
 
 - **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its scrollable table list, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
-- **sqlcmd tool**: runs SQL/commands through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated.
-- **Data Agent preset**: choose "Data Agent" when creating a session — the tool surface is exactly `sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Agent sessions render no workbench at all.
+- **Database tools**: `sql-query` runs read-only SQL and returns structured `{ columns, rows, affectedRows, elapsedMs }`; `sql-write` runs one write/management SQL per call with explicit autocommit semantics; `sqlcmd` keeps the original raw terminal output. All three run through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated, and one call carries at most one SQL statement.
+- **Data Agent preset**: choose "Data Agent" when creating a session — the tool surface is `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Agent sessions render no workbench at all.
 
   ![Data Agent preset](assets/settings.png)
 
@@ -76,7 +76,7 @@ Browser (apps/web)                        Host process (dsh --profile web)
 │ agent.cordis.yml (preset layer, only 3 rows)                             │
 │  · persona             → data-engineer system prompt                     │
 │  · dsh-tool-fs         → read / write / edit (project built-ins)         │
-│  · dsh-data-agent/tool → sqlcmd (this package's tool half)               │
+│  · dsh-data-agent/tool → sql-query / sql-write / sqlcmd (tool half)      │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -101,12 +101,12 @@ Every field has a loader default; there are no library-level defaults. Host row 
 | `installPreset` | Whether to self-install the preset on startup (default true; existing directories are skipped, keeping user edits) |
 | `connectTimeoutMs` | End-to-end deadline for one /connect connectivity check (default 10000 ms) |
 | `introspectMaxTables` | Cap on the table list returned by /connect and /status (default 500) |
-| `queryTimeoutMs` | Deadline for one sqlcmd query (default 30000 ms) |
-| `maxResultChars` | In-memory cap on captured sqlcmd output, per stream (default 20000 chars) |
+| `queryTimeoutMs` | Deadline for one database-tool query (default 30000 ms) |
+| `maxResultChars` | In-memory cap on captured database-tool output, per stream (default 20000 chars) |
 | `clients` | Per-type CLI client overrides: `{ command?, args? }` for keys `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala` (built-in defaults mysql/psql/sqlite3/sqlplus/beeline/impala-shell) |
 | `connections` | Config-seeded connections keyed by session id (`'*'` = wildcard default for any session without its own; headless/keyless runs and deployments pinning one database). **No password field** — passwords only enter memory via the /connect route |
 
-The `tool-sqlcmd` row (inside the data-agent preset) additionally has `maxRows` (default 100, injected into the tool description as LIMIT guidance); `queryTimeoutMs` / `maxResultChars` / `clients` share the host row's names and defaults.
+The `tool-sqlcmd` row (inside the data-agent preset) additionally has `maxRows` (default 100, enforced: an unbounded SELECT gets a top-level LIMIT and structured parsing truncates as a second guard); `queryTimeoutMs` / `maxResultChars` / `clients` share the host row's names and defaults.
 
 The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` mirror the main row; plus `queryTimeoutMs` (for /query and metadata queries, default 30000) and `maxQueryChars` (single-SQL length cap for /query, default 65536).
 
@@ -128,7 +128,7 @@ The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspect
 
 ## Headless / One-shot Runs
 
-**Important**: `dsh run` (the headless bundle) does not mount the agent-presets roster and never mounts presets for sessions — preset mounting belongs to the web surface (the api-proxy mounts on session creation). Therefore **headless sessions cannot use the sqlcmd/read/write/edit tool surface**; sqlcmd is verified and used on the web surface. Headless database work is limited to the host base's own tools (e.g. calling clients via bash).
+**Important**: `dsh run` (the headless bundle) does not mount the agent-presets roster and never mounts presets for sessions — preset mounting belongs to the web surface (the api-proxy mounts on session creation). Therefore **headless sessions cannot use the sql-query/sql-write/sqlcmd/read/write/edit tool surface**; the database tools are verified and used on the web surface. Headless database work is limited to the host base's own tools (e.g. calling clients via bash).
 
 (Note: inserting the roster row plus disabling the base tool rows cannot reproduce the preset tool surface headless — the agent ends up with an empty, zero-tool composition. For a headless smoke test, verify "seeded connections + host tools work" only.)
 
@@ -146,16 +146,16 @@ Prefix `/plugins/data-agent` (same-origin calls from the browser half):
 | `GET /schemas?sessionId=` | `{ ok, schemas: string[] }`; database list (sqlite returns `['main']`) |
 | `GET /tables?sessionId=&schema=` | `{ ok, tables: string[] }`; tables of one schema (sqlite ignores the schema param) |
 | `GET /describe?sessionId=&schema=&table=` | `{ ok, columns: [{ name, type, nullable? }] }`; table structure (sqlite ignores schema) |
-| `POST /query` | body `{ sessionId, sql }`; run arbitrary SQL (the workbench command box, non-agent channel), returns `{ ok, result: { exitCode, stdout, stderr, truncated } }`; `sql` length capped by `maxQueryChars` |
+| `POST /query` | body `{ sessionId, sql }`; runs one SQL statement (the workbench command box, non-agent channel), returns `{ ok, result: { exitCode, stdout, stderr, truncated } }`; `sql` length capped by `maxQueryChars`; multiple statements are rejected; readonly rejects writes |
 
-Schema/table identifiers allow only `[A-Za-z0-9_$#.-]` (server-side whitelist; injection-shaped input is rejected).
+Schema/table identifiers allow only `[A-Za-z0-9_$]` (server-side whitelist and per-type quoting; injection-shaped input is rejected).
 
 ## Security Notes
 
 - **Passwords**: server-side, memory only; transport per type — mysql via `MYSQL_PWD`, postgres via `PGPASSWORD` environment variables; oracle via the sqlplus `connect user/pass@...` stdin prefix, hive via the beeline `!connect` stdin prefix (never argv); impala sends no password by default (LDAP/kerberos configured through `clients`). `/status` and the public connection-store reads strip passwords.
-- **Connection-config persistence**: the workbench saves the connection config (**including the password**, in plain text) to browser localStorage (key `dsh-data-agent.connection.v1`, per the confirmed local single-user scenario) after a successful connect, to restore the form and auto-reconnect once on page switches/restarts; disconnecting does not clear it. To clear: run `localStorage.removeItem('dsh-data-agent.connection.v1')` in the browser console.
+- **Connection-config persistence**: the workbench saves the connection config (type/host/port/user/database) to browser localStorage (key `dsh-data-agent.connection.v1`) to restore the form and auto-reconnect once on page switches/restarts. **Passwords are not persisted by default**; they are stored only when "remember password" is explicitly checked (plain-text localStorage, opt-in). To clear: run `localStorage.removeItem('dsh-data-agent.connection.v1')` in the browser console.
 - **No shell layer**: `ctx.subprocess.spawn` uses argv arrays, SQL and connect prefixes travel via stdin — no shell concatenation injection surface; metadata route identifiers pass the whitelist.
-- **SQL execution authority**: with the approval policy set to `never`, sqlcmd and `/query` execute DDL/DML directly — connections are session-isolated; assess the data-plane risk yourself (a `readonly` mode is a later version).
+- **SQL execution authority**: with the approval policy set to `never`, `sql-write`/`sqlcmd` and `/query` execute DDL/DML directly — connections are session-isolated; assess the data-plane risk yourself. `readonly: true` rejects write statements; each database-tool call is an independent client process with autocommit, so transactions do not span calls.
 - **Timeouts & caps**: query timeouts, output truncation, table-list caps, and the /query SQL length are all config items — no hard-coded tunables.
 
 ## Uninstall & Rollback
