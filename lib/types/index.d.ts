@@ -31,6 +31,12 @@ export interface ClientsConfig {
     mysql?: ClientConfig;
     postgres?: ClientConfig;
     sqlite?: ClientConfig;
+    oracle?: ClientConfig;
+    hive?: ClientConfig;
+    impala?: ClientConfig;
+    clickhouse?: ClientConfig;
+    doris?: ClientConfig;
+    sqlserver?: ClientConfig;
 }
 /**
  * One config-seeded connection. Deliberately password-free: passwords are a
@@ -85,14 +91,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
     connections: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
-        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
+        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
-        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
         port: import("@deepseek-ai/schemastery").default<number, number>;
         user: import("@deepseek-ai/schemastery").default<string, string>;
@@ -115,14 +121,14 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         args: import("@deepseek-ai/schemastery").default<string[], string[]>;
     }>, string>>;
     connections: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
-        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
+        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
-        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
         port: import("@deepseek-ai/schemastery").default<number, number>;
         user: import("@deepseek-ai/schemastery").default<string, string>;

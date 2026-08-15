@@ -22,7 +22,7 @@
 /** Key of the wildcard (default) connection applied to any session without its own. */
 export declare const WILDCARD_SESSION = "*";
 /** Supported database client kinds. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala';
+export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala' | 'clickhouse' | 'doris' | 'sqlserver';
 /**
  * One session's database connection. `host`/`port`/`user` are empty for
  * SQLite, whose `database` is a file path (resolved to absolute at connect).

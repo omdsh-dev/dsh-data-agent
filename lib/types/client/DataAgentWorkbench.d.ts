@@ -1,6 +1,6 @@
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 /** Database kinds offered by the connection form. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala';
+export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala' | 'clickhouse' | 'doris' | 'sqlserver';
 /** The sessions-list slice the workbench needs (structural; avoids a runtime import). */
 export interface SessionListLike {
     byId: Record<string, {

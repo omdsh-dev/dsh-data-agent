@@ -13,6 +13,7 @@
  * @module @yejiming/dsh-data-agent/tool
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { DatabaseType } from './connections.ts';
 import { type ClientConfig } from './clients.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent-tool";
@@ -29,7 +30,7 @@ export interface Config {
     /** Read-only guard: true rejects write statements. */
     readonly: boolean;
     /** CLI client overrides keyed by database type. */
-    clients: Partial<Record<string, ClientConfig>>;
+    clients: Partial<Record<DatabaseType, ClientConfig>>;
 }
 /** Loader schema with deployment defaults (no library defaults). */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{

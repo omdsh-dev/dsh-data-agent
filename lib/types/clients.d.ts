@@ -103,9 +103,12 @@ export interface ColumnInfo {
 /**
  * Parse one type's describe output into columns. Formats:
  * - mysql `--batch`: `Field\tType\tNull\tKey\t...` (skip header);
+ * - doris: same mysql-style shape (skip header);
  * - postgres `-t -A`: `name|type|is_nullable`;
  * - sqlite `-noheader -list`: `cid|name|type|notnull|dflt|pk` (name is part 1);
  * - oracle (`SET COLSEP '|'`, heading off): `NAME|TYPE|NULLABLE`;
- * - hive/impala batch: `name\ttype\tcomment`.
+ * - hive/impala batch: `name\ttype\tcomment`;
+ * - clickhouse `--format TSV`: `name\ttype\t...` (no nullability);
+ * - sqlserver `-s '|' -h -1`: `name|type|IS_NULLABLE`.
  */
 export declare function parseColumns(type: DatabaseType, stdout: string): ColumnInfo[];
