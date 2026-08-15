@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build output
 # lib/ is committed: git-hosted installs (pnpm git deps) and tarball installs

@@ -55,7 +55,7 @@ import type {
   DatabaseConnection,
   DatabaseType,
 } from './connections.ts'
-import { metadataQuery, parseColumns, parseListing, parseTableListing, sanitizeIdentifier, classifyStatement, tableListingSql } from './clients.ts'
+import { clientsSchema, metadataQuery, parseColumns, parseListing, parseTableListing, sanitizeIdentifier, classifyStatement, tableListingSql, type ClientConfig } from './clients.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_INTROSPECT_MAX_TABLES,
@@ -93,6 +93,8 @@ export interface Config {
   maxQueryChars: number
   /** Read-only guard: true rejects write statements in /query. */
   readonly: boolean
+  /** CLI client overrides keyed by database type (same shape as the main row). */
+  clients: Partial<Record<DatabaseType, ClientConfig>>
 }
 
 /** Loader schema with deployment defaults (no library defaults). */
@@ -103,6 +105,7 @@ export const Config = z.object({
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
   maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
   readonly: z.boolean().default(false),
+  clients: clientsSchema,
 })
 
 /** The connection request wire body (validated in the /connect handler). */
@@ -135,8 +138,9 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
   }
   const type = candidate.type
   if (type !== 'mysql' && type !== 'postgres' && type !== 'sqlite'
-    && type !== 'oracle' && type !== 'hive' && type !== 'impala') {
-    throw new Error('type 必须是 "mysql"、"postgres"、"sqlite"、"oracle"、"hive" 或 "impala"')
+    && type !== 'oracle' && type !== 'hive' && type !== 'impala'
+    && type !== 'clickhouse' && type !== 'doris' && type !== 'sqlserver') {
+    throw new Error('type 必须是 "mysql"、"postgres"、"sqlite"、"oracle"、"hive"、"impala"、"clickhouse"、"doris" 或 "sqlserver"')
   }
   const database = candidate.database
   if (typeof database !== 'string' || database.length === 0) {
@@ -185,12 +189,12 @@ export function apply(ctx: Context, config: Config): void {
   ctx.inject(['webServer', 'subprocess', 'dataAgentConnections'], (scope) => {
     const store: DataAgentConnections = scope.dataAgentConnections
     const connectOptions = {
-      clients: {},
+      clients: config.clients,
       timeoutMs: config.connectTimeoutMs,
       maxResultChars: config.maxResultChars,
     }
     const queryOptions = {
-      clients: {},
+      clients: config.clients,
       timeoutMs: config.queryTimeoutMs,
       maxResultChars: config.maxResultChars,
     }
