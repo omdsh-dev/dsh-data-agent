@@ -128,7 +128,16 @@ function PlayIcon({ className }: { className?: string }) {
 }
 
 /** Database kinds offered by the connection form. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
+export type DatabaseType =
+  | 'mysql'
+  | 'postgres'
+  | 'sqlite'
+  | 'oracle'
+  | 'hive'
+  | 'impala'
+  | 'clickhouse'
+  | 'doris'
+  | 'sqlserver'
 
 /** The sessions-list slice the workbench needs (structural; avoids a runtime import). */
 export interface SessionListLike {
@@ -199,6 +208,9 @@ function defaultPortOf(type: DatabaseType): string {
     case 'oracle': return '1521'
     case 'hive': return '10000'
     case 'impala': return '21050'
+    case 'clickhouse': return '9000'
+    case 'doris': return '9030'
+    case 'sqlserver': return '1433'
     case 'sqlite': return ''
     case 'mysql': return '3306'
   }
@@ -734,7 +746,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   onChange={(event) => {
                     const next = event.target.value as DatabaseType
                     setType(next)
-                    setPort(next === 'postgres' ? '5432' : next === 'mysql' ? '3306' : next === 'oracle' ? '1521' : next === 'hive' ? '10000' : next === 'impala' ? '21050' : '')
+                    setPort(defaultPortOf(next))
                   }}
                 >
                   <option value="mysql">{t('type.mysql')}</option>
@@ -743,6 +755,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   <option value="oracle">{t('type.oracle')}</option>
                   <option value="hive">{t('type.hive')}</option>
                   <option value="impala">{t('type.impala')}</option>
+                  <option value="clickhouse">{t('type.clickhouse')}</option>
+                  <option value="doris">{t('type.doris')}</option>
+                  <option value="sqlserver">{t('type.sqlserver')}</option>
                 </select>
               </label>
 

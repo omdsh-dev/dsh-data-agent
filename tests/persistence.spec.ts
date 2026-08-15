@@ -70,6 +70,15 @@ describe('persistence', () => {
     expect(loadConnection(storage)).toEqual(sqlite)
   })
 
+  it('round-trips the new database types', () => {
+    const storage = memoryStorage()
+    for (const type of ['clickhouse', 'doris', 'sqlserver'] as const) {
+      const connection = { type, host: 'h', port: 9000, user: 'u', database: 'db', savedAt: 'x' }
+      saveConnection(connection, storage)
+      expect(loadConnection(storage)).toEqual(connection)
+    }
+  })
+
   it('returns null for absent data', () => {
     expect(loadConnection(memoryStorage())).toBeNull()
   })

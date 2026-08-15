@@ -58,7 +58,8 @@ function parseSaved(value: unknown): SavedConnection | null {
   const candidate = value as Record<string, unknown>
   const type = candidate.type
   if (type !== 'mysql' && type !== 'postgres' && type !== 'sqlite'
-    && type !== 'oracle' && type !== 'hive' && type !== 'impala') {
+    && type !== 'oracle' && type !== 'hive' && type !== 'impala'
+    && type !== 'clickhouse' && type !== 'doris' && type !== 'sqlserver') {
     return null
   }
   const database = candidate.database
