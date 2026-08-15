@@ -182,6 +182,15 @@ pnpm build   # 清空并重建 lib/（tsdown：lib/index.js、lib/routes.js、li
 pnpm test    # vitest：连接存储 / CLI 模板 / sqlcmd 执行（mock subprocess）
 ```
 
+可选的真实环境集成冒烟（未设置 `DSH_SMOKE_HOST` 时自动跳过；会在目标服务上临时创建并清理 `dsh_smoke` 库表）：
+
+```sh
+DSH_SMOKE_HOST=192.168.0.243 \
+DSH_SMOKE_CH_PASSWORD='...' DSH_SMOKE_MSSQL_PASSWORD='...' \
+PATH="/path/to/clickhouse-client:/path/to/mysql:/path/to/sqlcmd:$PATH" \
+pnpm vitest run tests/integration-smoke.spec.ts
+```
+
 `lib/` 已提交进仓库，安装与调试（含 `dsh plugin add .`）都不需要先构建。重新
 构建产物时直接 `pnpm install` 即可：`@deepseek-ai/*` 等依赖均已发布到 npm，
 无需再从本地 DSH checkout 复制/链接 node_modules。`pnpm-workspace.yaml` 采用

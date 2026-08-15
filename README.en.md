@@ -178,6 +178,15 @@ pnpm build   # cleans and rebuilds lib/ (tsdown: lib/index.js, lib/routes.js, li
 pnpm test    # vitest: connection store / CLI templates / sqlcmd execution (mocked subprocess)
 ```
 
+Optional real-environment integration smoke (auto-skipped unless `DSH_SMOKE_HOST` is set; creates and drops a `dsh_smoke` database/table set on each target):
+
+```sh
+DSH_SMOKE_HOST=192.168.0.243 \
+DSH_SMOKE_CH_PASSWORD='...' DSH_SMOKE_MSSQL_PASSWORD='...' \
+PATH="/path/to/clickhouse-client:/path/to/mysql:/path/to/sqlcmd:$PATH" \
+pnpm vitest run tests/integration-smoke.spec.ts
+```
+
 `lib/` is committed, so installing and debugging (including `dsh plugin add .`)
 never requires a build. To rebuild the artifacts, just run `pnpm install`: all
 `@deepseek-ai/*` dependencies are published on npm, so there is no need to copy
