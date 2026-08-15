@@ -2,7 +2,6 @@
 
 本目录提供一套**表结构复杂、字段丰富、数据量充足**的 MySQL 测试数据集，用于验证
 dsh-data-agent 插件全链路（连接 / 库表浏览 / SQL 命令框 / sqlcmd / AI 对话探查）。
-规划文档见 `docs/mysql-demo-plan.md`。
 
 ## 快速开始
 

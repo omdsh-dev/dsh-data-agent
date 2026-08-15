@@ -12,17 +12,18 @@ With this preset, you can configure a database connection right in the conversat
 
 ## Features
 
-- **Database connection management**: per-session connections to MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala (SQLite uses a file path, Oracle a service name/SID, Hive/Impala a default database). Connection state lives in server memory and survives layout switches; passwords stay in memory and travel to the client via environment variables or stdin connect prefixes — never written to disk on the server.
+- **Database connection management**: per-session connections to MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala / ClickHouse / Doris / SQL Server (SQLite uses a file path, Oracle a service name/SID, Hive/Impala a default database, SQL Server browses the schemas of the connected database). Connection state lives in server memory and survives layout switches; passwords stay in memory and travel to the client via environment variables or stdin connect prefixes — never written to disk on the server.
 
   ![Database connection](assets/connection.png)
 
 - **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its scrollable table list, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
-- **sqlcmd tool**: runs SQL/commands through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated.
+- **sqlcmd tool**: runs SQL/commands through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell / clickhouse-client / sqlcmd); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated.
 - **Data Agent preset**: choose "Data Agent" when creating a session — the tool surface is exactly `sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Agent sessions render no workbench at all.
 
   ![Data Agent preset](assets/settings.png)
 
 - **Standard agent loop**: a data-agent session is an ordinary DSH session — standard turn/step, streaming, tool scheduling, and persistence, with zero host changes.
+- **Planned, not yet supported**: FlinkSQL / SparkSQL — they are compute engines rather than database connections, and support requires a file-input channel plus engine-semantics rework; they will be evaluated in a later release.
 
 ## Quick Install
 
@@ -56,9 +57,9 @@ Start the Web GUI:
 dsh --profile web
 ```
 
-In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
+In the Web GUI: create a session → choose the "Data Agent" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path, SQL Server browses the schemas of the connected database, cross-database work goes through SQL) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
 
-> Database client binaries: sqlite3 usually ships with macOS/Linux; mysql / psql / sqlplus / beeline / impala-shell must be provided by the deployment and can be overridden per type via the `clients` config (missing clients are named in the connect error).
+> Database client binaries: sqlite3 usually ships with macOS/Linux; mysql / psql / sqlplus / beeline / impala-shell / clickhouse-client / sqlcmd must be provided by the deployment and can be overridden per type via the `clients` config (missing clients are named in the connect error). Doris reuses the mysql client (default port 9030).
 
 ## Architecture
 
@@ -66,7 +67,7 @@ In the Web GUI: create a session → choose the "Data Agent" preset → the data
 Browser (apps/web)                        Host process (dsh --profile web)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
 │ Database workbench (input.dock) │ fetch │ @yejiming/dsh-data-agent (host row)│
-│  · connection config (6 types) │ ─────▶ │  · /plugins/data-agent/* routes       │
+│  · connection config (9 types) │ ─────▶ │  · /plugins/data-agent/* routes       │
 │  · schema explorer + SQL box   │        │  · dataAgentConnections store         │
 │  · hero stacked / active rail  │        │  · preset self-install → $DSH_HOME/   │
 └─────────────────────────────┘          └──────────────┬───────────────────────┘
@@ -103,12 +104,12 @@ Every field has a loader default; there are no library-level defaults. Host row 
 | `introspectMaxTables` | Cap on the table list returned by /connect and /status (default 500) |
 | `queryTimeoutMs` | Deadline for one sqlcmd query (default 30000 ms) |
 | `maxResultChars` | In-memory cap on captured sqlcmd output, per stream (default 20000 chars) |
-| `clients` | Per-type CLI client overrides: `{ command?, args? }` for keys `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala` (built-in defaults mysql/psql/sqlite3/sqlplus/beeline/impala-shell) |
+| `clients` | Per-type CLI client overrides: `{ command?, args? }` for keys `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala` / `clickhouse` / `doris` / `sqlserver` (built-in defaults mysql/psql/sqlite3/sqlplus/beeline/impala-shell/clickhouse-client/mysql/sqlcmd; the sqlserver defaults include `-C` to trust the server certificate, overridable via `args`) |
 | `connections` | Config-seeded connections keyed by session id (`'*'` = wildcard default for any session without its own; headless/keyless runs and deployments pinning one database). **No password field** — passwords only enter memory via the /connect route |
 
 The `tool-sqlcmd` row (inside the data-agent preset) additionally has `maxRows` (default 100, injected into the tool description as LIMIT guidance); `queryTimeoutMs` / `maxResultChars` / `clients` share the host row's names and defaults.
 
-The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` mirror the main row; plus `queryTimeoutMs` (for /query and metadata queries, default 30000) and `maxQueryChars` (single-SQL length cap for /query, default 65536).
+The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` / `readonly` / `clients` mirror the main row; plus `queryTimeoutMs` (for /query and metadata queries, default 30000) and `maxQueryChars` (single-SQL length cap for /query, default 65536).
 
 ```yaml
 # Example override in cordis.patch.yml or a profile layer
@@ -152,8 +153,9 @@ Schema/table identifiers allow only `[A-Za-z0-9_$#.-]` (server-side whitelist; i
 
 ## Security Notes
 
-- **Passwords**: server-side, memory only; transport per type — mysql via `MYSQL_PWD`, postgres via `PGPASSWORD` environment variables; oracle via the sqlplus `connect user/pass@...` stdin prefix, hive via the beeline `!connect` stdin prefix (never argv); impala sends no password by default (LDAP/kerberos configured through `clients`). `/status` and the public connection-store reads strip passwords.
-- **Connection-config persistence**: the workbench saves the connection config (**including the password**, in plain text) to browser localStorage (key `dsh-data-agent.connection.v1`, per the confirmed local single-user scenario) after a successful connect, to restore the form and auto-reconnect once on page switches/restarts; disconnecting does not clear it. To clear: run `localStorage.removeItem('dsh-data-agent.connection.v1')` in the browser console.
+- **Passwords**: server-side, memory only; transport per type — mysql/doris via `MYSQL_PWD`, postgres via `PGPASSWORD`, clickhouse via `CLICKHOUSE_PASSWORD`, sqlserver via `SQLCMDPASSWORD` environment variables; oracle via the sqlplus `connect user/pass@...` stdin prefix, hive via the beeline `!connect` stdin prefix (never argv); impala sends no password by default (LDAP/kerberos configured through `clients`). `/status` and the public connection-store reads strip passwords.
+- **SQL Server certificate trust**: the default client args include `-C` (trust the server certificate) so local/self-signed instances connect out of the box; for strict verification, override `clients.sqlserver.args` with an arg set without `-C`.
+- **Connection-config persistence**: the workbench saves the connection config (type/host/port/user/database) to browser localStorage (key `dsh-data-agent.connection.v1`) to restore the form and auto-reconnect once on page switches/restarts. **Passwords are not persisted by default**: they are written to localStorage only when the user checks "Remember password" (explicit opt-in, plain text, local single-user scenario). To clear: run `localStorage.removeItem('dsh-data-agent.connection.v1')` in the browser console.
 - **No shell layer**: `ctx.subprocess.spawn` uses argv arrays, SQL and connect prefixes travel via stdin — no shell concatenation injection surface; metadata route identifiers pass the whitelist.
 - **SQL execution authority**: with the approval policy set to `never`, sqlcmd and `/query` execute DDL/DML directly — connections are session-isolated; assess the data-plane risk yourself (a `readonly` mode is a later version).
 - **Timeouts & caps**: query timeouts, output truncation, table-list caps, and the /query SQL length are all config items — no hard-coded tunables.

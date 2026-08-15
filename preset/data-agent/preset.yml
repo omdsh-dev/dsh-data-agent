@@ -1,3 +1,3 @@
 name: 数据Agent
-description: 数据工程师 Agent：连接 MySQL/PostgreSQL/SQLite 数据库，用 sqlcmd/read/write/edit 四个工具探查 schema、编写并执行 SQL。
+description: 数据工程师 Agent：连接 MySQL/PostgreSQL/SQLite/Oracle/Hive/Impala/ClickHouse/Doris/SQL Server 数据库，用 sqlcmd/read/write/edit 四个工具探查 schema、编写并执行 SQL。
 order: 4
