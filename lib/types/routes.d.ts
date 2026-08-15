@@ -40,6 +40,7 @@ declare module '@deepseek-ai/cordis' {
     }
 }
 import type { DatabaseType } from './connections.ts';
+import { type ClientConfig } from './clients.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent-routes";
 /**
@@ -65,6 +66,8 @@ export interface Config {
     maxQueryChars: number;
     /** Read-only guard: true rejects write statements in /query. */
     readonly: boolean;
+    /** CLI client overrides keyed by database type (same shape as the main row). */
+    clients: Partial<Record<DatabaseType, ClientConfig>>;
 }
 /** Loader schema with deployment defaults (no library defaults). */
 export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
@@ -74,6 +77,13 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
     readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
+        command?: string | null | undefined;
+        args?: string[] | null | undefined;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
+    }>, string>>;
 }>, Schemastery.ObjectT<{
     connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
@@ -81,6 +91,13 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
     readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
+        command?: string | null | undefined;
+        args?: string[] | null | undefined;
+    } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
+        command: import("@deepseek-ai/schemastery").default<string, string>;
+        args: import("@deepseek-ai/schemastery").default<string[], string[]>;
+    }>, string>>;
 }>>;
 /** The connection request wire body (validated in the /connect handler). */
 export interface ConnectRequestBody {

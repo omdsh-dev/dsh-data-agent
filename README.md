@@ -16,17 +16,18 @@
 
 ## 主要功能
 
-- **数据库连接管理**：按会话连接 MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala（SQLite 走文件路径，Oracle 填服务名/SID，Hive/Impala 填默认库），连接状态驻留服务端内存，布局切换不丢；密码仅内存、经环境变量或 stdin 连接前缀传给客户端，绝不落盘。
+- **数据库连接管理**：按会话连接 MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala / ClickHouse / Doris / SQL Server（SQLite 走文件路径，Oracle 填服务名/SID，Hive/Impala 填默认库，SQL Server 浏览当前库内的 schema），连接状态驻留服务端内存，布局切换不丢；密码仅内存、经环境变量或 stdin 连接前缀传给客户端，绝不落盘。
 
   ![数据库连接](assets/connection.png)
 - **数据库工作台**（内嵌于会话输入框上方）：连接配置卡（连接成功后折叠为摘要行，可展开查看）；库表浏览（点击「库表」按钮弹出 Modal：单击库展开表列表（可滚动），点击表查看结构）；SQL 命令框（编辑并运行 SQL，非 agent 通道，结果等宽展示）。连接配置持久化到浏览器 localStorage，切换页面/重启自动回填并重连。开始对话后工作台自动变为左侧栏，对话记录与输入框在右侧。
 
   ![数据库工作台](assets/tables.png)
-- **sqlcmd 工具**：在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell）执行 SQL/命令；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断。
+- **sqlcmd 工具**：在数据库客户端（mysql / psql / sqlite3 / sqlplus / beeline / impala-shell / clickhouse-client / sqlcmd）执行 SQL/命令；无 shell 层（argv 数组化 + SQL 走 stdin），超时自动终止进程树，输出有界截断。
 - **数据Agent 预设**：新建会话可选「数据Agent」——工具面恰好是 `sqlcmd`/`read`/`write`/`edit` 四个，项目其他工具（bash、grep、skill、todo、goal、web、subagent 等）全部缺席即禁用；非数据Agent 会话不渲染工作台，零影响。
 
   ![数据Agent 预设](assets/settings.png)
 - **标准 agent loop**：data-agent 会话就是普通 DSH 会话，走标准 turn/step、流式输出、工具调度与持久化，零宿主改动。
+- **规划中（暂不支持）**：FlinkSQL / SparkSQL——它们是计算引擎而非数据库连接，接入需文件输入通道与引擎语义改造，将在后续版本评估。
 
 ## 快速安装
 
@@ -60,9 +61,9 @@ ls $DSH_HOME/.agent-presets/data-agent/   # 应有 agent.cordis.yml + preset.yml
 dsh --profile web
 ```
 
-在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
+在 Web GUI 中：新建会话 → 选择「数据Agent」预设 → 输入框上方出现数据库工作台 → 填写连接信息（类型/主机/端口/用户/密码/库名；SQLite 填文件路径，SQL Server 的「库」列当前库内 schema，跨库走 SQL）→ 连接成功后浏览库表（单击库展开表、点击表看结构），或在 SQL 命令框直接运行 SQL → 开始对话后工作台移到左侧，在 Chat 让 AI「列出所有表并统计行数」或「写一条 SQL 查出近 30 天订单，保存到 orders.sql 并执行」。
 
-> 数据库客户端二进制要求：sqlite3 一般系统自带（macOS/Linux）；mysql / psql / sqlplus / beeline / impala-shell 需部署方安装，且可在插件配置 `clients` 中覆盖命令名或绝对路径（缺失时连接报错会点名缺失的命令）。
+> 数据库客户端二进制要求：sqlite3 一般系统自带（macOS/Linux）；mysql / psql / sqlplus / beeline / impala-shell / clickhouse-client / sqlcmd 需部署方安装，且可在插件配置 `clients` 中覆盖命令名或绝对路径（缺失时连接报错会点名缺失的命令）。Doris 复用 mysql 客户端（默认端口 9030）。
 
 ## 架构
 
@@ -70,7 +71,7 @@ dsh --profile web
 浏览器 (apps/web)                         宿主进程 (dsh --profile web)
 ┌─────────────────────────────┐          ┌──────────────────────────────────────┐
 │ 数据库工作台 (input.dock)    │  fetch   │ @yejiming/dsh-data-agent (宿主行)   │
-│  · 连接配置 (6 类型)         │ ───────▶ │  · /plugins/data-agent/* 路由          │
+│  · 连接配置 (9 类型)         │ ───────▶ │  · /plugins/data-agent/* 路由          │
 │  · 库表浏览 + SQL 命令框     │          │  · 连接存储服务 dataAgentConnections   │
 │  · hero 堆叠 / active 左栏   │          │  · 预设自安装 → $DSH_HOME/.agent-presets│
 └─────────────────────────────┘          └──────────────┬───────────────────────┘
@@ -108,12 +109,12 @@ dsh --profile web
 | `queryTimeoutMs` | sqlcmd 单次查询超时（默认 30000 毫秒） |
 | `maxResultChars` | sqlcmd 捕获输出上限（stdout/stderr 各自，默认 20000 字符） |
 | `readonly` | 只读护栏（默认 false）：true 时 `sqlcmd` 与 `/query` 仅放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），写语句直接拒绝 |
-| `clients` | 各数据库类型 CLI 客户端覆盖：`{ command?, args? }`，键为 `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala`（内置默认 mysql/psql/sqlite3/sqlplus/beeline/impala-shell） |
+| `clients` | 各数据库类型 CLI 客户端覆盖：`{ command?, args? }`，键为 `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala` / `clickhouse` / `doris` / `sqlserver`（内置默认 mysql/psql/sqlite3/sqlplus/beeline/impala-shell/clickhouse-client/mysql/sqlcmd；sqlserver 默认参数含 `-C` 信任服务器证书，可用 `args` 覆盖） |
 | `connections` | 配置预置连接，键为 sessionId（`'*'` = 通配符默认，任何无自有连接的会话回落它；headless/keyless 运行与部署固定默认库场景）。**不含 password 字段**——密码只允许经 /connect 路由进入内存；可选 `readonly` 字段按连接锁定只读 |
 
 工具行 `tool-sqlcmd`（data-agent 预设内）另有 `maxRows`（默认 100，注入工具描述的 LIMIT 引导）与 `readonly`，`queryTimeoutMs` / `maxResultChars` / `clients` 与宿主行同名可配。
 
-路由行 `data-agent-routes` 独立配置：`connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` / `readonly` 与主行同名同默认；另有 `queryTimeoutMs`（/query 与元数据查询超时，默认 30000）与 `maxQueryChars`（/query 单条 SQL 长度上限，默认 65536）。
+路由行 `data-agent-routes` 独立配置：`connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` / `readonly` / `clients` 与主行同名同默认；另有 `queryTimeoutMs`（/query 与元数据查询超时，默认 30000）与 `maxQueryChars`（/query 单条 SQL 长度上限，默认 65536）。
 
 ```yaml
 # cordis.patch.yml 或 profile 层覆盖示例
@@ -156,10 +157,11 @@ schema/table 标识符仅允许 `[A-Za-z0-9_$]`（服务端白名单校验并转
 
 ## 安全说明
 
-- **密码**：服务端仅存内存，传递通道按类型：mysql 经 `MYSQL_PWD`、postgres 经 `PGPASSWORD` 环境变量；oracle 经 sqlplus `connect user/pass@...` stdin 前缀、hive 经 beeline `!connect` stdin 前缀（均不进 argv）；impala 默认不传密码（LDAP/kerberos 由部署侧 `clients` 覆盖）。`/status` 与连接存储的公开读取面均剥离密码。
+- **密码**：服务端仅存内存，传递通道按类型：mysql/doris 经 `MYSQL_PWD`、postgres 经 `PGPASSWORD`、clickhouse 经 `CLICKHOUSE_PASSWORD`、sqlserver 经 `SQLCMDPASSWORD` 环境变量；oracle 经 sqlplus `connect user/pass@...` stdin 前缀、hive 经 beeline `!connect` stdin 前缀（均不进 argv）；impala 默认不传密码（LDAP/kerberos 由部署侧 `clients` 覆盖）。`/status` 与连接存储的公开读取面均剥离密码。
 - **连接配置持久化**：工作台把连接配置（type/host/port/user/database）保存到浏览器 localStorage（键 `dsh-data-agent.connection.v1`），用于切换页面/重启后回填表单并自动重连一次。**密码默认不落盘**：仅当用户勾选「记住密码」时才持久化密码（明文 localStorage，本机单用户场景的显式 opt-in）。若需清除：浏览器控制台执行 `localStorage.removeItem('dsh-data-agent.connection.v1')`。
 - **无 shell 层**：`ctx.subprocess.spawn` 参数数组化，SQL 与连接前缀经 stdin 传入，不存在 shell 拼接注入面；元数据路由的 schema/table 标识符经收紧白名单 `[A-Za-z0-9_$]` 校验并按类型转义引用（反引号/双引号），拒绝 `#`、`--`、`;`、`'` 等注入形字符。
 - **SQL 执行权**：审批策略为 never 时，sqlcmd 与 `/query` 的 DDL/DML 会直接执行——连接按 session 隔离，请自行评估数据面风险。可设 `readonly: true`（宿主/工具/路由三行同名，或 `/connect` 传 `readonly: true` 按连接锁定）强制只放行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等），作为误操作防护；对更强对手防护，仍建议配合数据库侧只读账号。
+- **SQL Server 证书信任**：默认客户端参数含 `-C`（信任服务器证书），便于连接本地/自签实例；如需严格校验，在 `clients.sqlserver.args` 中覆盖为不含 `-C` 的参数集。
 - **超时与上限**：查询超时、输出截断、表清单上限、/query 单条 SQL 长度均为配置项，无硬编码 tunables。
 
 ## 卸载与回滚
@@ -178,6 +180,15 @@ rm -rf $DSH_HOME/.agent-presets/data-agent                      # 手动删除�
 ```sh
 pnpm build   # 清空并重建 lib/（tsdown：lib/index.js、lib/routes.js、lib/tool.js、lib/invariant.js、lib/client.js）+ tsc 声明
 pnpm test    # vitest：连接存储 / CLI 模板 / sqlcmd 执行（mock subprocess）
+```
+
+可选的真实环境集成冒烟（未设置 `DSH_SMOKE_HOST` 时自动跳过；会在目标服务上临时创建并清理 `dsh_smoke` 库表）：
+
+```sh
+DSH_SMOKE_HOST=<smoke-host> \
+DSH_SMOKE_CH_PASSWORD='...' DSH_SMOKE_MSSQL_PASSWORD='...' \
+PATH="/path/to/clickhouse-client:/path/to/mysql:/path/to/sqlcmd:$PATH" \
+pnpm vitest run tests/integration-smoke.spec.ts
 ```
 
 `lib/` 已提交进仓库，安装与调试（含 `dsh plugin add .`）都不需要先构建。重新

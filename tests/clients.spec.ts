@@ -362,3 +362,123 @@ describe('sanitizeIdentifier', () => {
     }
   })
 })
+
+describe('buildClientTemplate — clickhouse/doris/sqlserver', () => {
+  it('builds the clickhouse argv and keeps the password in CLICKHOUSE_PASSWORD', () => {
+    const template = buildClientTemplate('clickhouse', {
+      type: 'clickhouse', host: 'ch01', port: 9000, user: 'default',
+      database: 'analytics', password: 's3cret',
+    })
+    expect(template.command).toBe('clickhouse-client')
+    expect(template.args).toEqual([
+      '--multiquery', '--format', 'TSV',
+      '--host', 'ch01', '--port', '9000', '--user', 'default', '--database', 'analytics',
+    ])
+    expect(template.env).toEqual({ CLICKHOUSE_PASSWORD: 's3cret' })
+    expect(JSON.stringify(template.args)).not.toContain('s3cret')
+  })
+
+  it('builds the doris template on the mysql client with port 9030', () => {
+    const template = buildClientTemplate('doris', {
+      type: 'doris', host: 'fe01', database: 'dwd', password: 'pw',
+    })
+    expect(template.command).toBe('mysql')
+    expect(template.args).toEqual(['--batch', '--raw', '-h', 'fe01', '-P', '9030', '-u', 'root', '-D', 'dwd'])
+    expect(template.env).toEqual({ MYSQL_PWD: 'pw' })
+  })
+
+  it('builds the sqlserver template with -S/-U/-d and SQLCMDPASSWORD env', () => {
+    const template = buildClientTemplate('sqlserver', {
+      type: 'sqlserver', host: 'db01', port: 1433, user: 'sa', database: 'sales', password: 'pw',
+    })
+    expect(template.command).toBe('sqlcmd')
+    expect(template.args).toEqual(['-W', '-s', '|', '-h', '-1', '-C', '-S', 'db01,1433', '-U', 'sa', '-d', 'sales'])
+    expect(template.env).toEqual({ SQLCMDPASSWORD: 'pw' })
+    expect(JSON.stringify(template.args)).not.toContain('pw')
+  })
+
+  it('uses -E integrated auth for sqlserver without a user', () => {
+    const template = buildClientTemplate('sqlserver', { type: 'sqlserver', database: 'sales' })
+    expect(template.args).toEqual(['-W', '-s', '|', '-h', '-1', '-C', '-S', '127.0.0.1,1433', '-E', '-d', 'sales'])
+    expect(template.env).toEqual({})
+  })
+
+  it('uses machine-readable introspect flags for the three new types', () => {
+    expect(buildIntrospectTemplate('clickhouse', { type: 'clickhouse', database: 'a' }).args.slice(0, 3))
+      .toEqual(['--multiquery', '--format', 'TSV'])
+    expect(buildIntrospectTemplate('doris', { type: 'doris', database: 'a' }).args.slice(0, 2))
+      .toEqual(['--batch', '--raw'])
+    expect(buildIntrospectTemplate('sqlserver', { type: 'sqlserver', database: 'a' }).args.slice(0, 5))
+      .toEqual(['-W', '-s', '|', '-h', '-1'])
+  })
+})
+
+describe('tableListingSql / metadataQuery — clickhouse/doris/sqlserver', () => {
+  it('builds the connectivity listing per type', () => {
+    expect(tableListingSql('clickhouse', { type: 'clickhouse', database: 'analytics' })).toBe('SHOW TABLES;')
+    expect(tableListingSql('doris', { type: 'doris', database: 'dwd' })).toBe('SHOW TABLES FROM `dwd`;')
+    expect(tableListingSql('sqlserver', { type: 'sqlserver', database: 'sales' }))
+      .toBe('SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1;')
+  })
+
+  it('builds the schemas query per type', () => {
+    expect(metadataQuery('schemas', 'clickhouse')).toBe('SHOW DATABASES;')
+    expect(metadataQuery('schemas', 'doris')).toBe('SHOW DATABASES;')
+    expect(metadataQuery('schemas', 'sqlserver')).toBe('SELECT name FROM sys.schemas ORDER BY 1;')
+  })
+
+  it('builds the tables query per type', () => {
+    expect(metadataQuery('tables', 'clickhouse', 'analytics')).toBe('SHOW TABLES FROM `analytics`;')
+    expect(metadataQuery('tables', 'doris', 'dwd')).toBe('SHOW TABLES FROM `dwd`;')
+    expect(metadataQuery('tables', 'sqlserver', 'dbo'))
+      .toBe("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='dbo' ORDER BY 1;")
+  })
+
+  it('builds the describe query per type', () => {
+    expect(metadataQuery('describe', 'clickhouse', 'analytics', 'orders'))
+      .toBe('DESCRIBE TABLE `analytics`.`orders`;')
+    expect(metadataQuery('describe', 'doris', 'dwd', 'orders')).toBe('DESCRIBE `dwd`.`orders`;')
+    expect(metadataQuery('describe', 'sqlserver', 'dbo', 'orders'))
+      .toContain("TABLE_SCHEMA='dbo' AND TABLE_NAME='orders'")
+  })
+})
+
+describe('parseColumns / parseListing — clickhouse/doris/sqlserver', () => {
+  it('parses clickhouse TSV describe output without nullability', () => {
+    const out = 'id\tUInt64\t\nname\tString\t\n'
+    expect(parseColumns('clickhouse', out)).toEqual([
+      { name: 'id', type: 'UInt64' },
+      { name: 'name', type: 'String' },
+    ])
+  })
+
+  it('parses doris describe output skipping the header like mysql', () => {
+    const out = 'Field\tType\tNull\tKey\nid\tint\tNO\tPRI\n'
+    expect(parseColumns('doris', out)).toEqual([{ name: 'id', type: 'int', nullable: false }])
+  })
+
+  it('parses sqlserver pipe-separated columns with YES/NO nullability', () => {
+    const out = 'id|int|NO\nname|nvarchar|YES\n'
+    expect(parseColumns('sqlserver', out)).toEqual([
+      { name: 'id', type: 'int', nullable: false },
+      { name: 'name', type: 'nvarchar', nullable: true },
+    ])
+  })
+
+  it('parses clickhouse/doris/sqlserver listings without surprises', () => {
+    expect(parseListing('clickhouse', 'orders\nusers\n')).toEqual(['orders', 'users'])
+    expect(parseListing('doris', 'Tables_in_dwd\norders\nusers\n')).toEqual(['orders', 'users'])
+    expect(parseListing('sqlserver', 'orders\nusers\n')).toEqual(['orders', 'users'])
+  })
+})
+
+describe('sanitizeIdentifier — new types', () => {
+  it('wraps clickhouse and doris identifiers in backticks', () => {
+    expect(sanitizeIdentifier('clickhouse', 'orders')).toBe('`orders`')
+    expect(sanitizeIdentifier('doris', 'dwd')).toBe('`dwd`')
+  })
+
+  it('wraps sqlserver identifiers in brackets', () => {
+    expect(sanitizeIdentifier('sqlserver', 'OrderDetails')).toBe('[OrderDetails]')
+  })
+})

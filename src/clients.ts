@@ -170,11 +170,15 @@ export function sanitizeIdentifier(type: DatabaseType, identifier: string): stri
     case 'mysql':
     case 'hive':
     case 'impala':
+    case 'clickhouse':
+    case 'doris':
       return '`' + identifier.replace(/`/g, '``') + '`'
     case 'postgres':
     case 'oracle':
     case 'sqlite':
       return '"' + identifier.replace(/"/g, '""') + '"'
+    case 'sqlserver':
+      return '[' + identifier.replace(/]/g, ']]') + ']'
   }
 }
 
@@ -231,6 +235,9 @@ const QUERY_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B'],
+  clickhouse: ['--multiquery', '--format', 'TSV'],
+  doris: ['--batch', '--raw'],
+  sqlserver: ['-W', '-s', '|', '-h', '-1', '-C'],
 }
 
 /** Introspection-mode flag arguments per type (machine-readable listing). */
@@ -241,6 +248,9 @@ const INTROSPECT_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B'],
+  clickhouse: ['--multiquery', '--format', 'TSV'],
+  doris: ['--batch', '--raw'],
+  sqlserver: ['-W', '-s', '|', '-h', '-1', '-C'],
 }
 
 /** Default ports when the connection does not carry one. */
@@ -251,6 +261,9 @@ const DEFAULT_PORTS: Readonly<Record<DatabaseType, number>> = {
   oracle: 1521,
   hive: 10000,
   impala: 21050,
+  clickhouse: 9000,
+  doris: 9030,
+  sqlserver: 1433,
 }
 
 /** Built-in commands per type (also the loader defaults; see `src/defaults.ts`). */
@@ -261,6 +274,9 @@ const DEFAULT_CLIENTS_COMMAND: Readonly<Record<DatabaseType, string>> = {
   oracle: 'sqlplus',
   hive: 'beeline',
   impala: 'impala-shell',
+  clickhouse: 'clickhouse-client',
+  doris: 'mysql',
+  sqlserver: 'sqlcmd',
 }
 
 /**
@@ -292,6 +308,28 @@ function connectionArgs(type: DatabaseType, connection: DatabaseConnection): rea
         '-i', `${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.impala}`,
         '-d', connection.database,
       ]
+    case 'doris':
+      return [
+        '-h', connection.host ?? '127.0.0.1',
+        '-P', String(connection.port ?? DEFAULT_PORTS.doris),
+        '-u', connection.user ?? 'root',
+        '-D', connection.database,
+      ]
+    case 'clickhouse':
+      return [
+        '--host', connection.host ?? '127.0.0.1',
+        '--port', String(connection.port ?? DEFAULT_PORTS.clickhouse),
+        '--user', connection.user ?? 'default',
+        '--database', connection.database,
+      ]
+    case 'sqlserver':
+      return [
+        '-S', `${connection.host ?? '127.0.0.1'},${connection.port ?? DEFAULT_PORTS.sqlserver}`,
+        ...connection.user !== undefined && connection.user !== ''
+          ? ['-U', connection.user]
+          : ['-E'],
+        '-d', connection.database,
+      ]
     case 'oracle':
     case 'hive':
       return []
@@ -304,9 +342,14 @@ function credentialEnv(type: DatabaseType, connection: DatabaseConnection): Read
   if (password === undefined) return {}
   switch (type) {
     case 'mysql':
+    case 'doris':
       return { MYSQL_PWD: password }
     case 'postgres':
       return { PGPASSWORD: password }
+    case 'clickhouse':
+      return { CLICKHOUSE_PASSWORD: password }
+    case 'sqlserver':
+      return { SQLCMDPASSWORD: password }
     case 'sqlite':
     case 'oracle':
     case 'hive':
@@ -344,6 +387,9 @@ function stdinPrefix(type: DatabaseType, connection: DatabaseConnection): string
     case 'postgres':
     case 'sqlite':
     case 'impala':
+    case 'clickhouse':
+    case 'doris':
+    case 'sqlserver':
       return ''
   }
 }
@@ -395,9 +441,12 @@ export function buildIntrospectTemplate(
 export function tableListingSql(type: DatabaseType, connection?: DatabaseConnection): string {
   switch (type) {
     case 'mysql': return `SHOW TABLES FROM \`${connection?.database ?? ''}\`;`
+    case 'doris': return `SHOW TABLES FROM \`${connection?.database ?? ''}\`;`
     case 'postgres': return "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1;"
     case 'sqlite': return "SELECT name FROM sqlite_master WHERE type='table' ORDER BY 1;"
     case 'oracle': return 'SELECT table_name FROM user_tables ORDER BY 1;'
+    case 'clickhouse': return 'SHOW TABLES;'
+    case 'sqlserver': return 'SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES ORDER BY 1;'
     case 'hive':
     case 'impala': return 'SHOW TABLES;'
   }
@@ -420,6 +469,9 @@ export function metadataQuery(
         case 'postgres': return 'SELECT schema_name FROM information_schema.schemata ORDER BY 1;'
         case 'sqlite': return "SELECT 'main';"
         case 'oracle': return 'SELECT username FROM all_users ORDER BY 1;'
+        case 'clickhouse':
+        case 'doris': return 'SHOW DATABASES;'
+        case 'sqlserver': return 'SELECT name FROM sys.schemas ORDER BY 1;'
         case 'hive':
         case 'impala': return 'SHOW DATABASES;'
       }
@@ -429,6 +481,9 @@ export function metadataQuery(
         case 'postgres': return `SELECT tablename FROM pg_tables WHERE schemaname=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'sqlite': return "SELECT name FROM sqlite_master WHERE type='table' ORDER BY 1;"
         case 'oracle': return `SELECT table_name FROM all_tables WHERE owner=${quoteStringLiteral(schema!)} ORDER BY 1;`
+        case 'clickhouse':
+        case 'doris': return `SHOW TABLES FROM ${sanitizeIdentifier(type, schema!)};`
+        case 'sqlserver': return `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'hive':
         case 'impala': return `SHOW TABLES IN ${sanitizeIdentifier(type, schema!)};`
       }
@@ -438,6 +493,9 @@ export function metadataQuery(
         case 'postgres': return `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY ordinal_position;`
         case 'sqlite': return `PRAGMA table_info(${sanitizeIdentifier(type, table!)});`
         case 'oracle': return `SELECT column_name, data_type, nullable FROM all_tab_columns WHERE owner=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY column_id;`
+        case 'clickhouse': return `DESCRIBE TABLE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'doris': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'sqlserver': return `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=${quoteStringLiteral(schema!)} AND TABLE_NAME=${quoteStringLiteral(table!)} ORDER BY ORDINAL_POSITION;`
         case 'hive':
         case 'impala': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
       }
@@ -452,7 +510,7 @@ export function metadataQuery(
  */
 export function parseListing(type: DatabaseType, stdout: string): string[] {
   const lines = stdout.split('\n')
-  const start = type === 'mysql' ? 1 : 0
+  const start = type === 'mysql' || type === 'doris' ? 1 : 0
   const items: string[] = []
   for (let index = start; index < lines.length; index += 1) {
     const name = lines[index]!.trim()
@@ -476,14 +534,17 @@ export interface ColumnInfo {
 /**
  * Parse one type's describe output into columns. Formats:
  * - mysql `--batch`: `Field\tType\tNull\tKey\t...` (skip header);
+ * - doris: same mysql-style shape (skip header);
  * - postgres `-t -A`: `name|type|is_nullable`;
  * - sqlite `-noheader -list`: `cid|name|type|notnull|dflt|pk` (name is part 1);
  * - oracle (`SET COLSEP '|'`, heading off): `NAME|TYPE|NULLABLE`;
- * - hive/impala batch: `name\ttype\tcomment`.
+ * - hive/impala batch: `name\ttype\tcomment`;
+ * - clickhouse `--format TSV`: `name\ttype\t...` (no nullability);
+ * - sqlserver `-s '|' -h -1`: `name|type|IS_NULLABLE`.
  */
 export function parseColumns(type: DatabaseType, stdout: string): ColumnInfo[] {
   const lines = stdout.split('\n')
-  const start = type === 'mysql' ? 1 : 0
+  const start = type === 'mysql' || type === 'doris' ? 1 : 0
   const columns: ColumnInfo[] = []
   for (let index = start; index < lines.length; index += 1) {
     const line = lines[index]!.trim()
@@ -498,12 +559,15 @@ export function parseColumns(type: DatabaseType, stdout: string): ColumnInfo[] {
     const rawNullable = parts[nameIndex + 2]?.trim().toLowerCase()
     let nullable: boolean | undefined
     switch (type) {
-      case 'mysql': nullable = rawNullable === 'yes'; break
+      case 'mysql':
+      case 'doris': nullable = rawNullable === 'yes'; break
       case 'postgres': nullable = rawNullable === 'yes'; break
       case 'sqlite': nullable = rawNullable !== '1'; break
       case 'oracle': nullable = rawNullable === 'y'; break
+      case 'sqlserver': nullable = rawNullable === 'yes'; break
       case 'hive':
-      case 'impala': nullable = undefined; break
+      case 'impala':
+      case 'clickhouse': nullable = undefined; break
     }
     columns.push({ name, type: columnType, ...nullable !== undefined ? { nullable } : {} })
   }

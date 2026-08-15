@@ -53,6 +53,12 @@ export interface ClientsConfig {
   mysql?: ClientConfig
   postgres?: ClientConfig
   sqlite?: ClientConfig
+  oracle?: ClientConfig
+  hive?: ClientConfig
+  impala?: ClientConfig
+  clickhouse?: ClientConfig
+  doris?: ClientConfig
+  sqlserver?: ClientConfig
 }
 
 /**
@@ -104,7 +110,7 @@ export const Config = z.object({
   readonly: z.boolean().default(false),
   clients: clientsSchema,
   connections: z.dict(z.object({
-    type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'), z.const('impala')]),
+    type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'), z.const('impala'), z.const('clickhouse'), z.const('doris'), z.const('sqlserver')]),
     host: z.string(),
     port: z.natural(),
     user: z.string(),

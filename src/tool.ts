@@ -20,6 +20,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 // the ctx.dataAgentConnections merge (the main data-agent row).
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type {} from './index.ts'
+import type { DatabaseType } from './connections.ts'
 import { clientsSchema, type ClientConfig } from './clients.ts'
 import { classifyStatement } from './clients.ts'
 import {
@@ -45,7 +46,7 @@ export interface Config {
   /** Read-only guard: true rejects write statements. */
   readonly: boolean
   /** CLI client overrides keyed by database type. */
-  clients: Partial<Record<string, ClientConfig>>
+  clients: Partial<Record<DatabaseType, ClientConfig>>
 }
 
 /** Loader schema with deployment defaults (no library defaults). */
@@ -91,7 +92,8 @@ export function apply(ctx: Context, config: Config): void {
     description:
       '在已连接的数据库上执行 SQL 或客户端命令（如 SHOW TABLES、DESCRIBE users、'
       + `SELECT * FROM orders LIMIT ${resolved.maxRows}）。`
-      + '需要先在「数据库」标签页连接数据库；SQL 经 stdin 传给客户端（mysql/psql/sqlite3），'
+      + '需要先在「数据库」标签页连接数据库；SQL 经 stdin 传给客户端'
+      + '（mysql/psql/sqlite3/sqlplus/beeline/impala-shell/clickhouse-client/sqlcmd 等），'
       + '无 shell 层。结果包含 exitCode 与 stdout/stderr 文本。',
     parameters: {
       sql: {

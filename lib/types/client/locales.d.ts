@@ -13,6 +13,9 @@ export declare const zh: {
     'type.oracle': string;
     'type.hive': string;
     'type.impala': string;
+    'type.clickhouse': string;
+    'type.doris': string;
+    'type.sqlserver': string;
     'form.host': string;
     'form.port': string;
     'form.user': string;
@@ -65,6 +68,9 @@ export declare const en: {
     'type.oracle': string;
     'type.hive': string;
     'type.impala': string;
+    'type.clickhouse': string;
+    'type.doris': string;
+    'type.sqlserver': string;
     'form.host': string;
     'form.port': string;
     'form.user': string;
