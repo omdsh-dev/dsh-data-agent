@@ -8,11 +8,16 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
   &nbsp;
+  <a href="https://dshfind.com/en/plugins/omdsh-dev/dsh-data-agent?ref=badge"><img src="https://dshfind.com/api/badge/omdsh-dev/dsh-data-agent" alt="dshfind badge"></a>
+  &nbsp;
   <img src="https://img.shields.io/github/stars/omdsh-dev/dsh-data-agent?style=flat-square" alt="Stars">
   &nbsp;
   <img src="https://img.shields.io/npm/v/@yejiming%2Fdsh-data-agent?style=flat-square&label=npm" alt="npm">
   &nbsp;
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+</p>
+<p align="center">
+  <a href="https://dshfind.com/en/plugins/omdsh-dev/dsh-data-agent?ref=badge"><img src="https://dshfind.com/api/card/omdsh-dev/dsh-data-agent" alt="dshfind card" width="440"></a>
 </p>
 <p align="center">
   <strong>Connect DeepSeek Harness to databases and turn conversations into data analysis and business insights</strong><br>

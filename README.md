@@ -8,11 +8,16 @@
 <p align="center">
   <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
   &nbsp;
+  <a href="https://dshfind.com/zh/plugins/omdsh-dev/dsh-data-agent?ref=badge"><img src="https://dshfind.com/api/badge/omdsh-dev/dsh-data-agent?lang=zh" alt="dshfind 小标"></a>
+  &nbsp;
   <img src="https://img.shields.io/github/stars/omdsh-dev/dsh-data-agent?style=flat-square" alt="Stars">
   &nbsp;
   <img src="https://img.shields.io/npm/v/@yejiming%2Fdsh-data-agent?style=flat-square&label=npm" alt="npm">
   &nbsp;
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+</p>
+<p align="center">
+  <a href="https://dshfind.com/zh/plugins/omdsh-dev/dsh-data-agent?ref=badge"><img src="https://dshfind.com/api/card/omdsh-dev/dsh-data-agent?lang=zh" alt="dshfind 展示卡" width="440"></a>
 </p>
 <p align="center">
   <strong>让DeepSeek Harness连接数据库，用对话完成数据分析与商业洞察</strong><br>
