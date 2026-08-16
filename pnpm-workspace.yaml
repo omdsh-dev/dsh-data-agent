@@ -5,6 +5,9 @@ allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': false
   esbuild: true
   node-pty: false
+minimumReleaseAge: 10080
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
 minimumReleaseAgeExclude:
   - '@deepseek-ai/cordis-plugin-include@1.0.6'
   - '@deepseek-ai/cordis-plugin-loader@1.0.2'
