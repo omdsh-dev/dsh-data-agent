@@ -1,4 +1,4 @@
-# dsh-data-agent · DSH Data Agent
+# DSH Data Agent · Analyze Data Through Conversation
 
 [中文](README.md) | **English**
 
