@@ -1,12 +1,37 @@
-# Data Agent · Connect DSH to Your Database and Turn Conversations into Analysis and Business Insights
+# dsh-data-agent · DSH Data Agent
 
 [中文](README.md) | **English**
 
-![Data Mode session](assets/session.png)
+<p align="center">
+  <img src="assets/dsh-data-agent-banner.png" alt="dsh-data-agent hero banner" width="100%">
+</p>
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
+  &nbsp;
+  <img src="https://img.shields.io/github/stars/omdsh-dev/dsh-data-agent?style=flat-square" alt="Stars">
+  &nbsp;
+  <img src="https://img.shields.io/npm/v/@yejiming%2Fdsh-data-agent?style=flat-square&label=npm" alt="npm">
+  &nbsp;
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+</p>
+<p align="center">
+  <strong>Connect DeepSeek Harness to databases and turn conversations into data analysis and business insights</strong><br>
+  <em>Natural-language queries · Automatic SQL execution · Iterative analysis · Web UI · dsh-tui · Read-only protection</em>
+</p>
+
+<p align="center">
+
+[Project Overview](#project-overview) · [Features](#features) · [Quick Install](#quick-install) · [Web UI](#using-data-agent-in-the-web-ui) · [dsh-tui](#using-data-agent-in-dsh-tui) · [Security](#security)
+
+</p>
+
+## Project Overview
+
+dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). It brings database connections, schema browsing, SQL authoring and execution, follow-up analysis, and result interpretation into one conversational workflow. It supports both the Web UI and dsh-tui, installs through the official profile mechanism, and does not modify the DSH source code.
 
 What business users really want is usually not a SQL statement. They want to know what happened, why it happened, which customers or products deserve attention, and what action to take next.
 
-Data Agent connects DeepSeek Harness (DSH) directly to your business database. Once connected, you can ask questions as if you were talking to a data analyst. DSH inspects schemas, writes and runs SQL, continues the analysis based on real results, and turns the findings into clear conclusions and business insights.
+Once connected, you can ask questions as if you were talking to a data analyst. DSH inspects schemas, writes and runs SQL, continues the analysis based on real results, and turns the findings into clear conclusions and business insights.
 
 For example, you can ask:
 

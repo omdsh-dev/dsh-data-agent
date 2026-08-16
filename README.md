@@ -1,12 +1,37 @@
-# 数据Agent（Data Agent）· 让DSH连接数据库，用对话完成数据分析与商业洞察
+# dsh-data-agent · DSH Data Agent
 
-[English](README.en.md) | **中文**
+**中文** | [English](README.en.md)
 
-![数据模式会话](assets/session.png)
+<p align="center">
+  <img src="assets/dsh-data-agent-banner.png" alt="dsh-data-agent HERO图" width="100%">
+</p>
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
+  &nbsp;
+  <img src="https://img.shields.io/github/stars/omdsh-dev/dsh-data-agent?style=flat-square" alt="Stars">
+  &nbsp;
+  <img src="https://img.shields.io/npm/v/@yejiming%2Fdsh-data-agent?style=flat-square&label=npm" alt="npm">
+  &nbsp;
+  <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License">
+</p>
+<p align="center">
+  <strong>让DeepSeek Harness连接数据库，用对话完成数据分析与商业洞察</strong><br>
+  <em>自然语言查询 · 自动执行SQL · 连续分析 · Web UI · dsh-tui · 只读保护</em>
+</p>
+
+<p align="center">
+
+[项目简介](#项目简介) · [主要功能](#主要功能) · [快速安装](#快速安装) · [Web UI](#在web-ui中使用) · [dsh-tui](#在dsh-tui中使用) · [安全说明](#安全说明)
+
+</p>
+
+## 项目简介
+
+dsh-data-agent是给DeepSeek Harness（DSH）使用的数据分析插件：把数据库连接、库表浏览、SQL编写与执行、连续追问和结果解读串成一个会话工作流。它同时支持Web UI与dsh-tui，通过官方profile机制安装，不需要修改DSH源码。
 
 业务人员真正想要的通常不是一条SQL，而是知道：发生了什么、为什么会发生、哪些客户或商品值得关注，以及下一步应该采取什么行动。
 
-数据Agent让DeepSeek Harness（DSH）直接连接业务数据库。连接完成后，你可以像和数据分析师对话一样提出问题，DSH会自动查看库表、编写并执行SQL、根据结果继续分析，最终给出清晰的数据结论和商业洞察。
+连接完成后，你可以像和数据分析师对话一样提出问题。DSH会自动查看库表、编写并执行SQL、根据结果继续分析，最终给出清晰的数据结论和商业洞察。
 
 例如，你可以直接问：
 
