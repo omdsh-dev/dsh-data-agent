@@ -27,20 +27,7 @@
 
 ## Project Overview
 
-dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). It brings database connections, schema browsing, SQL authoring and execution, follow-up analysis, and result interpretation into one conversational workflow. It supports both the Web UI and dsh-tui, installs through the official profile mechanism, and does not modify the DSH source code.
-
-What business users really want is usually not a SQL statement. They want to know what happened, why it happened, which customers or products deserve attention, and what action to take next.
-
-Once connected, you can ask questions as if you were talking to a data analyst. DSH inspects schemas, writes and runs SQL, continues the analysis based on real results, and turns the findings into clear conclusions and business insights.
-
-For example, you can ask:
-
-- “Why did revenue decline over the past 90 days? Break down the main causes by region and category.”
-- “Which customers are at risk of churn? Show the evidence and recommend follow-up actions.”
-- “Analyze retention for users acquired this month and summarize the changes that matter most.”
-- “Find the product combinations with the highest repeat-purchase rate and prepare an executive-friendly summary.”
-
-You do not need to translate every question into SQL first, or keep copying data between a database client, an AI chat window, and a spreadsheet. You describe the business question; DSH handles the query, validation, and analysis loop.
+dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a database and ask a business question; DSH inspects schemas, writes and runs SQL, continues the analysis from real results, and returns clear conclusions and business insights. The plugin supports both the Web UI and dsh-tui without modifying the DSH source code.
 
 ## Features
 
