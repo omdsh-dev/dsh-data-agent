@@ -8,7 +8,7 @@
  * Tool surface:
  * - `sql-query`: read-only statements, structured `{ columns, rows, ... }`;
  * - `sql-write`: one write/management statement per call, explicit autocommit;
- * - `sqlcmd`: the original raw-terminal tool (kept for compatibility).
+ * - `sql-cmd`: the raw-terminal compatibility tool.
  *
  * Execution model (see `src/query.ts`): the SQL text travels on the client's
  * stdin, argv carries flags only, credentials go through environment entries
@@ -20,20 +20,41 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from 'schemastery'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type InferValue, type JsonValue } from '@deepseek-ai/dsh-tools'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin) and
 // the ctx.dataAgentConnections merge (the main data-agent row).
 import type {} from '@deepseek-ai/dsh-subprocess'
+// Type-only: pulls the webServer service merge used as the Web capability gate.
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from './index.ts'
-import { clientsSchema, classifyStatement, enforceReadRowLimit, type ClientConfig } from './clients.ts'
+import { classifyStatement, clientsSchema, enforceReadRowLimit, type ClientConfig } from './clients.ts'
 import {
+  DEFAULT_MAX_QUERY_CHARS,
   DEFAULT_MAX_RESULT_CHARS,
   DEFAULT_QUERY_TIMEOUT_MS,
 } from './defaults.ts'
-import { runClientQuery, type QueryOptions, type QueryResult } from './query.ts'
+import type { QueryResult } from './query.ts'
 import { assertSingleStatement } from './sql.ts'
-import { parseStructuredQueryOutput } from './structured.ts'
-import { redactQueryResult, redactSecretText, type DatabaseConnection } from './connections.ts'
+import {
+  ANALYSIS_REPORT_OUTPUT_SCHEMA,
+  ANALYSIS_REPORT_VERSION,
+  MAX_REPORT_BYTES,
+  RENDER_ANALYSIS_PARAMETERS,
+  formatAnalysisSummary,
+  parseAnalysisRequest,
+  reportJsonBytes,
+  rowsToArrays,
+  validateViewSemantics,
+  type AnalysisReportV1,
+  type DatasetRows,
+} from './analysis.ts'
+import {
+  requireToolConnection,
+  runRedactedClientQuery,
+  runStructuredReadQuery,
+  runnerOptions,
+  type ResolvedRunnerConfig,
+} from './structured-read.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-tool'
@@ -43,12 +64,14 @@ export const inject = ['tools', 'subprocess', 'dataAgentConnections']
 
 /** Tool-half configuration (loader schema with the same defaults as the host). */
 export interface Config {
-  /** Deadline for one sqlcmd / sql-query / sql-write query, milliseconds. */
+  /** Deadline for one sql-cmd / sql-query / sql-write query, milliseconds. */
   queryTimeoutMs: number
   /** In-memory cap on captured output. */
   maxResultChars: number
   /** Enforced read-query row cap (LIMIT injection + structured truncation). */
   maxRows: number
+  /** Maximum SQL text length accepted per dataset statement. */
+  maxQueryChars: number
   /** Read-only guard: true rejects write statements. */
   readonly: boolean
   /** CLI client overrides keyed by database type. */
@@ -60,6 +83,7 @@ export const Config = z.object({
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
   maxRows: z.number().step(1).min(1).default(100),
+  maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
   readonly: z.boolean().default(false),
   clients: clientsSchema,
 })
@@ -94,74 +118,124 @@ function formatStructuredResult(value: StructuredSqlResult): string {
   return '```json\n' + JSON.stringify(value, null, 2) + '\n```'
 }
 
-/** Tool-run context face used by the helpers. */
-interface ToolExecLike {
-  agent?: { id: string }
-  signal: AbortSignal
-}
-
-/** Look up the session connection, failing with the same message for every tool. */
-async function requireToolConnection(ctx: Context, exec: ToolExecLike, toolName: string) {
-  const sessionId = exec.agent?.id
-  if (sessionId === undefined) {
-    throw new Error(`${toolName}: 缺少会话上下文（agent loop 未注入）`)
-  }
-  try {
-    return await ctx.dataAgentConnections.resolveForExecution(sessionId)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`${toolName}: ${message}`)
-  }
-}
-
-/** Run and redact a client result/error before it reaches tool/session output. */
-async function runToolQuery(
-  ctx: Context,
-  connection: DatabaseConnection,
-  sql: string,
-  options: QueryOptions,
-  signal: AbortSignal,
-): Promise<QueryResult> {
-  try {
-    const result = await runClientQuery(ctx, connection, sql, options, signal)
-    return redactQueryResult(result, connection)
-  } catch (error) {
-    const message = redactSecretText(error instanceof Error ? error.message : String(error), [connection.password])
-    throw new Error(message, error instanceof Error ? { cause: error } : undefined)
-  }
-}
-
-/** Empty and multi-statement checks shared by all three tools. */
+/** Empty and multi-statement checks shared by the write/raw tools. */
 function validateSingleSql(sql: string, toolName: string): void {
-  if (sql.trim().length === 0) throw new Error(`${toolName}: sql 不能为空`)
+  if (sql.trim().length === 0) throw new Error(toolName + ': sql 不能为空')
   assertSingleStatement(sql, toolName)
 }
 
-/** Query runner options with the deployment overrides applied. */
-function runnerOptions(resolved: {
-  queryTimeoutMs: number
-  maxResultChars: number
-  clients: Config['clients']
-}, mode?: QueryOptions['mode']): QueryOptions {
-  return {
-    clients: resolved.clients,
-    timeoutMs: resolved.queryTimeoutMs,
-    maxResultChars: resolved.maxResultChars,
-    ...mode !== undefined ? { mode } : {},
-  }
+/** One dataset plan: pre-validated read-only SQL ready for execution. */
+interface PlannedDataset {
+  id: string
+  sql: string
+}
+
+/**
+ * The Web-only render-analysis tool (D1-D5): one call builds one versioned
+ * analysis report from 1-6 read-only datasets and 1-8 views. The full report
+ * is persisted as presentationMeta; the model only receives a short summary
+ * (output.render), never the rows themselves.
+ */
+function defineRenderAnalysisTool(ctx: Context, resolved: ResolvedRunnerConfig) {
+  return defineTool({
+    name: 'render-analysis',
+    description:
+      'Web only: render one versioned analysis report (v1) from 1-6 read-only datasets and 1-8 '
+      + 'metric, line, bar, pie, scatter, or table views. First use sql-query to inspect and verify data, '
+      + 'then call this tool only when visualization adds value. Use one primary chart for a simple relationship '
+      + 'or 3-6 complementary views for multi-metric, time-series, or segmented analysis. Put aggregation, Top N, '
+      + 'and sorting in SQL, and add ORDER BY for line or time datasets. Reuse a dataset across views via datasetId; '
+      + 'each dataset runs once. Arbitrary chart options, scripts, HTML, CSS, and URLs are not accepted. Empty datasets '
+      + 'are valid and render as no-data states.',
+    parameters: RENDER_ANALYSIS_PARAMETERS,
+    output: {
+      schema: ANALYSIS_REPORT_OUTPUT_SCHEMA,
+      render: (_args, value) => [{
+        type: 'text',
+        text: formatAnalysisSummary(value as unknown as AnalysisReportV1),
+      }],
+      presentationMeta: (_args, value) => value as unknown as JsonValue,
+    },
+    presentCall: (args) => ({
+      card: 'generic',
+      kind: 'read',
+      title: 'render-analysis《' + args.title + '》',
+      rawInput: args.title,
+    }),
+    presentResult: (args, result) => ({
+      card: 'generic',
+      title: 'render-analysis《' + args.title + '》',
+      content: result.content,
+    }),
+    async execute(args, exec) {
+      const request = parseAnalysisRequest(args)
+      const connection = await requireToolConnection(ctx, exec, 'render-analysis')
+      // Pre-validate every dataset BEFORE the first query: a write statement,
+      // multi-statement SQL or oversized text anywhere rejects the whole call
+      // with no partial execution.
+      const planned: PlannedDataset[] = request.datasets.map((dataset) => {
+        const sql = dataset.sql
+        if (sql.trim().length === 0) throw new Error('render-analysis: dataset "' + dataset.id + '" 的 sql 不能为空')
+        if (sql.length > resolved.maxQueryChars) {
+          throw new Error('render-analysis: dataset "' + dataset.id + '" 的 sql 超过长度上限（' + resolved.maxQueryChars + ' 字符）')
+        }
+        assertSingleStatement(sql, 'render-analysis')
+        if (classifyStatement(sql, connection.type) !== 'read') {
+          throw new Error('render-analysis: dataset "' + dataset.id + '" 必须是读语句（SELECT/SHOW/DESCRIBE/EXPLAIN，SQLite 还含查询型 PRAGMA）')
+        }
+        return { id: dataset.id, sql: enforceReadRowLimit(sql, connection.type, resolved.maxRows) }
+      })
+      // Sequential execution (D4): one client process at a time, request order,
+      // each dataset exactly once. Any failure discards the in-memory results.
+      const results = new Map<string, DatasetRows>()
+      for (const item of planned) {
+        let read
+        try {
+          read = await runStructuredReadQuery(ctx, connection, item.sql, resolved, 'render-analysis', exec.signal)
+        } catch (error) {
+          // Preserve cancellation semantics: an aborted exec signal must keep
+          // propagating its abort reason instead of a wrapped tool error.
+          if (exec.signal.aborted) throw error
+          const message = error instanceof Error ? error.message : String(error)
+          throw new Error('render-analysis: dataset "' + item.id + '" 执行失败：' + message)
+        }
+        if (read.truncated) {
+          throw new Error('render-analysis: dataset "' + item.id + '" 的查询结果被截断（超过 maxRows/maxResultChars）；请缩小、聚合或拆分查询')
+        }
+        results.set(item.id, { columns: read.columns, rows: read.rows })
+      }
+      validateViewSemantics(request.views, results)
+      const report: AnalysisReportV1 = {
+        version: ANALYSIS_REPORT_VERSION,
+        title: request.title,
+        ...request.summary !== undefined ? { summary: request.summary } : {},
+        datasets: request.datasets.map((dataset) => {
+          const data = results.get(dataset.id)!
+          return { id: dataset.id, columns: data.columns, rows: rowsToArrays(data.columns, data.rows) }
+        }),
+        views: request.views,
+      }
+      const bytes = reportJsonBytes(report)
+      if (bytes > MAX_REPORT_BYTES) {
+        throw new Error('render-analysis: 报告 JSON 超过 ' + MAX_REPORT_BYTES + ' 字节上限（当前 ' + bytes + ' 字节）；请聚合、筛选或拆分报告，不得静默删减数据')
+      }
+      return report as InferValue<typeof ANALYSIS_REPORT_OUTPUT_SCHEMA>
+    },
+  })
 }
 
 /**
  * Mount the data-agent database tools: `sql-query` (structured read-only),
- * `sql-write` (explicit write semantics), and `sqlcmd` (raw compatibility).
+ * `sql-write` (explicit write semantics), and `sql-cmd` (raw compatibility).
  * @param ctx - the preset-scoped agent context.
  * @param config - validated loader configuration.
  */
 export function apply(ctx: Context, config: Config): void {
-  const resolved = {
+  const resolved: ResolvedRunnerConfig = {
     queryTimeoutMs: config.queryTimeoutMs,
     maxResultChars: config.maxResultChars,
     maxRows: config.maxRows,
+    maxQueryChars: config.maxQueryChars,
     readonly: config.readonly,
     clients: config.clients,
   }
@@ -169,10 +243,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'sql-query',
     description:
-      '在已连接数据库上执行一条只读 SQL（SELECT/SHOW/DESCRIBE/EXPLAIN，SQLite 还含查询型 PRAGMA），'
-      + '返回结构化 JSON：{ columns, rows, affectedRows, elapsedMs, truncated }。'
-      + `SELECT 未写 LIMIT 时会自动限制为最多 ${resolved.maxRows} 行；所有结果最多返回 ${resolved.maxRows} 行。`
-      + '只执行单条语句；写操作请使用 sql-write，原始客户端输出请使用 sqlcmd。',
+      'Execute exactly one read-only SQL statement (SELECT, SHOW, DESCRIBE, EXPLAIN, or a read-only SQLite PRAGMA) '
+      + 'on the connected database. Returns structured JSON with columns, rows, affectedRows, elapsedMs, and truncated. '
+      + `An unbounded SELECT is limited automatically, and every result is capped at ${resolved.maxRows} rows. `
+      + 'Use sql-write for write operations and sql-cmd when raw database-client output is required.',
     parameters: {
       sql: {
         type: 'string',
@@ -219,25 +293,13 @@ export function apply(ctx: Context, config: Config): void {
     }),
     async execute(args, exec) {
       const connection = await requireToolConnection(ctx, exec, 'sql-query')
-      validateSingleSql(args.sql, 'sql-query')
-      if (classifyStatement(args.sql, connection.type) !== 'read') {
-        throw new Error('sql-query 只执行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN，SQLite 还含查询型 PRAGMA）；写语句请使用 sql-write')
-      }
-      const limitedSql = enforceReadRowLimit(args.sql, connection.type, resolved.maxRows)
-      const startedAt = Date.now()
-      const result = await runToolQuery(ctx, connection, limitedSql, runnerOptions(resolved, 'structured'), exec.signal)
-      const elapsedMs = Date.now() - startedAt
-      if (result.exitCode !== 0) {
-        const detail = result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim()
-        throw new Error(`sql-query 执行失败（exit ${result.exitCode}）：${detail}`)
-      }
-      const parsed = parseStructuredQueryOutput(connection.type, result.stdout, resolved.maxRows)
+      const read = await runStructuredReadQuery(ctx, connection, args.sql, resolved, 'sql-query', exec.signal)
       return {
-        columns: parsed.columns,
-        rows: parsed.rows,
+        columns: read.columns,
+        rows: read.rows,
         affectedRows: 0,
-        elapsedMs,
-        truncated: result.truncated || parsed.rowLimitExceeded,
+        elapsedMs: read.elapsedMs,
+        truncated: read.truncated,
       } satisfies StructuredSqlResult
     },
   }))
@@ -245,10 +307,10 @@ export function apply(ctx: Context, config: Config): void {
   ctx.tools.register(defineTool({
     name: 'sql-write',
     description:
-      '在已连接数据库上执行一条写/管理语句（INSERT/UPDATE/DELETE/DDL 等）。'
-      + '每次调用都是独立客户端进程并自动提交，只接受单条语句，不支持跨调用的多语句事务；'
-      + '如需原子性，请改用单条 SQL（如 INSERT ... SELECT）或数据库端脚本/存储过程。'
-      + '只读查询请使用 sql-query。',
+      'Execute exactly one write or administrative SQL statement, such as INSERT, UPDATE, DELETE, or DDL, on the '
+      + 'connected database. Each call starts an independent database-client process and auto-commits. Multi-statement '
+      + 'transactions cannot span calls; use one atomic statement such as INSERT ... SELECT, or a database-side script '
+      + 'or stored procedure. Use sql-query for read-only queries.',
     parameters: {
       sql: {
         type: 'string',
@@ -289,17 +351,17 @@ export function apply(ctx: Context, config: Config): void {
       if (readonly) {
         throw new Error('当前连接为只读模式，sql-write 拒绝执行写/管理语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/查询型 PRAGMA 等）')
       }
-      return runToolQuery(ctx, connection, args.sql, runnerOptions(resolved), exec.signal)
+      return runRedactedClientQuery(ctx, connection, args.sql, runnerOptions(resolved), exec.signal)
     },
   }))
 
   ctx.tools.register(defineTool({
-    name: 'sqlcmd',
+    name: 'sql-cmd',
     description:
-      '在已连接数据库上执行一条 SQL 或客户端命令（如 SHOW TABLES、DESCRIBE users），'
-      + '返回原始 exitCode/stdout/stderr 文本。新调用优先使用 sql-query（结构化只读结果）'
-      + '和 sql-write（明确写语义）。一次只执行一条语句；读 SELECT 会自动限制最多 '
-      + `${resolved.maxRows} 行；每次调用为独立客户端进程并自动提交。`,
+      'Execute exactly one SQL statement or database-client command, such as SHOW TABLES or DESCRIBE users, on the '
+      + 'connected database and return raw exitCode, stdout, stderr, and truncated fields. Prefer sql-query for '
+      + 'structured read results and sql-write for explicit write semantics. Read SELECT results are limited to '
+      + `${resolved.maxRows} rows. Each call starts an independent database-client process and auto-commits.`,
     parameters: {
       sql: {
         type: 'string',
@@ -322,25 +384,35 @@ export function apply(ctx: Context, config: Config): void {
     },
     presentCall: (args) => ({
       card: 'terminal',
-      title: `sqlcmd ${oneLine(args.sql)}`,
+      title: `sql-cmd ${oneLine(args.sql)}`,
       description: '在数据库客户端执行一条 SQL',
     }),
     presentResult: (args, result) => ({
       card: 'terminal',
-      title: `sqlcmd ${oneLine(args.sql)}`,
+      title: `sql-cmd ${oneLine(args.sql)}`,
       content: result.content,
     }),
     async execute(args, exec) {
-      const connection = await requireToolConnection(ctx, exec, 'sqlcmd')
-      validateSingleSql(args.sql, 'sqlcmd')
+      const connection = await requireToolConnection(ctx, exec, 'sql-cmd')
+      validateSingleSql(args.sql, 'sql-cmd')
       const readonly = connection.readonly ?? resolved.readonly
       if (readonly && classifyStatement(args.sql, connection.type) === 'write') {
-        throw new Error('当前连接为只读模式，sqlcmd 拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/查询型 PRAGMA 等）')
+        throw new Error('当前连接为只读模式，sql-cmd 拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/查询型 PRAGMA 等）')
       }
       const sql = classifyStatement(args.sql, connection.type) === 'read'
         ? enforceReadRowLimit(args.sql, connection.type, resolved.maxRows)
         : args.sql
-      return runToolQuery(ctx, connection, sql, runnerOptions(resolved), exec.signal)
+      return runRedactedClientQuery(ctx, connection, sql, runnerOptions(resolved), exec.signal)
     },
   }))
+
+  // D6: this plugin is mounted in the data-agent standing preset scope. A
+  // blank-session preset switch only rebinds the existing agent to that scope,
+  // so Web's tool must be registered here instead of waiting for agent/created.
+  // The sibling database-command restriction filters inherited host tools but
+  // deliberately leaves this standing-scope registration visible. TUI/headless
+  // profiles have no webServer, so no render-analysis tool is registered.
+  if (ctx.get('webServer') !== undefined) {
+    ctx.tools.register(defineRenderAnalysisTool(ctx, resolved))
+  }
 }

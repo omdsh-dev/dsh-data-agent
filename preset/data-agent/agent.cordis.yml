@@ -8,16 +8,14 @@
 # the registries themselves, the sandbox and approval stack, persistence, and
 # the model route.
 #
-# A preset composes what an agent HAS instead of subtracting from a shared
-# default: every model-facing tool row absent from this file is simply not
-# registered for agents on this preset. The database row below registers
-# sql-query / sql-write / sqlcmd and the fs row registers read / write / edit;
-# bash, glob/grep, str_replace_editor, skill, todo, goal, plan, web, subagent,
-# workflow, tasks, and the rest are all absent, i.e. disabled.
+# The database row below registers sql-query / sql-write / sql-cmd and the
+# editor row registers DSH's native str_replace_editor. The final row installs
+# a deny restriction for the host/community tools visible at preset mount, so
+# describe_image, ssh_*, bash, web, etc. stay unavailable while the four/five
+# tools owned by this standing scope remain visible to joined agents.
 #
 # All four rows only CONSUME host services (the tools/commands registries,
-# subprocess, and dataAgentConnections). The sole isolation below suppresses
-# Web's optional attachments capability so both surfaces expose the same tools.
+# filesystem, subprocess, and dataAgentConnections).
 
 # ── identity ────────────────────────────────────────────────────────────────
 
@@ -28,37 +26,40 @@
   config:
     text: >-
       你是数据工程师 Agent。工作目录 {{cwd}}。可用工具：sql-query（只读 SQL，返回结构化
-      JSON 结果）、sql-write（写/管理 SQL，单条自动提交）、sqlcmd（原始客户端输出，兼容
-      SHOW TABLES、DESCRIBE users 等命令）、read、write、edit（读写改本地文件）。工作流：
-      先用 sql-query 探查表结构与样例数据（禁止臆造表名与列名），把 SQL 写入 .sql 文件
-      （write/edit），再用 sql-query 执行只读查询或 sql-write 执行写入并核对结果；
-      结果可疑时缩小查询范围重试。每次数据库工具调用只允许一条 SQL 语句。
+      JSON 结果）、sql-write（写/管理 SQL，单条自动提交）、sql-cmd（原始客户端输出，兼容
+      SHOW TABLES、DESCRIBE users 等命令）、str_replace_editor（查看、创建和修改本地文件）。
+      Web 界面可用时另有 render-analysis：把一次调用渲染成一份版本化分析报告（1-6 个只读
+      数据集、1-8 个 metric/line/bar/pie/scatter/table 视图，同一数据集可被多个视图通过
+      datasetId 复用）。是否生成分析由你自主判断：先用 sql-query 探查表结构与样例数据并
+      核对事实（禁止臆造表名与列名）；schema 探查、单标量或原始明细等无视觉增益的查询
+      直接回答、不强制画图；简单关系可生成一个主图，涉及多指标、时间或分群的复杂问题可
+      生成 3-6 个互补视图。聚合、Top N、排序必须写在 SQL 中，line/time 数据需 ORDER BY。
+      工作流：先用 str_replace_editor 把 SQL 写入 .sql 文件，再用 sql-query 执行只读查询或
+      sql-write 执行写入并核对结果；结果可疑时缩小查询范围重试。每次数据库工具调用
+      只允许一条 SQL 语句。
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 
-# The project's own fs tools: read / write / edit (no search tools here).
-- id: tool-fs
-  name: '@deepseek-ai/dsh-tool-fs'
-  # Web mounts an optional attachments service, which otherwise makes the
-  # generic fs plugin add read_image. Give only that optional lookup a private,
-  # unprovided realm so Web and TUI both expose the intended read/write/edit.
-  isolate:
-    attachments: true
+# DSH's native all-in-one file editor (no separate read/write/edit tools).
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  config:
+    maxOutputChars: 16000
 
 # ── database ────────────────────────────────────────────────────────────────
 
 # This package's database tool half; injects the host's subprocess service and
 # the dataAgentConnections connection store (see the data-agent host row).
 # Registers sql-query (structured read), sql-write (explicit write), and the
-# legacy sqlcmd raw-terminal tool.
-- id: tool-sqlcmd
+# sql-cmd raw-terminal compatibility tool. When the host provides the webServer
+# service (Web profile), it additionally registers render-analysis directly
+# in this standing preset scope, so blank-session preset switches see it too.
+- id: tool-sql-cmd
   name: '@yejiming/dsh-data-agent/tool'
 
 # Human command surface consumed by dsh-tui and any other command adapter.
 # It is preset-scoped, recordInput=false, and adds no model-visible tools. It
-# also masks inherited host-global model tools on each joined agent while
-# allowing exactly the six tools inherited from the sibling fs/database rows:
-# read/write/edit/sql-query/sql-write/sqlcmd.
-# even when an interactive bundle registered fallback tools globally.
+# also masks every host-global inherited model tool at the standing preset
+# scope. Sibling str_replace_editor/database registrations remain visible.
 - id: database-command
   name: '@yejiming/dsh-data-agent/command'

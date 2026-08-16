@@ -24,12 +24,17 @@ function makeContext(overrides: {
   resolveExecutable?: (command: string) => Promise<string>
   spawn?: (spec: SpawnSpec) => FakeHandle
   resolveForExecution?: (sessionId: string) => Promise<DatabaseConnection>
+  webServer?: boolean
 }, configOverrides?: Partial<Config>) {
   const store = createConnectionStore()
   const connections = overrides.resolveForExecution === undefined
     ? store
     : { ...store, resolveForExecution: overrides.resolveForExecution }
-  let definition: { name?: string, execute?: (args: { sql: string }, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown> } = {}
+  let definition: {
+    name?: string
+    description?: string
+    execute?: (args: { sql: string }, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown>
+  } = {}
   const definitions: Record<string, typeof definition> = {}
   const ctx = {
     tools: {
@@ -49,8 +54,8 @@ function makeContext(overrides: {
       })),
     },
     dataAgentConnections: connections,
-    get(): unknown {
-      return undefined
+    get(name: string): unknown {
+      return name === 'webServer' && overrides.webServer === true ? {} : undefined
     },
   } as never
   const config: Config = {
@@ -77,11 +82,12 @@ function execOf(sessionId: string) {
   return { agent: { id: sessionId }, signal: new AbortController().signal }
 }
 
-describe('sqlcmd tool', () => {
-  it('registers the tool named sqlcmd with a required sql parameter', () => {
+describe('sql-cmd tool', () => {
+  it('registers the tool named sql-cmd with a required sql parameter', () => {
     const { definition } = makeContext({})
     // The registry wraps the definition; the tool half registers via
     // ctx.tools.register with defineTool — assert the execute face exists.
+    expect(definition.name).toBe('sql-cmd')
     expect(definition.execute).toBeTypeOf('function')
   })
 
@@ -285,12 +291,22 @@ describe('sqlcmd tool', () => {
   })
 })
 
-describe('sql-query / sql-write / sqlcmd hardening', () => {
-  it('registers all three database tools with sqlcmd registered last', () => {
+describe('sql-query / sql-write / sql-cmd hardening', () => {
+  it('registers all three database tools with sql-cmd registered last', () => {
     const { definitions } = makeContext({})
     expect(definitions['sql-query']).toBeDefined()
     expect(definitions['sql-write']).toBeDefined()
-    expect(definitions['sqlcmd']).toBeDefined()
+    expect(definitions['sql-cmd']).toBeDefined()
+    expect(definitions.sqlcmd).toBeUndefined()
+  })
+
+  it('uses English descriptions for every plugin-provided model tool', () => {
+    const { definitions } = makeContext({ webServer: true })
+    for (const tool of ['sql-query', 'sql-write', 'sql-cmd', 'render-analysis']) {
+      const description = definitions[tool]?.description
+      expect(description, `${tool} description`).toMatch(/[A-Za-z]/)
+      expect(description, `${tool} description`).not.toMatch(/[\u3400-\u9fff]/)
+    }
   })
 
   it('sql-query returns structured rows and truncates at maxRows', async () => {
@@ -379,7 +395,7 @@ describe('sql-query / sql-write / sqlcmd hardening', () => {
       },
     })
     store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
-    for (const tool of ['sql-query', 'sql-write', 'sqlcmd']) {
+    for (const tool of ['sql-query', 'sql-write', 'sql-cmd']) {
       await expect(definitions[tool]!.execute!({ sql: 'SELECT 1; SELECT 2;' }, execOf('session-a')))
         .rejects.toThrow(/一次只允许执行一条 SQL 语句/)
     }

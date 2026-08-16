@@ -20,7 +20,7 @@ type DatabaseAction = {
 } | {
     kind: 'disconnect';
 };
-export declare const DATA_AGENT_TOOL_NAMES: readonly ["read", "write", "edit", "sql-query", "sql-write", "sqlcmd"];
+export declare const DATA_AGENT_TOOL_NAMES: readonly ["str_replace_editor", "sql-query", "sql-write", "sql-cmd"];
 export interface DatabaseCommandInteraction {
     isTuiFormAvailable(): boolean;
     collectTuiConnection(signal: AbortSignal, options: {

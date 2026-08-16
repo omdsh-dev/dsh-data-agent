@@ -1,6 +1,6 @@
 /**
  * Standalone build config for the merged data-agent package: the node-half
- * library (lib/index.js server half + lib/tool.js sqlcmd tool half +
+ * library (lib/index.js server half + lib/tool.js sql-cmd tool half +
  * lib/invariant.js) and the browser client bundle (lib/client.js), replicating
  * the harness's shared client preset (packages/client/tsdown.client.ts): a
  * closure-factory artifact calling window.__ModuleLoader__.load({id, factory}),
@@ -64,6 +64,15 @@ const client: UserConfig = {
   sourcemap: true,
   clean: false,
   external: [...PLATFORM_MODULES],
+  // Inlined browser dependencies such as ECharts/zrender use Node-style
+  // environment probes. DSH executes this artifact inside a browser factory
+  // with no global `process`, so substitute the same environment keys as the
+  // harness client preset before the bundle is emitted.
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
+    'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
+  },
   // No opinion for table entries (external wins above); bundle everything else.
   noExternal: (id: string) => PLATFORM_MODULES.includes(id as (typeof PLATFORM_MODULES)[number]) ? undefined : true,
   plugins: [{

@@ -1,0 +1,46 @@
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+
+const root = new URL('../', import.meta.url)
+const bundlePath = new URL('lib/client.js', root)
+
+/** Baseline: 1.62 MB (echarts core + zrender + the four chart types). */
+const BUNDLE_SIZE_LIMIT = 1_900_000
+
+describe('client bundle purity (built artifact, task 6.7)', () => {
+  const hasBundle = existsSync(bundlePath)
+
+  it.runIf(hasBundle)('keeps ECharts tree-shaken to the four v1 chart types', () => {
+    const bundle = readFileSync(bundlePath, 'utf8')
+    for (const marker of ['LineSeries', 'BarSeries', 'PieSeries', 'ScatterSeries', 'SVGPainter']) {
+      expect(bundle).toContain(marker)
+    }
+    // Unregistered chart types must not leak into the bundle.
+    for (const marker of ['CandlestickSeries', 'GaugeSeries', 'TreemapSeries', 'SankeySeries', 'EffectScatterSeries']) {
+      expect(bundle).not.toContain(marker)
+    }
+  })
+
+  it.runIf(hasBundle)('contains no cross-plugin value imports from @deepseek-ai', () => {
+    const bundle = readFileSync(bundlePath, 'utf8')
+    // The build-time purity gate already throws for these; assert the artifact
+    // anyway so a config regression fails the suite.
+    expect(bundle).not.toMatch(/require\("@deepseek-ai\/dsh-client-ui-tool"\)/)
+    expect(bundle).not.toMatch(/require\("@deepseek-ai\/[^"]*"\)[\s\S]{0,80}ModuleLoader/)
+  })
+
+  it.runIf(hasBundle)('contains no Node or Vite environment probes', () => {
+    const bundle = readFileSync(bundlePath, 'utf8')
+    // DSH evaluates the closure factory in a browser without a Node process
+    // global; unresolved probes from inlined dependencies fail at plugin boot.
+    expect(bundle).not.toMatch(/\bprocess\.env\b/)
+    expect(bundle).not.toMatch(/\bimport\.meta\.env\b/)
+  })
+
+  it.runIf(hasBundle)('records the bundle size regression threshold', () => {
+    const bytes = statSync(bundlePath).size
+    expect(bytes).toBeLessThan(BUNDLE_SIZE_LIMIT)
+    // The loader handoff banner proves the closure-factory artifact shape.
+    expect(readFileSync(bundlePath, 'utf8')).toContain('window.__ModuleLoader__.load')
+  })
+})

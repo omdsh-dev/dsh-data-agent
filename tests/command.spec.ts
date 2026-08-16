@@ -20,7 +20,6 @@ function invocation(rawInput: string, id = 'agent-a') {
 function commandContext(options?: { questions?: { ask(request: { questions: { id: string }[] }): Promise<unknown> } }) {
   let registered: Record<string, unknown> | undefined
   let restriction: Record<string, unknown> | undefined
-  let agentCreated: ((payload: { agent: { ctx: { tools: { restrict(filter: Record<string, unknown>): void } } } }) => void) | undefined
   const emitted: string[] = []
   const calls: { method: string; sessionId?: string; input?: unknown }[] = []
   const drafts = new Map<string, ConnectionFormDraft>()
@@ -42,14 +41,17 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
     commands: { register(definition: Record<string, unknown>) { registered = definition; return () => {} } },
     tools: {
       restrict(filter: Record<string, unknown>) { restriction = filter; return () => {} },
-      schemas() { return DATA_AGENT_TOOL_NAMES.map(name => ({ name })) },
+      schemas() {
+        return [
+          'describe_image',
+          ...DATA_AGENT_TOOL_NAMES,
+          'render-analysis',
+          'ssh_exec',
+        ].map(name => ({ name }))
+      },
     },
     dataAgentConnections: service,
     get(name: string) { return name === 'userQuestions' ? options?.questions : undefined },
-    on(event: string, listener: typeof agentCreated) {
-      if (event === 'agent/created') agentCreated = listener
-      return () => {}
-    },
     emit(event: string) { emitted.push(event) },
     effect() {},
   }
@@ -58,9 +60,6 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
     calls,
     drafts,
     emitted,
-    triggerAgentCreated() {
-      agentCreated?.({ agent: { ctx: { tools: { restrict(filter) { restriction = filter } } } } })
-    },
     get registered() { return registered },
     get restriction() { return restriction },
   }
@@ -75,9 +74,7 @@ describe('/database command', () => {
       recordInput: false,
     })
     expect(fixture.registered?.handler).toBeTypeOf('function')
-    expect(fixture.restriction).toBeUndefined()
-    fixture.triggerAgentCreated()
-    expect(fixture.restriction).toEqual({ allow: [...DATA_AGENT_TOOL_NAMES] })
+    expect(fixture.restriction).toEqual({ deny: ['describe_image', 'ssh_exec'] })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(fixture.emitted).toContain('commands/change')
   })

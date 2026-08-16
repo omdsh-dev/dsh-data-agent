@@ -14,7 +14,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the ui-conversation slot declarations (conversation.input.dock)
 // and the session standard props (sessionId) into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the keyed tool.call.toolview slot declaration owned by the
+// tool call-tree renderer, so this package can register its render-analysis row.
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import { DataAgentWorkbench, type SessionListLike } from './DataAgentWorkbench.tsx'
+import { RenderAnalysisRow } from './AnalysisDashboard.tsx'
 import { NS, en, zh, type DataAgentKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -53,5 +57,12 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       inject: () => ({ hooks: { sessions: sessionsSource } }),
     }, DataAgentWorkbench))
+    // The render-analysis tool result row: additive keyed registration into
+    // the tool renderer's key domain. Disposal rides slots.inject's effect.
+    scope.slots.inject('tool.call.toolview', () => scope.slots.register({
+      name: 'tool.call.toolview',
+      key: 'render-analysis',
+      locale: NS,
+    }, RenderAnalysisRow))
   })
 }

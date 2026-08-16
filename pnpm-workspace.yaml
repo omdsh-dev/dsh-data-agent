@@ -2,7 +2,9 @@ packages:
   - .
 nodeLinker: hoisted
 allowBuilds:
+  '@deepseek-ai/dsh-subprocess-local': false
   esbuild: true
+  node-pty: false
 minimumReleaseAgeExclude:
   - '@deepseek-ai/cordis-plugin-include@1.0.6'
   - '@deepseek-ai/cordis-plugin-loader@1.0.2'

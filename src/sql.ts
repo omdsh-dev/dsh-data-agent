@@ -1,5 +1,5 @@
 /**
- * Lightweight SQL-text scanning helpers shared by the sqlcmd tool half and
+ * Lightweight SQL-text scanning helpers shared by the sql-cmd tool half and
  * the /query route. This is intentionally NOT a SQL parser: the scanner only
  * understands lexical boundaries (strings, quoted identifiers, comments and
  * parenthesis depth) well enough to make the two agent-loop guarantees from

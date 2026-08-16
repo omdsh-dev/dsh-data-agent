@@ -8,6 +8,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
+import z from 'schemastery';
 import type { DatabaseConnectionInput } from './connections.ts';
 interface WebServerLike {
     register(route: {
@@ -34,20 +35,20 @@ export interface Config {
     maxQueryChars: number;
     readonly: boolean;
 }
-export declare const Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<{
-    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
-    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
-    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
-    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
-    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
-    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+export declare const Config: z<Schemastery.ObjectS<{
+    connectTimeoutMs: z<number, number>;
+    introspectMaxTables: z<number, number>;
+    maxResultChars: z<number, number>;
+    queryTimeoutMs: z<number, number>;
+    maxQueryChars: z<number, number>;
+    readonly: z<boolean, boolean>;
 }>, Schemastery.ObjectT<{
-    connectTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
-    introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
-    maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
-    queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
-    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
-    readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    connectTimeoutMs: z<number, number>;
+    introspectMaxTables: z<number, number>;
+    maxResultChars: z<number, number>;
+    queryTimeoutMs: z<number, number>;
+    maxQueryChars: z<number, number>;
+    readonly: z<boolean, boolean>;
 }>>;
 export interface ConnectRequestBody extends DatabaseConnectionInput {
     sessionId: string;

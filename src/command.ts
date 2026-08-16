@@ -6,9 +6,8 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
-import type {} from '@deepseek-ai/dsh-tools'
+import { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import {
   redactSecretText,
@@ -42,7 +41,12 @@ type DatabaseAction =
   | { kind: 'test' }
   | { kind: 'disconnect' }
 
-export const DATA_AGENT_TOOL_NAMES = ['read', 'write', 'edit', 'sql-query', 'sql-write', 'sqlcmd'] as const
+export const DATA_AGENT_TOOL_NAMES = ['str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd'] as const
+const DATA_AGENT_OWN_TOOL_NAMES = new Set<string>([
+  ...DATA_AGENT_TOOL_NAMES,
+  'render-analysis',
+  RUN_CODE_NAME,
+])
 
 export interface DatabaseCommandInteraction {
   isTuiFormAvailable(): boolean
@@ -66,14 +70,17 @@ const defaultInteraction: DatabaseCommandInteraction = {
 
 /** Register the command in the calling preset/agent scope. */
 export function apply(ctx: Context): void {
-  // Some interactive bundles (notably dsh-tui) register fallback model tools
-  // on the host/global layer. Restrict each joined agent rather than the
-  // standing preset itself: from the child agent the six preset tools are
-  // inherited and can be kept explicitly, while unrelated host tools vanish.
-  // The scoped listener only receives agents joined to this standing preset.
-  ctx.on('agent/created', ({ agent }) => {
-    agent.ctx.tools.restrict({ allow: [...DATA_AGENT_TOOL_NAMES] })
-  })
+  // This entry is the final row mounted in the data-agent standing preset
+  // scope. Deny every currently visible host tool except this preset's own
+  // registrations. An allowlist cannot be used here: when an existing agent is
+  // rebound below this scope, an ancestor allowlist also filters the preset's
+  // local tools. Keeping the restriction in the standing scope handles blank-
+  // session preset switches without depending on a one-shot agent/created
+  // event.
+  const inheritedToolNames = ctx.tools.schemas()
+    .map(schema => schema.name)
+    .filter(toolName => !DATA_AGENT_OWN_TOOL_NAMES.has(toolName))
+  ctx.tools.restrict({ deny: inheritedToolNames })
 
   ctx.commands.register({
     name: 'database',
