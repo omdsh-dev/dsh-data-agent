@@ -30,13 +30,14 @@ const PLATFORM_MODULES = [
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/** Node-half library: the server row, the routes row, the sqlcmd tool half, and the invariant companion. */
+/** Node-half library: server, routes, tool, human command, and invariant entries. */
 const nodeHalf: UserConfig = {
   name: PLUGIN_ID,
   entry: {
     index: 'src/index.ts',
     routes: 'src/routes.ts',
     tool: 'src/tool.ts',
+    command: 'src/command.ts',
     invariant: 'src/invariant.ts',
   },
   outDir: 'lib',

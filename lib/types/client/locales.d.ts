@@ -17,6 +17,13 @@ export declare const zh: {
     'form.port': string;
     'form.user': string;
     'form.password': string;
+    'form.credentialMode': string;
+    'form.credentialMode.password': string;
+    'form.credentialMode.reference': string;
+    'form.passwordRef': string;
+    'form.passwordRef.hint': string;
+    'credential.configured': string;
+    'credential.unconfigured': string;
     'form.rememberPassword': string;
     'form.rememberPassword.hint': string;
     'form.readonly': string;
@@ -69,6 +76,13 @@ export declare const en: {
     'form.port': string;
     'form.user': string;
     'form.password': string;
+    'form.credentialMode': string;
+    'form.credentialMode.password': string;
+    'form.credentialMode.reference': string;
+    'form.passwordRef': string;
+    'form.passwordRef.hint': string;
+    'credential.configured': string;
+    'credential.unconfigured': string;
     'form.rememberPassword': string;
     'form.rememberPassword.hint': string;
     'form.readonly': string;

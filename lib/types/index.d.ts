@@ -1,7 +1,7 @@
 /**
  * Data Agent server half for the dsh web GUI. The host row provides the
- * `dataAgentConnections` service (session-scoped in-memory store; passwords
- * never leave memory), seeds config connections (`connections`, `'*'` =
+ * `dataAgentConnections` service (shared non-secret profile/binding storage;
+ * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
  * wildcard default), and installs the `data-agent` agent preset into
  * `$DSH_HOME/.agent-presets/` (idempotent, never overwrites a user-edited
  * directory).
@@ -27,11 +27,7 @@ export declare const name = "data-agent";
 /** Services required before the store can serve. */
 export declare const inject: string[];
 /** Deployment overrides for one database type's CLI client. */
-export interface ClientsConfig {
-    mysql?: ClientConfig;
-    postgres?: ClientConfig;
-    sqlite?: ClientConfig;
-}
+export type ClientsConfig = Partial<Record<DatabaseType, ClientConfig>>;
 /**
  * One config-seeded connection. Deliberately password-free: passwords are a
  * memory-only / connect-time value, so only the /connect route may carry one.
@@ -46,6 +42,9 @@ export interface SeededConnectionConfig {
     database: string;
     /** Optional per-seed read-only guard. */
     readonly?: boolean;
+    /** Safe credential reference. Real passwords are rejected by the schema. */
+    passwordRef?: string;
+    password?: never;
 }
 /** Required plugin configuration (loader schema with deployment defaults). */
 export interface Config {
@@ -61,8 +60,12 @@ export interface Config {
     queryTimeoutMs: number;
     /** In-memory cap on database-tool captured output. */
     maxResultChars: number;
+    /** Maximum SQL text accepted by the shared Web query adapter. */
+    maxQueryChars: number;
     /** Default read-only guard: true rejects write statements in database tools and /query. */
     readonly: boolean;
+    /** Persist non-secret profiles/bindings through DSH storage-domain. */
+    persistConnections: boolean;
     /** CLI client overrides keyed by database type. */
     clients: ClientsConfig;
     /** Config-seeded connections keyed by session id (`'*'` = wildcard default). */
@@ -76,7 +79,9 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
     readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    persistConnections: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
@@ -91,6 +96,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
+        passwordRef?: string | null | undefined;
+        password?: null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
         type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
@@ -98,6 +105,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         user: import("@deepseek-ai/schemastery").default<string, string>;
         database: import("@deepseek-ai/schemastery").default<string, string>;
         readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+        passwordRef: import("@deepseek-ai/schemastery").default<string, string>;
+        password: import("@deepseek-ai/schemastery").default<never, never>;
     }>, string>>;
 }>, Schemastery.ObjectT<{
     presetId: import("@deepseek-ai/schemastery").default<string, string>;
@@ -106,7 +115,9 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
     introspectMaxTables: import("@deepseek-ai/schemastery").default<number, number>;
     queryTimeoutMs: import("@deepseek-ai/schemastery").default<number, number>;
     maxResultChars: import("@deepseek-ai/schemastery").default<number, number>;
+    maxQueryChars: import("@deepseek-ai/schemastery").default<number, number>;
     readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+    persistConnections: import("@deepseek-ai/schemastery").default<boolean, boolean>;
     clients: import("@deepseek-ai/schemastery").default<import("@deepseek-ai/cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
@@ -121,6 +132,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
+        passwordRef?: string | null | undefined;
+        password?: null | undefined;
     } & import("cosmokit").Dict, string>, import("@deepseek-ai/cosmokit").Dict<Schemastery.ObjectT<{
         type: import("@deepseek-ai/schemastery").default<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
         host: import("@deepseek-ai/schemastery").default<string, string>;
@@ -128,6 +141,8 @@ export declare const Config: import("@deepseek-ai/schemastery").default<Schemast
         user: import("@deepseek-ai/schemastery").default<string, string>;
         database: import("@deepseek-ai/schemastery").default<string, string>;
         readonly: import("@deepseek-ai/schemastery").default<boolean, boolean>;
+        passwordRef: import("@deepseek-ai/schemastery").default<string, string>;
+        password: import("@deepseek-ai/schemastery").default<never, never>;
     }>, string>>;
 }>>;
 /**
@@ -143,6 +158,10 @@ export declare function resolveDshHome(env?: Record<string, string | undefined>)
  * install instructions instead of failing the boot.
  */
 export declare function installPreset(ctx: Context, presetId: string): Promise<void>;
+/** Exact profile-local package installation command used by diagnostics/docs. */
+export declare function profileInstallCommand(profile: string): string;
+/** Actionable diagnostic for a roster-visible preset whose profile lacks this package. */
+export declare function missingProfileDependencyMessage(profile: string): string;
 /**
  * Mount the data-agent host row: connection store, config-seeded
  * connections, and preset self-install. HTTP routes are the sibling
@@ -150,4 +169,4 @@ export declare function installPreset(ctx: Context, presetId: string): Promise<v
  * @param ctx - host cordis context.
  * @param config - validated loader configuration.
  */
-export declare function apply(ctx: Context, config: Config): void;
+export declare function apply(ctx: Context, config: Config): Promise<void>;

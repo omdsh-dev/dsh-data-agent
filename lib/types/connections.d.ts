@@ -1,74 +1,149 @@
 /**
- * The `dataAgentConnections` connection store: one in-memory connection per
- * session id, host-plane provided by the server half (`src/index.ts`) and
- * consumed by the sqlcmd tool half (`src/tool.ts`) inside the data-agent
- * preset.
+ * Surface-independent database connection service shared by Web routes,
+ * agent tools, and human commands.
  *
- * Security contract:
- * - passwords live in memory only — never written to session logs, settings,
- *   config, or disk;
- * - `get()` returns a password-stripped COPY, so UI/status consumers never
- *   see the secret;
- * - `getWithSecret()` is the process-internal read used ONLY by the sqlcmd
- *   tool half (same package), which forwards the password to the database
- *   client through an environment variable.
- *
- * Wildcard: a connection stored under the key `'*'` acts as the fallback for
- * every session without its own entry (a deployment seeding a default
- * database, or a headless/keyless run). Config-seeded entries cannot carry
- * passwords, so the wildcard is always password-free.
+ * Runtime records may contain one temporary Web password. Durable records
+ * never do: they contain a non-secret profile plus an optional credential
+ * reference that is resolved again at the start of every database operation.
  * @module @yejiming/dsh-data-agent/connections
  */
-/** Key of the wildcard (default) connection applied to any session without its own. */
+import type { Context } from '@deepseek-ai/cordis';
+import { type ClientConfig, type ColumnInfo } from './clients.ts';
+import { type QueryResult } from './query.ts';
+/** Key of the wildcard connection applied to sessions without an exact entry. */
 export declare const WILDCARD_SESSION = "*";
 /** Supported database client kinds. */
 export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala';
-/**
- * One session's database connection. `host`/`port`/`user` are empty for
- * SQLite, whose `database` is a file path (resolved to absolute at connect).
- * `tables` is the connectivity check's table listing, retained so the
- * browser half can restore it after a tab switch without re-querying.
- */
-export interface DatabaseConnection {
+/** Safe credential facts returned to UI/command surfaces. */
+export interface CredentialSummary {
+    configured: boolean;
+    source?: string;
+}
+/** One connect request accepted by every surface. */
+export interface DatabaseConnectionInput {
     type: DatabaseType;
     host?: string;
     port?: number;
     user?: string;
     database: string;
-    /** In-memory only; never exposed through {@link DataAgentConnections.get}. */
+    /** Temporary Web-only secret, retained in this process only. */
     password?: string;
-    /** Optional per-session read-only guard (defaults to the plugin's `readonly`). */
+    /** Non-secret DSH credential reference, mutually exclusive with password. */
+    passwordRef?: string;
     readonly?: boolean;
+    /** Optional stable durable profile id. */
+    profileId?: string;
+    /** Optional human-readable profile label. */
+    name?: string;
+}
+/** Runtime connection. `tables` and temporary `password` are never durable. */
+export interface DatabaseConnection extends DatabaseConnectionInput {
     tables?: string[];
 }
-/** Password-free view of one connection (the wire/UI face). */
+/** Password-free public connection view. */
 export interface ConnectionSummary {
     type: DatabaseType;
     host?: string;
     port?: number;
     user?: string;
     database: string;
-    /** Present only when the connection explicitly set it. */
+    passwordRef?: string;
     readonly?: boolean;
+    profileId?: string;
+    name?: string;
     tables?: string[];
+    credential?: CredentialSummary;
 }
-/** The host-plane connection store service (`ctx.dataAgentConnections`). */
+/** Value stored in the `profiles` domain table. Never add secrets here. */
+export interface PersistedConnectionProfile {
+    name?: string;
+    type: DatabaseType;
+    host?: string;
+    port?: number;
+    user?: string;
+    database: string;
+    readonly?: boolean;
+    passwordRef?: string;
+    updatedAt: string;
+}
+/** Value stored in the `bindings` domain table. */
+export interface SessionConnectionBinding {
+    profileId: string;
+    updatedAt: string;
+}
+/** Non-secret values restored when a session reopens an interactive form. */
+export interface ConnectionFormDraft {
+    type: DatabaseType;
+    host: string;
+    port: string;
+    user: string;
+    database: string;
+    readonly: boolean;
+}
+/** Durable draft record. Passwords and credential references are forbidden. */
+export interface PersistedConnectionFormDraft extends ConnectionFormDraft {
+    updatedAt: string;
+}
+/** Minimal durable seam; backed by a DSH storage domain in production. */
+export interface ConnectionPersistence {
+    getProfile(profileId: string): PersistedConnectionProfile | undefined;
+    putProfile(profileId: string, profile: PersistedConnectionProfile): Promise<void>;
+    deleteProfile(profileId: string): Promise<boolean>;
+    getBinding(sessionId: string): SessionConnectionBinding | undefined;
+    putBinding(sessionId: string, binding: SessionConnectionBinding): Promise<void>;
+    deleteBinding(sessionId: string): Promise<boolean>;
+    getDraft?(sessionId: string): PersistedConnectionFormDraft | undefined;
+    putDraft?(sessionId: string, draft: PersistedConnectionFormDraft): Promise<void>;
+}
+/** Shared service configuration supplied by the host plugin. */
+export interface ConnectionServiceOptions {
+    connectTimeoutMs: number;
+    queryTimeoutMs: number;
+    maxResultChars: number;
+    maxQueryChars?: number;
+    introspectMaxTables: number;
+    readonly: boolean;
+    clients: Partial<Record<string, ClientConfig>>;
+    cwd?: string;
+}
+export interface ConnectResult {
+    tables: string[];
+    summary: ConnectionSummary;
+}
+/** Host-plane service (`ctx.dataAgentConnections`). */
 export interface DataAgentConnections {
-    /** Save (replace) one session's connection, password included. */
+    /** Compatibility setter for config seeds/tests; does not persist. */
     set(sessionId: string, connection: DatabaseConnection): void;
-    /** Read one session's connection WITHOUT the password (a fresh copy). */
+    /** Password-free synchronous status (runtime/binding/wildcard resolution). */
     get(sessionId: string): ConnectionSummary | undefined;
-    /**
-     * Read one session's connection INCLUDING the password. Process-internal
-     * only (the sqlcmd tool half); never hand this to a wire/UI consumer.
-     */
+    /** Compatibility internal read; credential references remain unresolved. */
     getWithSecret(sessionId: string): DatabaseConnection | undefined;
-    /** Whether a session currently has a connection. */
     has(sessionId: string): boolean;
-    /** Drop one session's connection. */
+    /** Compatibility runtime-only clear. Use disconnect() for durable bindings. */
     clear(sessionId: string): void;
+    /** Restore the latest non-secret interactive form values for this session. */
+    getFormDraft(sessionId: string): ConnectionFormDraft | undefined;
+    /** Save non-secret form values; the implementation never accepts a password. */
+    saveFormDraft(sessionId: string, draft: ConnectionFormDraft): Promise<void>;
+    status(sessionId: string): Promise<ConnectionSummary | undefined>;
+    connect(sessionId: string, input: DatabaseConnectionInput, signal: AbortSignal): Promise<ConnectResult>;
+    disconnect(sessionId: string): Promise<void>;
+    test(sessionId: string, signal: AbortSignal): Promise<ConnectResult>;
+    resolveForExecution(sessionId: string): Promise<DatabaseConnection>;
+    listSchemas(sessionId: string, signal: AbortSignal): Promise<string[]>;
+    listTables(sessionId: string, schema: string | undefined, signal: AbortSignal): Promise<string[]>;
+    describe(sessionId: string, schema: string | undefined, table: string, signal: AbortSignal): Promise<ColumnInfo[]>;
+    query(sessionId: string, sql: string, signal: AbortSignal): Promise<QueryResult>;
 }
-/** Build the password-stripped copy of one connection. */
+/** Build a password-stripped copy of one connection. */
 export declare function summarize(connection: DatabaseConnection): ConnectionSummary;
-/** Create a fresh connection store (per-process singleton, one per plugin instance). */
+/** Replace every occurrence of a resolved secret before crossing a public seam. */
+export declare function redactSecretText(text: string, secrets: readonly (string | undefined)[]): string;
+/** Redact a client result without mutating the runner-owned object. */
+export declare function redactQueryResult(result: QueryResult, connection: DatabaseConnection): QueryResult;
+/** Validate/normalize a shared connect input before any I/O. */
+export declare function normalizeConnectionInput(input: DatabaseConnectionInput, cwd?: string): DatabaseConnection;
+/** Create the surface-independent service. */
+export declare function createConnectionService(ctx?: Context, options?: ConnectionServiceOptions, persistence?: ConnectionPersistence): DataAgentConnections;
+/** Backward-compatible in-memory store factory used by embedders/tests. */
 export declare function createConnectionStore(): DataAgentConnections;

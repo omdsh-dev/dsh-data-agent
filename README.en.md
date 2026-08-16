@@ -1,196 +1,172 @@
-# Data Agent · Let AI Connect Your Database and Write SQL
+# Data Agent · Connect DSH to Your Database and Turn Conversations into Analysis and Business Insights
 
 [中文](README.md) | **English**
 
 ![Data Mode session](assets/session.png)
 
-This plugin is a Data Agent built on DeepSeek Harness, letting DeepSeek focus on database operations.
+What business users really want is usually not a SQL statement. They want to know what happened, why it happened, which customers or products deserve attention, and what action to take next.
 
-Leveraging the agent-preset capability of DeepSeek Harness, it adds a Data Mode preset. The preset keeps only the three DSH built-in tools — read, edit, write — and adds custom sql-query / sql-write / sqlcmd database tools in place of the bash tool, free from irrelevant tools and prompts.
+Data Agent connects DeepSeek Harness (DSH) directly to your business database. Once connected, you can ask questions as if you were talking to a data analyst. DSH inspects schemas, writes and runs SQL, continues the analysis based on real results, and turns the findings into clear conclusions and business insights.
 
-With this preset, you can configure a database connection right in the conversation UI, grant the AI access to the database, and complete CRUD operations.
+For example, you can ask:
+
+- “Why did revenue decline over the past 90 days? Break down the main causes by region and category.”
+- “Which customers are at risk of churn? Show the evidence and recommend follow-up actions.”
+- “Analyze retention for users acquired this month and summarize the changes that matter most.”
+- “Find the product combinations with the highest repeat-purchase rate and prepare an executive-friendly summary.”
+
+You do not need to translate every question into SQL first, or keep copying data between a database client, an AI chat window, and a spreadsheet. You describe the business question; DSH handles the query, validation, and analysis loop.
 
 ## Features
 
-- **Database connection management**: per-session connections to MySQL / PostgreSQL / SQLite / Oracle / Hive / Impala (SQLite uses a file path, Oracle a service name/SID, Hive/Impala a default database). Connection state lives in server memory and survives layout switches; passwords stay in memory and travel to the client via environment variables or stdin connect prefixes — never written to disk on the server.
+- **Analyze data through conversation**: Describe your goal in natural language. DSH understands the question, breaks it into analysis steps, queries real data, and organizes the conclusions. You can keep asking follow-up questions to explore the same context in greater depth.
+- **Discover business insights automatically**: Data Agent goes beyond returning query results. It helps compare trends, locate anomalies, identify valuable customers or products, and turn the data into explanations that support decisions.
+- **Works with both Web UI and dsh-tui**: For a visual workflow, we recommend [zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui), where you can connect databases, browse schemas, and inspect results in the browser. For a keyboard-first workflow, we recommend [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), where you can use the same Data Mode, connect through `/database`, and move directly into conversational analysis. Both interfaces provide the core Data Agent experience.
+- **Connect common business databases**: Supports MySQL, PostgreSQL, SQLite, Oracle, Hive, and Impala across application databases, analytics systems, local data files, and data warehouses.
+- **Let DSH complete the analysis loop**: DSH inspects table structures, writes SQL, runs the query, and adjusts its approach based on errors or returned data instead of stopping at an unverified SQL draft.
+- **Stay focused with Data Mode**: The session keeps only the capabilities needed to read and write files, query databases, and run SQL. Removing unrelated tools and context helps DSH stay focused on data analysis.
+- **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
-  ![Database connection](assets/connection.png)
+![Database connection](assets/connection.png)
 
-- **Database workbench** (embedded above the session's input bar): connection config card (collapses into a summary row after connecting, expandable for review); schema explorer (a "Tables" button opens a Modal — single-click a database to expand its scrollable table list, click a table to inspect its columns); SQL command box (write and run SQL on the non-agent channel, monospace output). The connection config is persisted to browser localStorage — switching pages or restarting restores the form and auto-reconnects. Once the conversation starts, the workbench becomes the left column and the chat records + input bar sit on the right.
-- **Database tools**: `sql-query` runs read-only SQL and returns structured `{ columns, rows, affectedRows, elapsedMs }`; `sql-write` runs one write/management SQL per call with explicit autocommit semantics; `sqlcmd` keeps the original raw terminal output. All three run through the database clients (mysql / psql / sqlite3 / sqlplus / beeline / impala-shell); no shell layer (argv arrays + SQL via stdin), timeouts terminate the process tree, output is bounded and truncated, and one call carries at most one SQL statement.
-- **Data Mode preset**: choose "Data Mode" when creating a session — the tool surface is `sql-query`/`sql-write`/`sqlcmd`/`read`/`write`/`edit`, and every other project tool (bash, grep, skill, todo, goal, web, subagent, …) is simply absent, i.e. disabled; non-Data-Mode sessions render no workbench at all.
+The Web UI also includes an embedded database workbench for browsing schemas, inspecting columns, and running an occasional SQL statement. Once the conversation starts, the workbench moves to the sidebar so it does not interrupt the analysis.
 
-  ![Data Mode preset](assets/settings.png)
+![Database workbench](assets/tables.png)
 
-- **Standard agent loop**: a data-mode session is an ordinary DSH session — standard turn/step, streaming, tool scheduling, and persistence, with zero host changes.
+Choose “Data Mode” when creating a session, and DSH will use the data-analysis workflow for everything that follows.
+
+![Data Mode preset](assets/settings.png)
 
 ## Quick Install
 
-Two install methods, neither requires a local build (the prebuilt output in
-`lib/` is committed, and no `prepare`/`prepack` scripts are declared).
+The Web UI and dsh-tui use separate DSH profiles. Install only the profile for the interface you use, or run both commands if you use both interfaces.
 
 ### Method 1: npm (recommended)
 
 ```sh
-# Install from npm (initializes the profile on first use)
 dsh plugin --profile web add @yejiming/dsh-data-agent
+dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 ```
 
-### Method 2: GitHub source
+### Method 2: GitHub
 
 ```sh
-# Install from the GitHub source (lib/ is committed, no build at install time)
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
+dsh plugin --profile dsh-tui add github:omdsh-dev/dsh-data-agent
 ```
 
-Verify the install:
+The plugin installs the Data Mode preset automatically. No local build is required.
 
-```sh
-dsh --profile web --dump-config   # the data-agent layer should appear
-ls $DSH_HOME/.agent-presets/data-agent/   # agent.cordis.yml + preset.yml (auto-installed)
-```
+## Using Data Agent in the Web UI
 
-Start the Web GUI:
+Start the Web UI:
 
 ```sh
 dsh --profile web
 ```
 
-In the Web GUI: create a session → choose the "Data Mode" preset → the database workbench appears above the input bar → fill in the connection info (type/host/port/user/password/database; SQLite uses a file path) → after connecting, browse schemas (single-click a database to expand tables, click a table for its structure) or run SQL directly in the command box → once the conversation starts the workbench moves to the left; in Chat ask the AI to "list all tables and count rows" or "write a SQL query for orders in the last 30 days, save it to orders.sql and run it".
+Then:
 
-> Database client binaries: sqlite3 usually ships with macOS/Linux; mysql / psql / sqlplus / beeline / impala-shell must be provided by the deployment and can be overridden per type via the `clients` config (missing clients are named in the connect error).
+1. Create a session and choose “Data Mode.”
+2. Enter your connection details in the database workbench.
+3. Once connected, ask an analysis question directly in the conversation.
+4. Follow up on the first result and ask DSH to narrow the scope, compare dimensions, or summarize the conclusions.
 
-## Architecture
+For example, ask: “Analyze order changes over the last 30 days, identify the regions and products with the largest revenue decline, and explain the main causes.” DSH will inspect the relevant tables, generate and run the queries, and complete the analysis from real results.
+
+## Using Data Agent in dsh-tui
+
+Start the terminal interface:
+
+```sh
+dsh --profile dsh-tui
+```
+
+In a blank session, switch to Data Mode and connect a database:
 
 ```text
-Browser (apps/web)                        Host process (dsh --profile web)
-┌─────────────────────────────┐          ┌──────────────────────────────────────┐
-│ Database workbench (input.dock) │ fetch │ @yejiming/dsh-data-agent (host row)│
-│  · connection config (6 types) │ ─────▶ │  · /plugins/data-agent/* routes       │
-│  · schema explorer + SQL box   │        │  · dataAgentConnections store         │
-│  · hero stacked / active rail  │        │  · preset self-install → $DSH_HOME/   │
-└─────────────────────────────┘          └──────────────┬───────────────────────┘
-                                                       │ same process
-        data-agent session (full agent loop reuse)     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│ agent.cordis.yml (preset layer, only 3 rows)                             │
-│  · persona             → data-engineer system prompt                     │
-│  · dsh-tool-fs         → read / write / edit (project built-ins)         │
-│  · dsh-data-agent/tool → sql-query / sql-write / sqlcmd (tool half)      │
-└──────────────────────────────────────────────────────────────────────────┘
+/preset data-agent
+/database connect
 ```
 
-One npm package, three loadable faces, two host rows:
+The connection form displays all relevant fields together. Use Tab or Shift+Tab to move between fields. Press Enter on database type or read-only mode to show every option, use the arrow keys to select one, and press Enter again to confirm.
 
-| Face | Entry | Loaded by |
-|---|---|---|
-| Server half (connection store / preset self-install) | `lib/index.js` (host row `data-agent`) | Host composition: provides `dataAgentConnections`, seeds connections, self-installs the preset; works headless too |
-| Server half (HTTP routes) | `lib/routes.js` (host row `data-agent-routes`, exports subpath `./routes`) | Host composition: registers routes via a nested inject only where a webserver exists (skipped automatically headless) |
-| Tool half | `lib/tool.js` (exports subpath `./tool`) | Only mounted by the data-agent preset (`tool-sqlcmd` row) |
-| Browser half | `lib/client.js` (`dsh.client` declaration) | Browser: the database workbench in the input dock (`conversation.input.dock`) |
+After connecting, return to the chat input and ask a business question. Other useful database commands include:
 
-The tool half only consumes host services (`tools`, `subprocess`, `dataAgentConnections`) and provides none, so the preset guard needs no `isolate` realm.
-
-## Configuration
-
-Every field has a loader default; there are no library-level defaults. Host row `data-agent`:
-
-| Key | Meaning |
-|---|---|
-| `presetId` | Preset directory name installed under `$DSH_HOME/.agent-presets/` (default `data-agent`) |
-| `installPreset` | Whether to self-install the preset on startup (default true; existing directories are skipped, keeping user edits) |
-| `connectTimeoutMs` | End-to-end deadline for one /connect connectivity check (default 10000 ms) |
-| `introspectMaxTables` | Cap on the table list returned by /connect and /status (default 500) |
-| `queryTimeoutMs` | Deadline for one database-tool query (default 30000 ms) |
-| `maxResultChars` | In-memory cap on captured database-tool output, per stream (default 20000 chars) |
-| `clients` | Per-type CLI client overrides: `{ command?, args? }` for keys `mysql` / `postgres` / `sqlite` / `oracle` / `hive` / `impala` (built-in defaults mysql/psql/sqlite3/sqlplus/beeline/impala-shell) |
-| `connections` | Config-seeded connections keyed by session id (`'*'` = wildcard default for any session without its own; headless/keyless runs and deployments pinning one database). **No password field** — passwords only enter memory via the /connect route |
-
-The `tool-sqlcmd` row (inside the data-agent preset) additionally has `maxRows` (default 100, enforced: an unbounded SELECT gets a top-level LIMIT and structured parsing truncates as a second guard); `queryTimeoutMs` / `maxResultChars` / `clients` share the host row's names and defaults.
-
-The `data-agent-routes` row has its own config: `connectTimeoutMs` / `introspectMaxTables` / `maxResultChars` mirror the main row; plus `queryTimeoutMs` (for /query and metadata queries, default 30000) and `maxQueryChars` (single-SQL length cap for /query, default 65536).
-
-```yaml
-# Example override in cordis.patch.yml or a profile layer
-- id: data-agent
-  name: '@yejiming/dsh-data-agent'
-  config:
-    clients:
-      mysql:
-        command: /usr/local/bin/mysql-client
-    # Wildcard default connection: sessions without an explicit /connect fall back
-    # to this database (password-free scenario only)
-    connections:
-      '*':
-        type: sqlite
-        database: /tmp/analytics.db
+```text
+/database status       Show the current connection
+/database test         Test the current connection
+/database disconnect   Disconnect the current database
 ```
 
-## Headless / One-shot Runs
+When you reopen the connection form in the same session, it restores the latest database type, host, port, user, database, and read-only mode. The password always remains masked and is never restored.
 
-**Important**: `dsh run` (the headless bundle) does not mount the agent-presets roster and never mounts presets for sessions — preset mounting belongs to the web surface (the api-proxy mounts on session creation). Therefore **headless sessions cannot use the sql-query/sql-write/sqlcmd/read/write/edit tool surface**; the database tools are verified and used on the web surface. Headless database work is limited to the host base's own tools (e.g. calling clients via bash).
+![Data analysis in dsh-tui](assets/tui.png)
 
-(Note: inserting the roster row plus disabling the base tool rows cannot reproduce the preset tool surface headless — the agent ends up with an empty, zero-tool composition. For a headless smoke test, verify "seeded connections + host tools work" only.)
+## How to Ask Better Analysis Questions
 
-The `data-agent-routes` row is skipped automatically in profiles without a webserver (nested inject), so nothing needs special handling.
+For more valuable results, include the business goal, time range, and dimensions you care about. For example:
 
-## HTTP API
+```text
+Analyze revenue and gross-margin changes by region in Q2 2026.
+Find the regions with unusual performance, drill down into categories and key customers,
+and recommend three concrete business actions.
+```
 
-Prefix `/plugins/data-agent` (same-origin calls from the browser half):
+You can also ask DSH to save the SQL or analysis so it can be reviewed and reused:
 
-| Method/Path | Meaning |
-|---|---|
-| `POST /connect` | body `{ sessionId, type, host?, port?, user?, database, password? }`; validate → connectivity check (list tables) → save only on success, returns `{ ok, tables }`, failure returns `{ ok: false, error }` without saving |
-| `POST /disconnect` | body `{ sessionId }`; drop the session's connection |
-| `GET /status?sessionId=` | `{ connected, summary? }`; summary is the password-stripped connection plus the table list |
-| `GET /schemas?sessionId=` | `{ ok, schemas: string[] }`; database list (sqlite returns `['main']`) |
-| `GET /tables?sessionId=&schema=` | `{ ok, tables: string[] }`; tables of one schema (sqlite ignores the schema param) |
-| `GET /describe?sessionId=&schema=&table=` | `{ ok, columns: [{ name, type, nullable? }] }`; table structure (sqlite ignores schema) |
-| `POST /query` | body `{ sessionId, sql }`; runs one SQL statement (the workbench command box, non-agent channel), returns `{ ok, result: { exitCode, stdout, stderr, truncated } }`; `sql` length capped by `maxQueryChars`; multiple statements are rejected; readonly rejects writes |
+```text
+Complete a member repeat-purchase analysis, save the final SQL to
+analysis/repurchase.sql, and summarize the main findings in a format suitable for a weekly report.
+```
 
-Schema/table identifiers allow only `[A-Za-z0-9_$]` (server-side whitelist and per-type quoting; injection-shaped input is rejected).
+## Before You Start
 
-## Security Notes
+DSH must be able to reach the target database from your machine, and the corresponding database client must be installed:
 
-- **Passwords**: server-side, memory only; transport per type — mysql via `MYSQL_PWD`, postgres via `PGPASSWORD` environment variables; oracle via the sqlplus `connect user/pass@...` stdin prefix, hive via the beeline `!connect` stdin prefix (never argv); impala sends no password by default (LDAP/kerberos configured through `clients`). `/status` and the public connection-store reads strip passwords.
-- **Connection-config persistence**: the workbench saves the connection config (type/host/port/user/database) to browser localStorage (key `dsh-data-agent.connection.v1`) to restore the form and auto-reconnect once on page switches/restarts. **Passwords are not persisted by default**; they are stored only when "remember password" is explicitly checked (plain-text localStorage, opt-in). To clear: run `localStorage.removeItem('dsh-data-agent.connection.v1')` in the browser console.
-- **No shell layer**: `ctx.subprocess.spawn` uses argv arrays, SQL and connect prefixes travel via stdin — no shell concatenation injection surface; metadata route identifiers pass the whitelist.
-- **SQL execution authority**: with the approval policy set to `never`, `sql-write`/`sqlcmd` and `/query` execute DDL/DML directly — connections are session-isolated; assess the data-plane risk yourself. `readonly: true` rejects write statements; each database-tool call is an independent client process with autocommit, so transactions do not span calls.
-- **Timeouts & caps**: query timeouts, output truncation, table-list caps, and the /query SQL length are all config items — no hard-coded tunables.
+- SQLite is usually included with macOS or Linux.
+- MySQL requires the `mysql` client.
+- PostgreSQL requires the `psql` client.
+- Oracle, Hive, and Impala require their respective command-line clients.
 
-## Uninstall & Rollback
+We recommend creating a read-only database account so Data Agent can explore and analyze data without modifying production records.
+
+If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package error, the plugin is usually not installed in the current profile. Make sure you ran the matching install command for the Web UI or dsh-tui, then restart DSH.
+
+## Security
+
+- Prefer a read-only database account and enable read-only mode in the connection form.
+- Temporary passwords entered in the Web UI or dsh-tui are used only for the current connection. The TUI displays only `*` and never restores the password when the form is reopened.
+- If authentication must be restored across processes, use a DSH credential reference instead of putting a plaintext password in command arguments.
+- When read-only mode is disabled, Data Agent can run update or administrative statements at your request. Before connecting to a production database, review the account permissions and backup policy.
+- Database connections are isolated by session, making it easier to keep different projects, customers, and analysis environments separate.
+
+## Uninstall and Rollback
 
 ```sh
-dsh plugin --profile web remove @yejiming/dsh-data-agent   # removes the dependency and its layer
-rm -rf $DSH_HOME/.agent-presets/data-agent                      # manually delete the self-installed preset
+dsh plugin --profile web remove @yejiming/dsh-data-agent
+dsh plugin --profile dsh-tui remove @yejiming/dsh-data-agent
+rm -rf $DSH_HOME/.agent-presets/data-agent
 ```
 
-Connections are in-memory; there is no persisted data to clean up.
+Uninstalling the plugin does not automatically delete saved non-secret connection information. If you need to remove it completely, back it up first and then delete the corresponding Data Agent storage records in DSH.
 
-## Development
-
-Build and test:
+## Local Development
 
 ```sh
-pnpm build   # cleans and rebuilds lib/ (tsdown: lib/index.js, lib/routes.js, lib/tool.js, lib/invariant.js, lib/client.js) + tsc declarations
-pnpm test    # vitest: connection store / CLI templates / sqlcmd execution (mocked subprocess)
+pnpm install
+pnpm build
+pnpm test
 ```
 
-`lib/` is committed, so installing and debugging (including `dsh plugin add .`)
-never requires a build. To rebuild the artifacts, just run `pnpm install`: all
-`@deepseek-ai/*` dependencies are published on npm, so there is no need to copy
-or symlink `node_modules` from a local DSH checkout anymore.
-`pnpm-workspace.yaml` follows the dsh convention (`nodeLinker: hoisted`); pnpm
-11's supply-chain policy blocks freshly published packages and dependency build
-scripts, so the repository pre-declares `minimumReleaseAgeExclude` (the rc.6
-family) and `allowBuilds: esbuild`.
+The prebuilt `lib/` directory is committed to the repository, so npm and GitHub installations do not require a local build.
 
 ## License
 
 MIT
 
-## Friends
+## Related Links
 
-- [dshfind.com](https://dshfind.com): Chinese learning & sharing community for DeepSeek Harness — read the papers, write plugins, see the whole ecosystem.
-- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): Plugins & skins collection for the DeepSeek Harness (DSH) Web UI
-- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): Claude Code style fullscreen interactive terminal plugin
+- [dshfind.com](https://dshfind.com): A Chinese learning and sharing community for DeepSeek Harness
+- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): A collection of plugins and skins for the DeepSeek Harness Web UI
+- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): A Claude Code-style full-screen terminal interface

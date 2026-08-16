@@ -33,6 +33,7 @@ import {
 import { runClientQuery, type QueryOptions, type QueryResult } from './query.ts'
 import { assertSingleStatement } from './sql.ts'
 import { parseStructuredQueryOutput } from './structured.ts'
+import { redactQueryResult, redactSecretText, type DatabaseConnection } from './connections.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-tool'
@@ -100,16 +101,34 @@ interface ToolExecLike {
 }
 
 /** Look up the session connection, failing with the same message for every tool. */
-function requireToolConnection(ctx: Context, exec: ToolExecLike, toolName: string) {
+async function requireToolConnection(ctx: Context, exec: ToolExecLike, toolName: string) {
   const sessionId = exec.agent?.id
   if (sessionId === undefined) {
     throw new Error(`${toolName}: 缺少会话上下文（agent loop 未注入）`)
   }
-  const connection = ctx.dataAgentConnections.getWithSecret(sessionId)
-  if (connection === undefined) {
-    throw new Error(`请先在「数据库」标签页连接数据库，再使用 ${toolName}（未找到当前会话的连接）`)
+  try {
+    return await ctx.dataAgentConnections.resolveForExecution(sessionId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`${toolName}: ${message}`)
   }
-  return connection
+}
+
+/** Run and redact a client result/error before it reaches tool/session output. */
+async function runToolQuery(
+  ctx: Context,
+  connection: DatabaseConnection,
+  sql: string,
+  options: QueryOptions,
+  signal: AbortSignal,
+): Promise<QueryResult> {
+  try {
+    const result = await runClientQuery(ctx, connection, sql, options, signal)
+    return redactQueryResult(result, connection)
+  } catch (error) {
+    const message = redactSecretText(error instanceof Error ? error.message : String(error), [connection.password])
+    throw new Error(message, error instanceof Error ? { cause: error } : undefined)
+  }
 }
 
 /** Empty and multi-statement checks shared by all three tools. */
@@ -199,14 +218,14 @@ export function apply(ctx: Context, config: Config): void {
       content: result.content,
     }),
     async execute(args, exec) {
-      const connection = requireToolConnection(ctx, exec, 'sql-query')
+      const connection = await requireToolConnection(ctx, exec, 'sql-query')
       validateSingleSql(args.sql, 'sql-query')
       if (classifyStatement(args.sql, connection.type) !== 'read') {
         throw new Error('sql-query 只执行读语句（SELECT/SHOW/DESCRIBE/EXPLAIN，SQLite 还含查询型 PRAGMA）；写语句请使用 sql-write')
       }
       const limitedSql = enforceReadRowLimit(args.sql, connection.type, resolved.maxRows)
       const startedAt = Date.now()
-      const result = await runClientQuery(ctx, connection, limitedSql, runnerOptions(resolved, 'structured'), exec.signal)
+      const result = await runToolQuery(ctx, connection, limitedSql, runnerOptions(resolved, 'structured'), exec.signal)
       const elapsedMs = Date.now() - startedAt
       if (result.exitCode !== 0) {
         const detail = result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim()
@@ -261,7 +280,7 @@ export function apply(ctx: Context, config: Config): void {
       content: result.content,
     }),
     async execute(args, exec) {
-      const connection = requireToolConnection(ctx, exec, 'sql-write')
+      const connection = await requireToolConnection(ctx, exec, 'sql-write')
       validateSingleSql(args.sql, 'sql-write')
       if (classifyStatement(args.sql, connection.type) === 'read') {
         throw new Error('sql-write 只执行写/管理语句；只读查询请使用 sql-query')
@@ -270,7 +289,7 @@ export function apply(ctx: Context, config: Config): void {
       if (readonly) {
         throw new Error('当前连接为只读模式，sql-write 拒绝执行写/管理语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/查询型 PRAGMA 等）')
       }
-      return runClientQuery(ctx, connection, args.sql, runnerOptions(resolved), exec.signal)
+      return runToolQuery(ctx, connection, args.sql, runnerOptions(resolved), exec.signal)
     },
   }))
 
@@ -312,7 +331,7 @@ export function apply(ctx: Context, config: Config): void {
       content: result.content,
     }),
     async execute(args, exec) {
-      const connection = requireToolConnection(ctx, exec, 'sqlcmd')
+      const connection = await requireToolConnection(ctx, exec, 'sqlcmd')
       validateSingleSql(args.sql, 'sqlcmd')
       const readonly = connection.readonly ?? resolved.readonly
       if (readonly && classifyStatement(args.sql, connection.type) === 'write') {
@@ -321,7 +340,7 @@ export function apply(ctx: Context, config: Config): void {
       const sql = classifyStatement(args.sql, connection.type) === 'read'
         ? enforceReadRowLimit(args.sql, connection.type, resolved.maxRows)
         : args.sql
-      return runClientQuery(ctx, connection, sql, runnerOptions(resolved), exec.signal)
+      return runToolQuery(ctx, connection, sql, runnerOptions(resolved), exec.signal)
     },
   }))
 }

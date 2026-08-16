@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createConnectionStore } from '../src/connections.ts'
+import { createConnectionStore, type DatabaseConnection } from '../src/connections.ts'
 import { apply, type Config } from '../src/tool.ts'
 
 /** A fake subprocess service capturing the last spawn spec. */
@@ -23,8 +23,12 @@ interface SpawnSpec {
 function makeContext(overrides: {
   resolveExecutable?: (command: string) => Promise<string>
   spawn?: (spec: SpawnSpec) => FakeHandle
+  resolveForExecution?: (sessionId: string) => Promise<DatabaseConnection>
 }, configOverrides?: Partial<Config>) {
   const store = createConnectionStore()
+  const connections = overrides.resolveForExecution === undefined
+    ? store
+    : { ...store, resolveForExecution: overrides.resolveForExecution }
   let definition: { name?: string, execute?: (args: { sql: string }, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown> } = {}
   const definitions: Record<string, typeof definition> = {}
   const ctx = {
@@ -44,7 +48,7 @@ function makeContext(overrides: {
         },
       })),
     },
-    dataAgentConnections: store,
+    dataAgentConnections: connections,
     get(): unknown {
       return undefined
     },
@@ -127,6 +131,37 @@ describe('sqlcmd tool', () => {
     await definition.execute!({ sql: 'SELECT 1;' }, execOf('session-a'))
     expect(captured!.env).toEqual({ MYSQL_PWD: 'p@ss' })
     expect(captured!.argv.join(' ')).not.toContain('p@ss')
+  })
+
+  it('uses resolveForExecution and redacts a credential secret from tool output', async () => {
+    const secret = 'credential-secret'
+    let captured: SpawnSpec | undefined
+    let resolvedSession: string | undefined
+    const { definition } = makeContext({
+      async resolveForExecution(sessionId) {
+        resolvedSession = sessionId
+        return {
+          type: 'mysql', host: 'h', user: 'u', database: 'd',
+          passwordRef: 'DB_PASSWORD', password: secret,
+        }
+      },
+      spawn(spec) {
+        captured = spec
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: {
+            stdout: { readFrom: () => ({ text: `${secret}\n`, nextOffset: 0, lossy: false }) },
+            stderr: { readFrom: () => ({ text: `warning ${secret}`, nextOffset: 0, lossy: false }) },
+          },
+        }
+      },
+    })
+    const result = await definition.execute!({ sql: 'SELECT 1;' }, execOf('session-ref'))
+    expect(resolvedSession).toBe('session-ref')
+    expect(captured!.env).toEqual({ MYSQL_PWD: secret })
+    expect(captured!.argv.join(' ')).not.toContain(secret)
+    expect(JSON.stringify(result)).not.toContain(secret)
+    expect(JSON.stringify(result)).toContain('[REDACTED]')
   })
 
   it('reports a non-zero exit code as a successful outcome with stderr', async () => {

@@ -143,19 +143,19 @@ interface ColumnInfo {
 }
 
 /** Wire shapes of the plugin routes. */
-interface ConnectResponse { ok: boolean; tables?: string[]; error?: string }
-interface StatusResponse {
-  connected: boolean
-  summary?: {
-    type: DatabaseType
-    host?: string
-    port?: number
-    user?: string
-    database: string
-    readonly?: boolean
-    tables?: string[]
-  }
+interface ConnectionWireSummary {
+  type: DatabaseType
+  host?: string
+  port?: number
+  user?: string
+  database: string
+  passwordRef?: string
+  readonly?: boolean
+  tables?: string[]
+  credential?: { configured: boolean; source?: string }
 }
+interface ConnectResponse { ok: boolean; tables?: string[]; summary?: ConnectionWireSummary; error?: string }
+interface StatusResponse { connected: boolean; summary?: ConnectionWireSummary }
 interface SchemasResponse { ok: boolean; schemas?: string[]; error?: string }
 interface TablesResponse { ok: boolean; tables?: string[]; error?: string }
 interface DescribeResponse { ok: boolean; columns?: ColumnInfo[]; error?: string }
@@ -164,6 +164,7 @@ interface QueryResponse {
   result?: { exitCode: number | null; stdout: string; stderr: string; truncated: boolean }
   error?: string
 }
+interface DisconnectResponse { ok: boolean; error?: string }
 
 /** Registration-side business face: the sessions-list observable becomes `useSessions`. */
 export interface DataAgentWorkbenchInjected {
@@ -204,14 +205,34 @@ function defaultPortOf(type: DatabaseType): string {
   }
 }
 
+/** Parse one JSON route response without silently accepting an HTTP failure. */
+async function parseJsonResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`
+    try {
+      const body = await response.json() as { error?: unknown }
+      if (typeof body.error === 'string' && body.error !== '') message = body.error
+    } catch {
+      // Keep the status-only message when the host returned a non-JSON error.
+    }
+    throw new Error(message)
+  }
+  return response.json() as Promise<T>
+}
+
 /** Run one /connect request (shared by the form connect and mount auto-reconnect). */
-async function performConnect(sessionId: string, body: Record<string, unknown>): Promise<ConnectResponse> {
+async function performConnect(
+  sessionId: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<ConnectResponse> {
   const response = await fetch('/plugins/data-agent/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ sessionId, ...body }),
+    signal,
   })
-  return response.json() as Promise<ConnectResponse>
+  return parseJsonResponse<ConnectResponse>(response)
 }
 
 /** Build the /connect payload from a saved connection. */
@@ -224,7 +245,9 @@ function payloadFromSaved(saved: SavedConnection): Record<string, unknown> {
     database: saved.database,
   }
   if (saved.port !== undefined) body.port = saved.port
-  if (saved.password !== undefined && saved.password !== '') body.password = saved.password
+  if (saved.readonly !== undefined) body.readonly = saved.readonly
+  if (saved.passwordRef !== undefined && saved.passwordRef !== '') body.passwordRef = saved.passwordRef
+  else if (saved.password !== undefined && saved.password !== '') body.password = saved.password
   return body
 }
 
@@ -246,8 +269,13 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   )
   const [user, setUser] = useState(initialSaved?.user ?? '')
   const [password, setPassword] = useState(initialSaved?.password ?? '')
+  const [passwordRef, setPasswordRef] = useState(initialSaved?.passwordRef ?? '')
+  const [credentialMode, setCredentialMode] = useState<'password' | 'reference'>(
+    initialSaved?.credentialMode === 'reference' || initialSaved?.passwordRef !== undefined ? 'reference' : 'password',
+  )
+  const [credentialStatus, setCredentialStatus] = useState<{ configured: boolean; source?: string } | undefined>()
   const [rememberPassword, setRememberPassword] = useState(initialSaved?.persistPassword === true)
-  const [readonly, setReadonly] = useState(false)
+  const [readonly, setReadonly] = useState(initialSaved?.readonly === true)
   const [database, setDatabase] = useState(initialSaved?.database ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -284,36 +312,39 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   useLayoutEffect(() => {
     let column = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
     const refreshPhase = (): void => {
-      if (column === null) return
-      setPhase((prev) => {
-        const next = isHeroPhase(column) ? 'hero' : 'active'
-        return next === prev ? prev : next
-      })
+      if (column !== null) {
+        setPhase((prev) => {
+          const next = isHeroPhase(column) ? 'hero' : 'active'
+          return next === prev ? prev : next
+        })
+      }
     }
     const measure = (): void => {
-      if (column === null) return
-      const rect = column.getBoundingClientRect()
-      const bottom = window.innerHeight - rect.bottom
-      setRailRect((prev) =>
-        prev !== null && prev.left === rect.left && prev.top === rect.top && prev.bottom === bottom
-          ? prev
-          : { left: rect.left, top: rect.top, bottom },
-      )
+      if (column !== null) {
+        const rect = column.getBoundingClientRect()
+        const bottom = window.innerHeight - rect.bottom
+        setRailRect((prev) =>
+          prev !== null && prev.left === rect.left && prev.top === rect.top && prev.bottom === bottom
+            ? prev
+            : { left: rect.left, top: rect.top, bottom },
+        )
+      }
     }
     const observer = new MutationObserver(refreshPhase)
     const resizer = new ResizeObserver(measure)
     const sync = (): void => {
       const next = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
-      if (next === null) return
-      if (next !== column) {
-        observer.disconnect()
-        resizer.disconnect()
-        column = next
-        observer.observe(column, { attributes: true, attributeFilter: ['data-phase'] })
-        resizer.observe(column)
+      if (next !== null) {
+        if (next !== column) {
+          observer.disconnect()
+          resizer.disconnect()
+          column = next
+          observer.observe(column, { attributes: true, attributeFilter: ['data-phase'] })
+          resizer.observe(column)
+        }
+        refreshPhase()
+        measure()
       }
-      refreshPhase()
-      measure()
     }
     sync()
     window.addEventListener('resize', measure)
@@ -323,6 +354,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
     const poll = window.setInterval(sync, 1000)
     return () => {
       window.clearInterval(poll)
+      if (column !== null) {
+        resizer.unobserve(column)
+      }
       observer.disconnect()
       resizer.disconnect()
       window.removeEventListener('resize', measure)
@@ -354,23 +388,27 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
     const draft: SavedConnection = {
       type,
       database,
+      readonly,
+      credentialMode,
       ...type !== 'sqlite' ? { host, user } : {},
       ...type !== 'sqlite' && port !== '' ? { port: Number(port) } : {},
-      ...password !== '' ? { password } : {},
-      ...rememberPassword ? { persistPassword: true } : {},
+      ...type !== 'sqlite' && credentialMode === 'reference' && passwordRef !== '' ? { passwordRef } : {},
+      ...type !== 'sqlite' && credentialMode === 'password' && password !== '' ? { password } : {},
+      ...type !== 'sqlite' && credentialMode === 'password' && rememberPassword ? { persistPassword: true } : {},
       savedAt: new Date().toISOString(),
     }
     saveConnection(draft)
-  }, [type, host, port, user, database, password, rememberPassword])
+  }, [type, host, port, user, database, password, passwordRef, credentialMode, rememberPassword, readonly])
 
   // Mirror the server-side connection on mount; auto-reconnect once when the
   // server store was lost (restart).
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const saved = initialSaved
     setBusy(true)
-    fetch(`/plugins/data-agent/status?sessionId=${encodeURIComponent(sessionId)}`)
-      .then(response => response.json() as Promise<StatusResponse>)
+    fetch(`/plugins/data-agent/status?sessionId=${encodeURIComponent(sessionId)}`, { signal: controller.signal })
+      .then(response => parseJsonResponse<StatusResponse>(response))
       .then(async (body) => {
         if (cancelled) return
         if (body.connected) {
@@ -382,9 +420,14 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             setUser(body.summary.user ?? '')
             setDatabase(body.summary.database)
             setReadonly(body.summary.readonly === true)
+            setPasswordRef(body.summary.passwordRef ?? '')
+            if (body.summary.passwordRef !== undefined) setCredentialMode('reference')
+            setCredentialStatus(body.summary.credential)
           }
-          const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
-          const schemasBody = await response.json() as SchemasResponse
+          const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`, {
+            signal: controller.signal,
+          })
+          const schemasBody = await parseJsonResponse<SchemasResponse>(response)
           if (!cancelled && schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
           return
         }
@@ -393,13 +436,16 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         if (saved !== null && saved.database !== '') {
           setRestoring(true)
           try {
-            const result = await performConnect(sessionId, payloadFromSaved(saved))
+            const result = await performConnect(sessionId, payloadFromSaved(saved), controller.signal)
             if (cancelled) return
             if (result.ok) {
               setConnected(true)
+              setCredentialStatus(result.summary?.credential)
               setConnectModalOpen(false)
-              const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
-              const schemasBody = await response.json() as SchemasResponse
+              const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`, {
+                signal: controller.signal,
+              })
+              const schemasBody = await parseJsonResponse<SchemasResponse>(response)
               if (!cancelled && schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
             } else {
               setError(`连接恢复失败：${result.error ?? 'unknown error'}`)
@@ -415,8 +461,11 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       })
       .catch(() => { /* the form stays usable; connect will surface errors */ })
       .finally(() => { if (!cancelled) setBusy(false) })
-    return () => { cancelled = true }
-  }, [sessionId])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [initialSaved, sessionId])
 
   const sqlite = type === 'sqlite'
 
@@ -431,16 +480,21 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       if (port !== '') body.port = Number(port)
       body.user = user
       body.database = database
-      if (password !== '') body.password = password
+      if (credentialMode === 'reference') {
+        if (passwordRef !== '') body.passwordRef = passwordRef
+      } else if (password !== '') {
+        body.password = password
+      }
     }
     try {
       const result = await performConnect(sessionId, body)
       if (result.ok) {
         setConnected(true)
+        setCredentialStatus(result.summary?.credential)
         // Close the config Modal after a successful connect.
         setConnectModalOpen(false)
         const schemasResponse = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
-        const schemasBody = await schemasResponse.json() as SchemasResponse
+        const schemasBody = await parseJsonResponse<SchemasResponse>(schemasResponse)
         if (schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
       } else {
         setError(result.error ?? 'unknown error')
@@ -456,12 +510,14 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
     setBusy(true)
     setError(null)
     try {
-      await fetch('/plugins/data-agent/disconnect', {
+      const response = await fetch('/plugins/data-agent/disconnect', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId }),
       })
+      await parseJsonResponse<DisconnectResponse>(response)
       setConnected(false)
+      setCredentialStatus(undefined)
       setReadonly(false)
       setSchemaModalOpen(false)
       setSchemas([])
@@ -494,7 +550,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       const response = await fetch(
         `/plugins/data-agent/tables?sessionId=${encodeURIComponent(sessionId)}&schema=${encodeURIComponent(schema)}`,
       )
-      const result = await response.json() as TablesResponse
+      const result = await parseJsonResponse<TablesResponse>(response)
       if (result.ok) setTables(result.tables ?? [])
       else setError(result.error ?? 'unknown error')
     } catch (cause) {
@@ -509,7 +565,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
     if (activeSchema !== null) params.set('schema', activeSchema)
     try {
       const response = await fetch(`/plugins/data-agent/describe?${params.toString()}`)
-      const result = await response.json() as DescribeResponse
+      const result = await parseJsonResponse<DescribeResponse>(response)
       if (result.ok) setColumns(result.columns ?? [])
       else setError(result.error ?? 'unknown error')
     } catch (cause) {
@@ -527,7 +583,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ sessionId, sql }),
       })
-      const result = await response.json() as QueryResponse
+      const result = await parseJsonResponse<QueryResponse>(response)
       if (result.ok && result.result !== undefined) {
         const parts: string[] = []
         if (result.result.stdout !== '') parts.push(result.result.stdout)
@@ -584,6 +640,14 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
               <span className={css.statusOk}>{t('state.connected')}</span>
               <span className={css.summaryType}>{t(`type.${type}`)}</span>
               <span className={css.summaryDb} title={database}>{database}</span>
+              {credentialStatus !== undefined && (
+                <span
+                  className={css.summaryType}
+                  title={credentialStatus.source}
+                >
+                  {credentialStatus.configured ? t('credential.configured') : t('credential.unconfigured')}
+                </span>
+              )}
               <span className={css.summaryActions}>
                 <button type="button" className={`${css.ghost} ${css.small}`} onClick={() => setConnectModalOpen(true)}>
                   {t('action.config')}
@@ -803,13 +867,32 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                     <input className={css.input} type="text" value={user} disabled={formDisabled} onChange={(event) => setUser(event.target.value)} />
                   </label>
                   <label className={css.field}>
-                    <span className={css.label}>{t('form.password')}</span>
-                    <input className={css.input} type="password" value={password} autoComplete="new-password" disabled={formDisabled} onChange={(event) => setPassword(event.target.value)} />
+                    <span className={css.label}>{t('form.credentialMode')}</span>
+                    <select
+                      className={css.input}
+                      value={credentialMode}
+                      disabled={formDisabled}
+                      onChange={(event) => {
+                        const next = event.target.value as 'password' | 'reference'
+                        setCredentialMode(next)
+                        setCredentialStatus(undefined)
+                      }}
+                    >
+                      <option value="password">{t('form.credentialMode.password')}</option>
+                      <option value="reference">{t('form.credentialMode.reference')}</option>
+                    </select>
                   </label>
                 </div>
               )}
 
-              {!sqlite && (
+              {!sqlite && credentialMode === 'password' && (
+                <label className={css.field}>
+                  <span className={css.label}>{t('form.password')}</span>
+                  <input className={css.input} type="password" value={password} autoComplete="new-password" disabled={formDisabled} onChange={(event) => setPassword(event.target.value)} />
+                </label>
+              )}
+
+              {!sqlite && credentialMode === 'password' && (
                 <label className={css.rememberRow}>
                   <input
                     type="checkbox"
@@ -819,6 +902,30 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   />
                   <span>{t('form.rememberPassword')}</span>
                   <span className={css.rememberHint}>{t('form.rememberPassword.hint')}</span>
+                </label>
+              )}
+
+              {!sqlite && credentialMode === 'reference' && (
+                <label className={css.field}>
+                  <span className={css.label}>{t('form.passwordRef')}</span>
+                  <input
+                    className={css.input}
+                    type="text"
+                    value={passwordRef}
+                    placeholder="ANALYTICS_DB_PASSWORD"
+                    disabled={formDisabled}
+                    onChange={(event) => {
+                      setPasswordRef(event.target.value)
+                      setCredentialStatus(undefined)
+                    }}
+                  />
+                  <span className={css.rememberHint}>
+                    {credentialStatus === undefined
+                      ? t('form.passwordRef.hint')
+                      : credentialStatus.configured
+                        ? `${t('credential.configured')}${credentialStatus.source !== undefined ? ` · ${credentialStatus.source}` : ''}`
+                        : t('credential.unconfigured')}
+                  </span>
                 </label>
               )}
 

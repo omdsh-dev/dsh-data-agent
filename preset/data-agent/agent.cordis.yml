@@ -15,8 +15,9 @@
 # bash, glob/grep, str_replace_editor, skill, todo, goal, plan, web, subagent,
 # workflow, tasks, and the rest are all absent, i.e. disabled.
 #
-# All three rows only CONSUME host services (the tools registry, subprocess,
-# the dataAgentConnections connection store), so no `isolate` realm is needed.
+# All four rows only CONSUME host services (the tools/commands registries,
+# subprocess, and dataAgentConnections). The sole isolation below suppresses
+# Web's optional attachments capability so both surfaces expose the same tools.
 
 # ── identity ────────────────────────────────────────────────────────────────
 
@@ -38,6 +39,11 @@
 # The project's own fs tools: read / write / edit (no search tools here).
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  # Web mounts an optional attachments service, which otherwise makes the
+  # generic fs plugin add read_image. Give only that optional lookup a private,
+  # unprovided realm so Web and TUI both expose the intended read/write/edit.
+  isolate:
+    attachments: true
 
 # ── database ────────────────────────────────────────────────────────────────
 
@@ -47,3 +53,12 @@
 # legacy sqlcmd raw-terminal tool.
 - id: tool-sqlcmd
   name: '@yejiming/dsh-data-agent/tool'
+
+# Human command surface consumed by dsh-tui and any other command adapter.
+# It is preset-scoped, recordInput=false, and adds no model-visible tools. It
+# also masks inherited host-global model tools on each joined agent while
+# allowing exactly the six tools inherited from the sibling fs/database rows:
+# read/write/edit/sql-query/sql-write/sqlcmd.
+# even when an interactive bundle registered fallback tools globally.
+- id: database-command
+  name: '@yejiming/dsh-data-agent/command'

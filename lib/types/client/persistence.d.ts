@@ -2,7 +2,7 @@
  * Connection-config persistence for the database workbench. The most recent
  * successful connection (type/host/port/user/database/password) is kept in
  * localStorage under one key so remounts and restarts can restore the form
- * and auto-reconnect (the server-side connection store stays in-memory).
+ * and auto-reconnect (the server persists only non-secret profiles/bindings).
  *
  * Security note: the password is persisted in PLAIN TEXT by explicit user
  * decision (local single-user scenario) — see README 安全说明. The storage
@@ -21,8 +21,13 @@ export interface SavedConnection {
     database: string;
     /** Present only when the user explicitly opted in to persist the password. */
     password?: string;
+    /** Non-secret credential reference; mutually exclusive with `password`. */
+    passwordRef?: string;
+    /** Explicit form mode; absent legacy records infer it from passwordRef. */
+    credentialMode?: 'password' | 'reference';
     /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
     persistPassword?: boolean;
+    readonly?: boolean;
     /** Diagnostic timestamp of the save. */
     savedAt: string;
 }

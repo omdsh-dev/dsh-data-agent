@@ -11,6 +11,9 @@ dist/
 # Internal notes & prompts (not for distribution)
 prompts.md
 FEATURES.md
+DESIGN.md
+PRODUCT.md
+seed
 
 # Logs
 *.log

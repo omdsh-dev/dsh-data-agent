@@ -1,7 +1,7 @@
 {
   "name": "@yejiming/dsh-data-agent",
-  "description": "Data Agent for the dsh web GUI: session-scoped database connections (MySQL/PostgreSQL/SQLite), the sqlcmd tool, the data-agent agent preset, and the database conversation-view tab",
-  "version": "0.0.6",
+  "description": "Data Agent for DSH Web and TUI: shared database connections, a masked TUI form, secure credential references, SQL tools, and the data-agent preset",
+  "version": "0.0.9",
   "publishConfig": {
     "access": "public"
   },
@@ -27,6 +27,10 @@
     "./tool": {
       "types": "./lib/types/tool.d.ts",
       "default": "./lib/tool.js"
+    },
+    "./command": {
+      "types": "./lib/types/command.d.ts",
+      "default": "./lib/command.js"
     },
     "./invariant": {
       "types": "./lib/types/invariant.d.ts",
@@ -67,32 +71,57 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "schemastery": "^3.18.0"
+    "schemastery": "^3.18.0",
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-commands": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-json": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
-    "react": "^18.2.0"
+    "@deepseek-ai/dsh-user-questions": "^0.1.0-rc.6",
+    "react": "^18.2.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-client-locale": { "optional": true },
+    "@deepseek-ai/dsh-client-runtime": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-conversation": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-primitives": { "optional": true },
+    "@deepseek-ai/dsh-client-ui-slots": { "optional": true },
+    "@deepseek-ai/dsh-host-webserver": { "optional": true },
+    "@deepseek-ai/dsh-user-questions": { "optional": true },
+    "react": { "optional": true }
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-commands": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-storage-json": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-subprocess": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-user-questions": "^0.1.0-rc.6",
     "@types/node": "^25.0.0",
     "@types/react": "~18.3.1",
     "lightningcss": "^1.32.0",

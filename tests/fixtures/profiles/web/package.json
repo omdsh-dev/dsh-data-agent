@@ -1,0 +1,16 @@
+{
+  "name": "fixture-data-agent-web",
+  "private": true,
+  "dependencies": {
+    "@yejiming/dsh-data-agent": "file:../../../.."
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-web-app",
+        "@yejiming/dsh-data-agent"
+      ]
+    }
+  }
+}

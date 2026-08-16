@@ -63,6 +63,34 @@ describe('persistence', () => {
     expect(loaded.persistPassword).toBe(true)
   })
 
+  it('persists a credential reference without any plaintext password', () => {
+    const storage = memoryStorage()
+    saveConnection({
+      ...fullConnection,
+      credentialMode: 'reference',
+      passwordRef: 'ORDERS_DB_PASSWORD',
+      persistPassword: true,
+    }, storage)
+    const raw = storage.map.get(CONNECTION_STORAGE_KEY)!
+    expect(raw).toContain('ORDERS_DB_PASSWORD')
+    expect(raw).not.toContain('dsh_demo_pw')
+    expect(loadConnection(storage)).toMatchObject({
+      credentialMode: 'reference',
+      passwordRef: 'ORDERS_DB_PASSWORD',
+    })
+  })
+
+  it('round-trips readonly and infers reference mode from a v1-shaped record', () => {
+    const storage = memoryStorage()
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({
+      type: 'postgres', database: 'analytics', passwordRef: 'DB_PASSWORD', readonly: true, savedAt: 'x',
+    }))
+    expect(loadConnection(storage)).toEqual({
+      type: 'postgres', database: 'analytics', passwordRef: 'DB_PASSWORD',
+      credentialMode: 'reference', readonly: true, savedAt: 'x',
+    })
+  })
+
   it('round-trips a sqlite-shaped connection (no host/port/user)', () => {
     const storage = memoryStorage()
     const sqlite = { type: 'sqlite' as const, database: '/tmp/orders.db', savedAt: 'x' }

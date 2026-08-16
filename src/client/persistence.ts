@@ -2,7 +2,7 @@
  * Connection-config persistence for the database workbench. The most recent
  * successful connection (type/host/port/user/database/password) is kept in
  * localStorage under one key so remounts and restarts can restore the form
- * and auto-reconnect (the server-side connection store stays in-memory).
+ * and auto-reconnect (the server persists only non-secret profiles/bindings).
  *
  * Security note: the password is persisted in PLAIN TEXT by explicit user
  * decision (local single-user scenario) — see README 安全说明. The storage
@@ -24,8 +24,13 @@ export interface SavedConnection {
   database: string
   /** Present only when the user explicitly opted in to persist the password. */
   password?: string
+  /** Non-secret credential reference; mutually exclusive with `password`. */
+  passwordRef?: string
+  /** Explicit form mode; absent legacy records infer it from passwordRef. */
+  credentialMode?: 'password' | 'reference'
   /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
   persistPassword?: boolean
+  readonly?: boolean
   /** Diagnostic timestamp of the save. */
   savedAt: string
 }
@@ -68,6 +73,13 @@ function parseSaved(value: unknown): SavedConnection | null {
   if (typeof candidate.host === 'string') saved.host = candidate.host
   if (typeof candidate.port === 'number' && Number.isInteger(candidate.port)) saved.port = candidate.port
   if (typeof candidate.user === 'string') saved.user = candidate.user
+  if (typeof candidate.readonly === 'boolean') saved.readonly = candidate.readonly
+  if (typeof candidate.passwordRef === 'string' && candidate.passwordRef.length > 0) {
+    saved.passwordRef = candidate.passwordRef
+    saved.credentialMode = 'reference'
+    return saved
+  }
+  if (candidate.credentialMode === 'password') saved.credentialMode = 'password'
   // Legacy records may carry a password; strip it unless the opt-in flag is set
   // (a persisted password only survives when persistPassword was explicitly true).
   const persistPassword = candidate.persistPassword === true
@@ -81,8 +93,16 @@ export function saveConnection(connection: SavedConnection, storage: StorageLike
   if (storage === undefined) return
   try {
     const toWrite: SavedConnection = { ...connection }
-    // Password is opt-in only; strip it unless persistPassword is explicitly set.
-    if (toWrite.persistPassword !== true) delete toWrite.password
+    // Reference mode is always non-secret and must never coexist with a
+    // remembered plaintext password. Legacy password mode stays opt-in.
+    if (toWrite.credentialMode === 'reference' || toWrite.passwordRef !== undefined) {
+      delete toWrite.password
+      delete toWrite.persistPassword
+      toWrite.credentialMode = 'reference'
+    } else {
+      delete toWrite.passwordRef
+      if (toWrite.persistPassword !== true) delete toWrite.password
+    }
     storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(toWrite))
   } catch {
     // Quota / serialization failure: degrade silently, the UI stays usable.
