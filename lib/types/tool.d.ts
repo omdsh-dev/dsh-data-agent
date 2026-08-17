@@ -49,9 +49,11 @@ export declare const Config: z<Schemastery.ObjectS<{
     clients: z<import("cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
+        searchPaths?: string[] | null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
+        searchPaths: z<string[], string[]>;
     }>, string>>;
 }>, Schemastery.ObjectT<{
     queryTimeoutMs: z<number, number>;
@@ -62,9 +64,11 @@ export declare const Config: z<Schemastery.ObjectS<{
     clients: z<import("cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
+        searchPaths?: string[] | null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
+        searchPaths: z<string[], string[]>;
     }>, string>>;
 }>>;
 /**

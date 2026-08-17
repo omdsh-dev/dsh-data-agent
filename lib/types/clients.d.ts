@@ -45,25 +45,31 @@ export declare function sanitizeIdentifier(type: DatabaseType, identifier: strin
 /** One deployment override for a database type's CLI client. */
 export interface ClientConfig {
     /** Executable name (resolved through PATH) or absolute path. */
-    command: string;
+    command?: string;
     /** Extra flag arguments prepended before the built-in flags. */
     args?: readonly string[];
+    /** Absolute directories searched after the current subprocess PATH. */
+    searchPaths?: readonly string[];
 }
 /** Loader schema for one client override (all fields optional at input). */
 export declare const clientConfigSchema: z<Schemastery.ObjectS<{
     command: z<string, string>;
     args: z<string[], string[]>;
+    searchPaths: z<string[], string[]>;
 }>, Schemastery.ObjectT<{
     command: z<string, string>;
     args: z<string[], string[]>;
+    searchPaths: z<string[], string[]>;
 }>>;
 /** Loader schema for the whole `clients` config object (any type key). */
 export declare const clientsSchema: z<import("cosmokit").Dict<{
     command?: string | null | undefined;
     args?: string[] | null | undefined;
+    searchPaths?: string[] | null | undefined;
 } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
     command: z<string, string>;
     args: z<string[], string[]>;
+    searchPaths: z<string[], string[]>;
 }>, string>>;
 /**
  * A fully constructed client invocation: argv (command + flags, no SQL),

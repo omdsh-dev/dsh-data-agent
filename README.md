@@ -34,6 +34,8 @@
 
 dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据库后，直接提出业务问题，DSH会自动查看库表、编写并执行SQL、根据真实结果继续分析，最终给出清晰的数据结论和商业洞察。插件同时支持Web UI与dsh-tui，无需修改DSH源码。
 
+![数据分析图表](assets/charts.png)
+
 ## 主要功能
 
 - **通过对话完成数据分析**：直接用自然语言描述目标，DSH会理解问题、拆解分析步骤、查询真实数据并整理结论。你可以继续追问，分析会沿着当前上下文逐步深入。
@@ -45,9 +47,7 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 - **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`；Web额外提供`render-analysis`。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
 - **安全地使用真实数据**：支持只读模式和数据库只读账号；TUI密码会被隐藏，且不会作为表单草稿恢复。是否允许修改数据由你决定。
 
-![数据库连接](assets/connection.png)
-
-Web UI还提供内嵌数据库工作台，可以浏览库表、查看字段结构，或临时运行SQL。开始对话后，工作台会自动移到侧栏，不打断分析过程。
+Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal中配置连接、浏览库表、查看字段结构或临时运行SQL。开始对话前后都不占用输入框上方或左侧的对话空间。
 
 ![数据库工作台](assets/tables.png)
 
@@ -57,12 +57,13 @@ Web UI还提供内嵌数据库工作台，可以浏览库表、查看字段结�
 
 ## 快速安装
 
-Web UI和dsh-tui使用独立的DSH profile。只使用其中一种界面时，安装对应的一项；两个界面都使用时，请执行两条命令。
+Web UI、DSH Desktop和dsh-tui使用独立的DSH profile。请把插件安装到实际使用的profile；同时使用多个界面时，分别执行对应命令。
 
 ### 方式一：npm安装（推荐）
 
 ```sh
 dsh plugin --profile web add @yejiming/dsh-data-agent
+dsh plugin --profile desktop add @yejiming/dsh-data-agent
 dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 ```
 
@@ -70,10 +71,11 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ```sh
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
+dsh plugin --profile desktop add github:omdsh-dev/dsh-data-agent
 dsh plugin --profile dsh-tui add github:omdsh-dev/dsh-data-agent
 ```
 
-插件会自动安装“数据模式”预设，无需本地构建。
+插件会自动安装“数据模式”预设，并在profile启动时预加载该预设的数据库工具与命令；选择预设时不再动态导入插件子路径，无需本地构建。
 
 ## 在Web UI中使用
 
@@ -86,7 +88,7 @@ dsh --profile web
 然后按下面的步骤操作：
 
 1. 新建会话并选择“数据模式”。
-2. 在数据库工作台填写连接信息。
+2. 点击输入框右上角的数据库按钮，在工作台Modal中填写连接信息。
 3. 连接成功后，直接在对话框中提出分析问题。
 4. 根据第一轮结果继续追问，让DSH缩小范围、比较维度或总结结论。
 
@@ -156,9 +158,25 @@ DSH运行查询时需要本机能够访问目标数据库，并安装相应的�
 - PostgreSQL需要`psql`客户端。
 - Oracle、Hive和Impala需要各自的命令行客户端。
 
+插件会先使用当前profile进程的PATH；找不到时，会继续检查客户端HOME环境变量以及Windows、macOS、Linux的常见安装位置，包括Homebrew、MacPorts、Linuxbrew、Snap、Nix、WinGet Links、Scoop、Chocolatey和Program Files下的版本目录。自动发现使用的补充PATH也会传给实际客户端进程，因此从Finder启动的DSH Desktop通常无需再为Homebrew客户端手工配置路径。
+
+如果客户端安装在公司工具链或其他自定义目录，可在当前profile的`data-agent`配置中补充搜索目录；需要锁定具体版本时则直接填写绝对命令路径。当前profile的PATH始终优先，`searchPaths`在系统常见目录之前：
+
+```yaml
+- id: data-agent
+  config:
+    clients:
+      mysql:
+        searchPaths:
+          - /opt/company/mysql/bin
+        # command: /opt/company/mysql/bin/mysql
+```
+
+Windows路径可以写成`C:\Program Files\MySQL\MySQL Server 9.0\bin`。插件不会下载数据库客户端、执行登录shell或扫描整块磁盘；位于非常规目录且未进入PATH时，仍需使用`searchPaths`或`command`。
+
 建议先准备一个只读数据库账号，让数据Agent在不修改业务数据的前提下完成探索和分析。
 
-如果出现`failed to mount`或提示找不到`@yejiming/dsh-data-agent`，通常是当前profile还没有安装插件。请确认Web UI和dsh-tui分别执行了对应的安装命令，然后重新启动DSH。
+如果出现`failed to mount`或提示找不到`@yejiming/dsh-data-agent`，通常是当前profile还没有安装插件，或仍在使用旧版预设。请为Web UI、DSH Desktop或dsh-tui执行对应的安装命令，然后完全退出并重新启动DSH。未修改过的旧版预设会自动迁移；手工编辑过的预设需要删除其中指向`@yejiming/dsh-data-agent/tool`和`@yejiming/dsh-data-agent/command`的两行配置块。
 
 ## 安全说明
 
@@ -172,6 +190,7 @@ DSH运行查询时需要本机能够访问目标数据库，并安装相应的�
 
 ```sh
 dsh plugin --profile web remove @yejiming/dsh-data-agent
+dsh plugin --profile desktop remove @yejiming/dsh-data-agent
 dsh plugin --profile dsh-tui remove @yejiming/dsh-data-agent
 rm -rf $DSH_HOME/.agent-presets/data-agent
 ```

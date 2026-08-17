@@ -34,6 +34,8 @@
 
 dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a database and ask a business question; DSH inspects schemas, writes and runs SQL, continues the analysis from real results, and returns clear conclusions and business insights. The plugin supports both the Web UI and dsh-tui without modifying the DSH source code.
 
+![Data analysis charts](assets/charts.png)
+
 ## Features
 
 - **Analyze data through conversation**: Describe your goal in natural language. DSH understands the question, breaks it into analysis steps, queries real data, and organizes the conclusions. You can keep asking follow-up questions to explore the same context in greater depth.
@@ -45,9 +47,7 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 - **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, and `sql-cmd`; Web additionally provides `render-analysis`. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
 - **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
-![Database connection](assets/connection.png)
-
-The Web UI also includes an embedded database workbench for browsing schemas, inspecting columns, and running an occasional SQL statement. Once the conversation starts, the workbench moves to the sidebar so it does not interrupt the analysis.
+The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
 
 ![Database workbench](assets/tables.png)
 
@@ -57,12 +57,13 @@ Choose “Data Mode” when creating a session, and DSH will use the data-analys
 
 ## Quick Install
 
-The Web UI and dsh-tui use separate DSH profiles. Install only the profile for the interface you use, or run both commands if you use both interfaces.
+The Web UI, DSH Desktop, and dsh-tui use separate DSH profiles. Install the plugin into every profile you actually use.
 
 ### Method 1: npm (recommended)
 
 ```sh
 dsh plugin --profile web add @yejiming/dsh-data-agent
+dsh plugin --profile desktop add @yejiming/dsh-data-agent
 dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 ```
 
@@ -70,10 +71,11 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ```sh
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
+dsh plugin --profile desktop add github:omdsh-dev/dsh-data-agent
 dsh plugin --profile dsh-tui add github:omdsh-dev/dsh-data-agent
 ```
 
-The plugin installs the Data Mode preset automatically. No local build is required.
+The plugin installs the Data Mode preset automatically and preloads its database tools and command when the profile starts. Selecting the preset no longer performs dynamic package-subpath imports. No local build is required.
 
 ## Using Data Agent in the Web UI
 
@@ -86,7 +88,7 @@ dsh --profile web
 Then:
 
 1. Create a session and choose “Data Mode.”
-2. Enter your connection details in the database workbench.
+2. Click the database button in the top-right of the composer and enter your connection details in the workbench Modal.
 3. Once connected, ask an analysis question directly in the conversation.
 4. Follow up on the first result and ask DSH to narrow the scope, compare dimensions, or summarize the conclusions.
 
@@ -157,9 +159,25 @@ DSH must be able to reach the target database from your machine, and the corresp
 - PostgreSQL requires the `psql` client.
 - Oracle, Hive, and Impala require their respective command-line clients.
 
+The plugin tries the active profile process PATH first. If that fails, it also checks client HOME environment variables and common Windows, macOS, and Linux installation locations, including Homebrew, MacPorts, Linuxbrew, Snap, Nix, WinGet Links, Scoop, Chocolatey, and versioned Program Files directories. The supplemental PATH used for discovery is also passed to the actual client process, so DSH Desktop launched from Finder normally needs no manual path override for Homebrew clients.
+
+If a client lives in a company toolchain or another custom directory, add search directories to the current profile's `data-agent` config. Use an absolute command path when you need to pin one exact version. The current profile PATH always wins, and `searchPaths` is checked before platform defaults:
+
+```yaml
+- id: data-agent
+  config:
+    clients:
+      mysql:
+        searchPaths:
+          - /opt/company/mysql/bin
+        # command: /opt/company/mysql/bin/mysql
+```
+
+On Windows, a search path can be written as `C:\Program Files\MySQL\MySQL Server 9.0\bin`. The plugin does not download database clients, run a login shell, or scan the whole disk. A client in an unusual directory that is not on PATH still requires `searchPaths` or `command`.
+
 We recommend creating a read-only database account so Data Agent can explore and analyze data without modifying production records.
 
-If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package error, the plugin is usually not installed in the current profile. Make sure you ran the matching install command for the Web UI or dsh-tui, then restart DSH.
+If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package error, the plugin is usually missing from the current profile or an older preset is still installed. Run the matching command for the Web UI, DSH Desktop, or dsh-tui, then quit and restart DSH completely. An unmodified legacy preset is migrated automatically; for a hand-edited preset, remove the two configuration blocks that reference `@yejiming/dsh-data-agent/tool` and `@yejiming/dsh-data-agent/command`.
 
 ## Security
 
@@ -173,6 +191,7 @@ If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package err
 
 ```sh
 dsh plugin --profile web remove @yejiming/dsh-data-agent
+dsh plugin --profile desktop remove @yejiming/dsh-data-agent
 dsh plugin --profile dsh-tui remove @yejiming/dsh-data-agent
 rm -rf $DSH_HOME/.agent-presets/data-agent
 ```

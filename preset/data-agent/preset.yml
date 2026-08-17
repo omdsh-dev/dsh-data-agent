@@ -1,3 +1,3 @@
 name: 数据模式
-description: 数据工程师 Agent：连接 MySQL/PostgreSQL/SQLite 数据库，用 sql-query/sql-write/sql-cmd 与 DSH 原生 str_replace_editor 探查 schema、编写并执行 SQL；Web 界面还可由 Agent 自主调用 render-analysis 生成单图或多视图分析报告。
+description: 连接数据库，用自然语言完成数据探索、SQL编写与业务分析。
 order: 4

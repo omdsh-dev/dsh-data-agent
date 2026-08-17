@@ -14,6 +14,7 @@ import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
 import { buildClientTemplate, buildIntrospectTemplate, buildStructuredQueryTemplate, type ClientConfig } from './clients.ts'
+import { resolveClientExecutable } from './client-discovery.ts'
 import { DEFAULT_GRACE_MS } from './defaults.ts'
 
 /** One bounded captured-output read (the tail when truncated). */
@@ -105,19 +106,17 @@ export async function runClientQuery(
   else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
 
   try {
-    let executable: string
-    try {
-      executable = await ctx.subprocess.resolveExecutable(template.command, template.env, controller.signal)
-    } catch (error) {
-      controller.signal.throwIfAborted()
-      throw new Error(
-        `无法解析数据库客户端 "${template.command}"（${error instanceof Error ? error.message : String(error)}）；`
-        + '请确认客户端已安装，或在 data-agent 插件配置的 clients 中覆盖命令名/路径',
-      )
-    }
+    const resolution = await resolveClientExecutable({
+      type: connection.type,
+      command: template.command,
+      config: options.clients[connection.type],
+      env: template.env,
+      signal: controller.signal,
+      resolveExecutable: ctx.subprocess.resolveExecutable.bind(ctx.subprocess),
+    })
 
     const handle = ctx.subprocess.spawn({
-      argv: [executable, ...template.args],
+      argv: [resolution.executable, ...template.args],
       cwd: process.cwd(),
       stdio: {
         // The Oracle/Hive connect prefix (template.stdinPrefix) is written
@@ -128,7 +127,7 @@ export async function runClientQuery(
       },
       graceMs: options.graceMs ?? DEFAULT_GRACE_MS,
       signal: controller.signal,
-      env: template.env,
+      env: resolution.env,
     })
 
     let outcome: SubprocessOutcome

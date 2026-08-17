@@ -10,6 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
 import type {} from './index.ts'
 import type { DatabaseConnectionInput, DatabaseType } from './connections.ts'
@@ -20,20 +21,6 @@ import {
   DEFAULT_MAX_RESULT_CHARS,
   DEFAULT_QUERY_TIMEOUT_MS,
 } from './defaults.ts'
-
-interface WebServerLike {
-  register(route: {
-    kind: 'exact' | 'prefix'
-    path: string
-    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
-  }): () => void
-}
-
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    webServer: WebServerLike
-  }
-}
 
 export const name = 'data-agent-routes'
 

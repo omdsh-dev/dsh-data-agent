@@ -20,6 +20,9 @@ export const DEFAULT_QUERY_TIMEOUT_MS = 30_000
 /** In-memory cap on database-tool captured output (stdout and stderr each). */
 export const DEFAULT_MAX_RESULT_CHARS = 20_000
 
+/** Maximum structured rows returned by one database read tool call. */
+export const DEFAULT_MAX_ROWS = 100
+
 /** Cap on one /query SQL text length (abuse guard; the wire body stays small). */
 export const DEFAULT_MAX_QUERY_CHARS = 65_536
 

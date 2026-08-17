@@ -47,6 +47,11 @@ function memoryPersistence() {
 function fakeContext(options?: {
   secret?: () => string | undefined
   output?: (spec: SpawnSpec) => { exitCode?: number; stdout?: string; stderr?: string }
+  resolveExecutable?: (
+    command: string,
+    env?: Readonly<Record<string, string>>,
+    signal?: AbortSignal,
+  ) => Promise<string>
 }) {
   const spawned: SpawnSpec[] = []
   let resolveCount = 0
@@ -62,7 +67,15 @@ function fakeContext(options?: {
       },
     },
     subprocess: {
-      async resolveExecutable(command: string) { return `/usr/bin/${command}` },
+      async resolveExecutable(
+        command: string,
+        env?: Readonly<Record<string, string>>,
+        signal?: AbortSignal,
+      ) {
+        return options?.resolveExecutable === undefined
+          ? `/usr/bin/${command}`
+          : await options.resolveExecutable(command, env, signal)
+      },
       spawn(spec: SpawnSpec) {
         spawned.push(spec)
         const result = options?.output?.(spec) ?? { stdout: 'users\n', stderr: '', exitCode: 0 }
@@ -93,6 +106,34 @@ const serviceOptions: ConnectionServiceOptions = {
 const signal = () => new AbortController().signal
 
 describe('DataAgentConnectionService', () => {
+  it('uses automatic client discovery during the initial cross-surface connection check', async () => {
+    const customDirectory = process.platform === 'win32' ? 'C:\\company\\mysql\\bin' : '/opt/company/mysql/bin'
+    const separator = process.platform === 'win32' ? ';' : ':'
+    const host = fakeContext({
+      async resolveExecutable(command, env) {
+        const path = Object.entries(env ?? {}).find(([name]) => name.toLowerCase() === 'path')?.[1]
+        if (path?.split(separator).includes(customDirectory)) {
+          return process.platform === 'win32'
+            ? `${customDirectory}\\${command}.exe`
+            : `${customDirectory}/${command}`
+        }
+        throw new Error(`${command} was not found on PATH`)
+      },
+    })
+    const service = createConnectionService(host.ctx, {
+      ...serviceOptions,
+      clients: { mysql: { searchPaths: [customDirectory] } },
+    })
+    await service.connect('session-discovery', {
+      type: 'mysql', host: 'db', port: 3306, user: 'app', database: 'orders',
+    }, signal())
+
+    expect(host.spawned).toHaveLength(1)
+    expect(host.spawned[0]!.argv[0]).toContain(customDirectory)
+    const spawnPath = Object.entries(host.spawned[0]!.env ?? {}).find(([name]) => name.toLowerCase() === 'path')?.[1]
+    expect(spawnPath?.split(separator)[0]).toBe(customDirectory)
+  })
+
   it('persists only non-secret profile fields after successful validation', async () => {
     const durable = memoryPersistence()
     const host = fakeContext({ secret: () => 'super-secret' })

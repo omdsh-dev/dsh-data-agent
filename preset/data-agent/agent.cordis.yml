@@ -8,14 +8,13 @@
 # the registries themselves, the sandbox and approval stack, persistence, and
 # the model route.
 #
-# The database row below registers sql-query / sql-write / sql-cmd and the
-# editor row registers DSH's native str_replace_editor. The final row installs
-# a deny restriction for the host/community tools visible at preset mount, so
-# describe_image, ssh_*, bash, web, etc. stay unavailable while the four/five
-# tools owned by this standing scope remain visible to joined agents.
+# The editor row registers DSH's native str_replace_editor. The database tools,
+# /database command, and inherited-tool restriction are statically imported by
+# the profile's `@yejiming/dsh-data-agent` bundle entry and registered under
+# this preset's standing key. Selecting the preset therefore performs no
+# dynamic import of this package (important for DSH Desktop's ASAR runtime).
 #
-# All four rows only CONSUME host services (the tools/commands registries,
-# filesystem, subprocess, and dataAgentConnections).
+# Both rows only consume host services and remain safe for standing mounting.
 
 # ── identity ────────────────────────────────────────────────────────────────
 
@@ -45,21 +44,3 @@
   name: '@deepseek-ai/dsh-tool-str-replace-editor'
   config:
     maxOutputChars: 16000
-
-# ── database ────────────────────────────────────────────────────────────────
-
-# This package's database tool half; injects the host's subprocess service and
-# the dataAgentConnections connection store (see the data-agent host row).
-# Registers sql-query (structured read), sql-write (explicit write), and the
-# sql-cmd raw-terminal compatibility tool. When the host provides the webServer
-# service (Web profile), it additionally registers render-analysis directly
-# in this standing preset scope, so blank-session preset switches see it too.
-- id: tool-sql-cmd
-  name: '@yejiming/dsh-data-agent/tool'
-
-# Human command surface consumed by dsh-tui and any other command adapter.
-# It is preset-scoped, recordInput=false, and adds no model-visible tools. It
-# also masks every host-global inherited model tool at the standing preset
-# scope. Sibling str_replace_editor/database registrations remain visible.
-- id: database-command
-  name: '@yejiming/dsh-data-agent/command'

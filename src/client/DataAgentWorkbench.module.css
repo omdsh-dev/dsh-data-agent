@@ -1,132 +1,204 @@
 /*
- * Database workbench styles. Everything resolves through the host design
- * platform (--dsw-alias-* / --dsw-static-* tokens defined by the dsh web
- * theme), so the workbench follows the GUI's light/dark theme automatically.
- * Neutral fallbacks keep the plugin usable if a token is ever missing.
+ * Database workbench: one context-row trigger and one on-demand Modal.
+ * All colors resolve through the host --dsw-* design tokens.
  */
+
+.triggerSlot {
+  position: absolute;
+  z-index: 12;
+  top: -42px;
+  right: 12px;
+  display: flex;
+  pointer-events: auto;
+}
+
+.trigger {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
+  border-radius: 9px;
+  background: var(--dsw-specific-selector, var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.06)));
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.9));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: background-color 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out;
+}
+
+.trigger:hover,
+.triggerActive {
+  border-color: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.5));
+  background: var(--dsw-alias-interactive-bg-hover-solid, var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.1)));
+  color: var(--dsw-alias-label-primary, inherit);
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 25%, transparent);
+}
+
+.triggerDot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-shadow: 0 0 0 2px var(--dsw-specific-input-major, var(--dsw-alias-bg-base, #fff));
+  border-radius: 999px;
+}
+
+.workbenchModal {
+  width: min(920px, 94vw);
+}
+
+.workbenchModalContent {
+  min-height: min(590px, 70vh);
+  max-height: min(700px, 76vh);
+  overflow: auto;
+}
 
 .workbench {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+  min-height: 520px;
   font-family: var(--dsw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif);
   font-size: 13px;
   line-height: 1.5;
   color: var(--dsw-alias-label-primary, inherit);
 }
 
-/* ── hero: full-width stacked strip above the input bar ─────────────── */
-
-.strip {
-  width: 100%;
-}
-
-/* ── fallback: docked bottom panel when the left rail cannot be measured ── */
-
-.docked {
-  width: 100%;
-  max-height: 55vh;
-  overflow-y: auto;
-}
-
-/* ── active: fixed left rail (geometry arrives as an inline style) ─────── */
-
-.rail {
-  z-index: 8;
-  border-right: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.03)));
-  padding: 12px;
-  overflow-y: auto;
-}
-
-/*
- * Split layout: shift the chat records and the composer (input bar) right
- * by the rail width while a data-agent conversation is active. The class is
- * toggled on <html> by the workbench (css['da-split']), so ordinary sessions
- * never see these rules.
- *
- * The slot renderer wraps `conversation.session` in a display:contents
- * [data-slot] outlet. A margin on that wrapper has no layout effect, so the
- * first rule is kept for older hosts without the outlet wrapper, and the
- * second rule shifts the real session view inside the outlet.
- */
-html.da-split [data-phase="active"] [data-conversation-scroll] > :first-child,
-html.da-split [data-phase="active"] [data-conversation-scroll] > [data-slot="conversation.session"] > * {
-  margin-left: 380px;
-}
-
-html.da-split [data-phase="active"] [data-composer-seat] {
-  padding-left: 380px;
-}
-
-/* ── shared internals ──────────────────────────────────────────────────── */
-
-.sections {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  border-radius: 12px;
-}
-
-.cardTitle {
+.connectionSummary {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
 }
 
-.titleIcon {
+.connectionState {
   flex: none;
-  width: 14px;
-  height: 14px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summaryType {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.03));
   color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11px;
+}
+
+.summaryDb {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: var(--dsw-specific-selector, var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.08)));
+}
+
+.tab {
+  display: inline-flex;
+  flex: 1 0 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary, inherit);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
+}
+
+.tabActive,
+.tabActive:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary, inherit);
+  background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1, rgba(255, 255, 255, 0.8)));
+  box-shadow: var(--dsw-shadow-lv1, 0 1px 3px rgba(0, 0, 0, 0.08));
+}
+
+.tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 28%, transparent);
+}
+
+.tab:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.tabPanel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  padding: 2px;
 }
 
 .fieldGrid {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 11px;
 }
 
 .fieldRow2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
+  gap: 12px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
 }
 
 .label {
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.75));
   font-size: 11px;
   font-weight: 500;
-  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.7));
 }
 
-/* 「记住密码」opt-in 行：勾选框 + 标签 + 说明，紧贴密码字段下方。 */
 .rememberRow {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 7px;
   color: var(--dsw-alias-label-primary, inherit);
+  font-size: 12px;
   cursor: pointer;
   user-select: none;
 }
@@ -137,21 +209,20 @@ html.da-split [data-phase="active"] [data-composer-seat] {
   height: 14px;
   margin: 0;
   accent-color: var(--dsw-alias-button-info-fill, #3b82f6);
-  cursor: pointer;
 }
 
 .rememberHint {
+  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.55));
   font-size: 11px;
-  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
 }
 
 .input {
   box-sizing: border-box;
   width: 100%;
-  height: 32px;
+  height: 34px;
   padding: 0 10px;
-  border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
   color: var(--dsw-alias-label-primary, inherit);
   font: inherit;
@@ -163,53 +234,50 @@ html.da-split [data-phase="active"] [data-composer-seat] {
   color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
 }
 
+.input:focus,
 .input:focus-visible,
-.input:focus {
+.sqlInput:focus,
+.sqlInput:focus-visible {
   outline: none;
   border-color: var(--dsw-alias-button-info-fill, #3b82f6);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 18%, transparent);
 }
 
 .input:disabled {
-  opacity: 0.55;
+  opacity: 0.58;
 }
 
-/* Native select, restyled: hide the OS arrow, draw a neutral chevron. */
 select.input {
-  appearance: none;
-  -webkit-appearance: none;
   padding-right: 28px;
+  appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' fill='none' stroke='%23777' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
-  cursor: pointer;
 }
 
 .actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  margin-top: 2px;
-}
-
-.actions > .primary,
-.actions > .ghost {
-  flex: 1;
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .primary,
 .ghost {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  min-width: 96px;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   transition: background-color 0.15s ease-out, border-color 0.15s ease-out, opacity 0.15s ease-out;
 }
@@ -223,13 +291,9 @@ select.input {
   background: var(--dsw-alias-button-info-hover, #3573e0);
 }
 
-.primary:active:not(:disabled) {
-  background: var(--dsw-static-deepseek-600, #2f5fc0);
-}
-
 .ghost {
-  background: transparent;
   border-color: var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  background: transparent;
   color: var(--dsw-alias-label-primary, inherit);
 }
 
@@ -237,14 +301,11 @@ select.input {
   background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
 }
 
-.ghost:active:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-active, rgba(128, 128, 128, 0.14));
-}
-
 .primary:focus-visible,
-.ghost:focus-visible {
+.ghost:focus-visible,
+.treeItem:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 25%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 24%, transparent);
 }
 
 .primary:disabled,
@@ -253,351 +314,66 @@ select.input {
   cursor: default;
 }
 
-/* Compact ghost variant for the connected summary row. */
-.small {
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.hint {
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
-  font-size: 12px;
-}
-
-/* ── connected summary row（连接配置折叠） ─────────────────────────────── */
-
-.summaryRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 28px;
-}
-
-.statusOk {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--dsw-alias-state-success-primary, #22c55e);
-}
-
-.summaryType {
-  flex: none;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 11px;
-  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
-}
-
-.summaryDb {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12px;
-}
-
-.summaryActions {
-  flex: none;
-  display: flex;
-  gap: 6px;
-}
-
-/* ── disconnected hero connect entry ────────────────────────────────────── */
-
-.heroConnect {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 10px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  color: var(--dsw-alias-label-primary, inherit);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
-}
-
-.heroConnect:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
-  border-color: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.5));
-}
-
-.heroConnect:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-button-info-fill, #3b82f6);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 18%, transparent);
-}
-
-.heroIcon {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  color: var(--dsw-alias-button-info-fill, #3b82f6);
-}
-
-.heroText {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.heroTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, inherit);
-}
-
-.heroHint {
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
-}
-
-.heroChevron {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
-}
-
-/* ── schema explorer entry row ─────────────────────────────────────────── */
-
-.browseRow {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  color: var(--dsw-alias-label-primary, inherit);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
-}
-
-.browseRow:hover {
-  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
-  border-color: var(--dsw-alias-border-l3, rgba(128, 128, 128, 0.5));
-}
-
-.browseRow:focus-visible {
-  outline: none;
-  border-color: var(--dsw-alias-button-info-fill, #3b82f6);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 18%, transparent);
-}
-
-.browseIcon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--dsw-alias-button-info-fill, #3b82f6);
-}
-
-.browseChevron {
-  flex: none;
-  width: 12px;
-  height: 12px;
-  margin-left: auto;
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
-}
-
-/* ── SQL command box ───────────────────────────────────────────────────── */
-
-.sqlInput {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 190px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  color: var(--dsw-alias-label-primary, inherit);
-  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 12.5px;
-  line-height: 1.6;
-  resize: vertical;
-  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
-}
-
-.sqlInput::placeholder {
-  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
-}
-
-.sqlInput:focus-visible,
-.sqlInput:focus {
-  outline: none;
-  border-color: var(--dsw-alias-button-info-fill, #3b82f6);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 18%, transparent);
-}
-
-.sqlInput:disabled {
-  opacity: 0.55;
-}
-
-.sqlActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.sqlActions .primary {
-  flex: none;
-  min-width: 92px;
-}
-
-.shortcutHint {
-  font-size: 11.5px;
-  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
-}
-
-.sqlResult {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
-  background: var(--dsw-alias-markdown-code-block, rgba(255, 255, 255, 0.04));
-  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 11.5px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-/* ── error bar ─────────────────────────────────────────────────────────── */
-
-.errorBar {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid var(--dsw-alias-state-error-secondary, rgba(239, 68, 68, 0.5));
-  background: var(--dsw-alias-interactive-bg-hover-danger, rgba(239, 68, 68, 0.08));
-}
-
-.errorHead {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--dsw-alias-state-error-primary, #ef4444);
-}
-
-.errorIcon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-}
-
-.errorText {
-  font-size: 12px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* ── connection config Modal ───────────────────────────────────────────── */
-
-.connectModal {
-  width: min(440px, 92vw);
-}
-
-.connectModalBody {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* ── schema explorer Modal ─────────────────────────────────────────────── */
-
-.schemaModal {
-  width: min(900px, 94vw);
-}
-
-.modalBody {
-  display: flex;
+.schemaPanel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
   gap: 20px;
-  align-items: stretch;
-  height: min(540px, 58vh);
+  height: min(470px, 56vh);
 }
 
 .modalCol {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  min-height: 0;
 }
 
 .modalColTitle {
-  flex: none;
   display: flex;
+  flex: none;
   align-items: center;
   gap: 6px;
+  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
+  text-transform: uppercase;
 }
 
-.colCount {
+.colCount,
+.treeCount {
   flex: none;
   padding: 1px 7px;
-  border-radius: 999px;
   border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
+  border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
+  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
   font-size: 10px;
   font-weight: 500;
-  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
 }
-
-/* ── file-explorer style tree ──────────────────────────────────────────── */
 
 .treeScroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
   padding-right: 4px;
+  overflow-y: auto;
 }
 
 .tree {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.treeNode {
+.treeNode,
+.treeChildren {
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .treeItem {
@@ -605,10 +381,10 @@ select.input {
   align-items: center;
   gap: 6px;
   width: 100%;
-  min-height: 28px;
+  min-height: 30px;
   padding: 0 8px;
-  border-radius: 7px;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: var(--dsw-alias-label-primary, inherit);
   font: inherit;
@@ -628,8 +404,6 @@ select.input {
 
 .treeChevron {
   flex: none;
-  width: 12px;
-  height: 12px;
   color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
   transition: transform 0.15s ease-out;
 }
@@ -640,8 +414,6 @@ select.input {
 
 .treeIcon {
   flex: none;
-  width: 14px;
-  height: 14px;
   color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
 }
 
@@ -653,33 +425,31 @@ select.input {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.treeCount {
-  flex: none;
-  padding: 0 6px;
-  border-radius: 999px;
-  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  font-size: 10px;
-  color: var(--dsw-alias-label-secondary, rgba(128, 128, 128, 0.8));
-}
-
-/* Child rows indent under their schema, with a 1px guide line. */
 .treeChildren {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  max-height: 154px;
   margin-left: 12px;
   padding-left: 10px;
+  overflow-y: auto;
   border-left: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
 }
 
-/* ── columns panel ─────────────────────────────────────────────────────── */
+.hint {
+  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.6));
+  font-size: 12px;
+}
+
+.modalHint {
+  flex: none;
+  margin-top: 2px;
+  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
+  font-size: 11.5px;
+}
 
 .colScroll {
   flex: 1;
@@ -698,23 +468,22 @@ select.input {
 
 .columnsTable th {
   position: sticky;
-  top: 0;
   z-index: 1;
-  text-align: left;
+  top: 0;
   padding: 7px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
+  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
   font-size: 10.5px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
-  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
-  border-bottom: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  text-align: left;
+  text-transform: uppercase;
 }
 
 .columnsTable td {
-  padding: 5px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
-  color: var(--dsw-alias-label-primary, inherit);
 }
 
 .columnsTable tbody tr:hover td {
@@ -726,18 +495,18 @@ select.input {
 }
 
 .nullCell {
-  font-size: 11px;
   color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
+  font-size: 11px;
 }
 
 .emptyState {
-  flex: 1;
-  min-height: 0;
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: 0;
   border: 1px dashed var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
   border-radius: 8px;
   color: var(--dsw-alias-label-tertiary, rgba(128, 128, 128, 0.7));
@@ -753,34 +522,148 @@ select.input {
   font-size: 12px;
 }
 
-.modalHint {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 2px;
-  font-size: 11.5px;
+.sqlPanel {
+  min-height: 430px;
+}
+
+.sqlInput {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 210px;
+  padding: 12px;
+  resize: vertical;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35));
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.04));
+  color: var(--dsw-alias-label-primary, inherit);
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.sqlInput::placeholder {
   color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
 }
 
+.sqlActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.shortcutHint {
+  color: var(--dsw-alias-label-caption, rgba(128, 128, 128, 0.5));
+  font-size: 11.5px;
+}
+
+.sqlResult {
+  flex: 1;
+  min-height: 100px;
+  max-height: 220px;
+  margin: 0;
+  padding: 11px 12px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l1, rgba(128, 128, 128, 0.2));
+  border-radius: 8px;
+  background: var(--dsw-alias-markdown-code-block, rgba(255, 255, 255, 0.04));
+  font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.errorBar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-state-error-secondary, rgba(239, 68, 68, 0.5));
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover-danger, rgba(239, 68, 68, 0.08));
+}
+
+.errorHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-state-error-primary, #ef4444);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.errorIcon {
+  flex: none;
+}
+
+.errorText {
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 640px) {
-  .modalBody {
+  .triggerSlot {
+    top: -42px;
+    right: 10px;
+  }
+
+  .workbenchModal {
+    width: min(96vw, 920px);
+  }
+
+  .workbenchModalContent {
+    min-height: 0;
+    max-height: 72vh;
+  }
+
+  .workbench {
+    min-height: 0;
+  }
+
+  .fieldRow2 {
+    grid-template-columns: 1fr;
+  }
+
+  .schemaPanel {
+    display: flex;
     flex-direction: column;
     height: auto;
   }
 
   .treeScroll {
     flex: none;
-    height: 300px;
+    height: 240px;
   }
 
   .colScroll {
     flex: none;
-    height: 240px;
+    height: 220px;
   }
 
   .emptyState {
     flex: none;
-    height: 120px;
+    min-height: 120px;
+  }
+
+  .rememberRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .rememberHint {
+    flex-basis: 100%;
+    padding-left: 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .input,
+  .primary,
+  .ghost,
+  .treeChevron {
+    transition: none;
   }
 }

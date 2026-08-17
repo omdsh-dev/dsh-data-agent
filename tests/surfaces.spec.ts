@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { Config, apply, missingProfileDependencyMessage } from '../src/index.ts'
+import { Config, apply, isLegacyManagedPreset, missingProfileDependencyMessage } from '../src/index.ts'
 import { apply as applyToolHalf } from '../src/tool.ts'
 import { apply as applyCommandHalf, DATA_AGENT_TOOL_NAMES } from '../src/command.ts'
 import { createConnectionStore } from '../src/connections.ts'
@@ -22,11 +22,16 @@ describe('Web/TUI package and preset composition', () => {
     expect(pkg.dsh.client.inject).toContain('@deepseek-ai/dsh-client-ui-tool')
   })
 
-  it('composes four preset rows with the native editor and the exact Web/TUI tools', () => {
+  it('keeps the preset composition on built-in rows and preloads package capabilities from the profile entry', () => {
     const preset = readFileSync(new URL('preset/data-agent/agent.cordis.yml', root), 'utf8')
-    expect(preset.match(/^- id:/gm)).toHaveLength(4)
-    expect(preset).toContain("name: '@yejiming/dsh-data-agent/tool'")
-    expect(preset).toContain("name: '@yejiming/dsh-data-agent/command'")
+    expect(preset.match(/^- id:/gm)).toHaveLength(2)
+    expect(preset).not.toContain("name: '@yejiming/dsh-data-agent/tool'")
+    expect(preset).not.toContain("name: '@yejiming/dsh-data-agent/command'")
+    const profileEntry = readFileSync(new URL('src/index.ts', root), 'utf8')
+    expect(profileEntry).toContain("import { apply as applyDatabaseTools, type Config as ToolConfig } from './tool.ts'")
+    expect(profileEntry).toContain("import { apply as applyDatabaseCommand } from './command.ts'")
+    expect(profileEntry).toContain('ctx.agentPresets.standingKeyFor(resolved.presetId)')
+    expect(profileEntry).toContain('mountPresetCapabilities(ctx, standingKey')
     const toolSource = readFileSync(new URL('src/tool.ts', root), 'utf8')
     expect([...toolSource.matchAll(/name: '(sql-query|sql-write|sql-cmd)'/g)].map(match => match[1])).toEqual([
       'sql-query', 'sql-write', 'sql-cmd',
@@ -47,6 +52,12 @@ describe('Web/TUI package and preset composition', () => {
     expect(preset).toContain('不强制画图')
   })
 
+  it('does not classify the new preset or a user edit as the package-owned 0.0.9 legacy composition', () => {
+    const preset = readFileSync(new URL('preset/data-agent/agent.cordis.yml', root), 'utf8')
+    expect(isLegacyManagedPreset(preset)).toBe(false)
+    expect(isLegacyManagedPreset(`${preset}\n# user edit\n`)).toBe(false)
+  })
+
   it('keeps the command entry free of TUI and browser implementation imports', () => {
     const command = readFileSync(new URL('src/command.ts', root), 'utf8')
     expect(command).not.toMatch(/from ['"](?:@deepseek-harness-tui\/dsh-tui|react|ink)['"]/)
@@ -55,6 +66,7 @@ describe('Web/TUI package and preset composition', () => {
   it('returns an actionable target-profile missing-package diagnostic', () => {
     const message = missingProfileDependencyMessage('dsh-tui')
     expect(message).toContain('profile "dsh-tui"')
+    expect(message).toContain('profile-preloaded capabilities')
     expect(message).toContain('dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent')
   })
 
@@ -78,6 +90,13 @@ describe('Web/TUI package and preset composition', () => {
         '*': { type: 'mysql', database: 'orders', password: 'must-not-persist' },
       },
     } as never)).toThrow()
+  })
+
+  it('accepts a searchPaths-only client discovery override', () => {
+    const config = Config({
+      clients: { mysql: { searchPaths: ['/opt/company/mysql/bin'] } },
+    })
+    expect(config.clients.mysql).toEqual({ args: [], searchPaths: ['/opt/company/mysql/bin'] })
   })
 
   it('uses process-local mode immediately when persistence is explicitly disabled', () => {

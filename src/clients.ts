@@ -297,15 +297,18 @@ function quoteStringLiteral(value: string): string {
 /** One deployment override for a database type's CLI client. */
 export interface ClientConfig {
   /** Executable name (resolved through PATH) or absolute path. */
-  command: string
+  command?: string
   /** Extra flag arguments prepended before the built-in flags. */
   args?: readonly string[]
+  /** Absolute directories searched after the current subprocess PATH. */
+  searchPaths?: readonly string[]
 }
 
 /** Loader schema for one client override (all fields optional at input). */
 export const clientConfigSchema = z.object({
   command: z.string(),
   args: z.array(z.string()),
+  searchPaths: z.array(z.string()),
 })
 
 /** Loader schema for the whole `clients` config object (any type key). */

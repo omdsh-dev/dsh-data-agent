@@ -31,6 +31,7 @@ import { classifyStatement, clientsSchema, enforceReadRowLimit, type ClientConfi
 import {
   DEFAULT_MAX_QUERY_CHARS,
   DEFAULT_MAX_RESULT_CHARS,
+  DEFAULT_MAX_ROWS,
   DEFAULT_QUERY_TIMEOUT_MS,
 } from './defaults.ts'
 import type { QueryResult } from './query.ts'
@@ -82,7 +83,7 @@ export interface Config {
 export const Config = z.object({
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
-  maxRows: z.number().step(1).min(1).default(100),
+  maxRows: z.number().step(1).min(1).default(DEFAULT_MAX_ROWS),
   maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
   readonly: z.boolean().default(false),
   clients: clientsSchema,

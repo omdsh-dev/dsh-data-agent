@@ -6,22 +6,9 @@
  * in `DataAgentConnections`, which is also consumed by TUI commands/tools.
  * @module @yejiming/dsh-data-agent/routes
  */
-import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
 import z from 'schemastery';
 import type { DatabaseConnectionInput } from './connections.ts';
-interface WebServerLike {
-    register(route: {
-        kind: 'exact' | 'prefix';
-        path: string;
-        handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
-    }): () => void;
-}
-declare module '@deepseek-ai/cordis' {
-    interface Context {
-        webServer: WebServerLike;
-    }
-}
 export declare const name = "data-agent-routes";
 /** Headless profiles activate this row without waiting forever for webServer. */
 export declare const inject: string[];
@@ -57,4 +44,3 @@ export interface ConnectRequestBody extends DatabaseConnectionInput {
 export declare function validateConnectBody(value: unknown, cwd?: string): ConnectRequestBody;
 /** Register Web routes only when both the webserver and shared service exist. */
 export declare function apply(ctx: Context, _config: Config): void;
-export {};

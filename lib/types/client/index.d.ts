@@ -1,8 +1,7 @@
 /**
  * Data Agent browser half, plugin entry: registers the database workbench
- * into the composer input dock (the strip ABOVE the input bar) for
- * data-agent sessions, and the `data-agent` dictionaries. The old
- * conversation-view tab is gone — the workbench lives inside the session.
+ * as a compact context-row control for data-agent sessions, and the
+ * `data-agent` dictionaries. The workbench itself opens in one Modal.
  * Connection state lives in the server-side connection store, so layout and
  * session switches never lose it — the view only mirrors what
  * `/plugins/data-agent/status` reports.
@@ -20,7 +19,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export declare const inject: string[];
 /**
  * Client plugin body: register the data-agent dictionaries and the database
- * workbench into the composer input dock. The registration rides the slot
+ * workbench trigger into the composer card's right control region. The registration rides the slot
  * service's effect wrapper, so plugin unload removes it.
  * @param ctx - client root context.
  */

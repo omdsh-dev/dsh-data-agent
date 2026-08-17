@@ -21,7 +21,11 @@ interface SpawnSpec {
 }
 
 function makeContext(overrides: {
-  resolveExecutable?: (command: string) => Promise<string>
+  resolveExecutable?: (
+    command: string,
+    env?: Readonly<Record<string, string>>,
+    signal?: AbortSignal,
+  ) => Promise<string>
   spawn?: (spec: SpawnSpec) => FakeHandle
   resolveForExecution?: (sessionId: string) => Promise<DatabaseConnection>
   webServer?: boolean
@@ -136,6 +140,42 @@ describe('sql-cmd tool', () => {
     store.set('session-a', { type: 'mysql', host: 'h', port: 3306, user: 'u', database: 'd', password: 'p@ss' })
     await definition.execute!({ sql: 'SELECT 1;' }, execOf('session-a'))
     expect(captured!.env).toEqual({ MYSQL_PWD: 'p@ss' })
+    expect(captured!.argv.join(' ')).not.toContain('p@ss')
+  })
+
+  it('uses a configured discovery path for resolve and spawn while preserving credentials', async () => {
+    let captured: SpawnSpec | undefined
+    const customDirectory = process.platform === 'win32' ? 'C:\\company\\mysql\\bin' : '/opt/company/mysql/bin'
+    const pathSeparator = process.platform === 'win32' ? ';' : ':'
+    const { definition, store } = makeContext({
+      async resolveExecutable(command, env) {
+        const pathValue = Object.entries(env ?? {}).find(([name]) => name.toLowerCase() === 'path')?.[1]
+        if (pathValue?.split(pathSeparator).includes(customDirectory)) {
+          return process.platform === 'win32'
+            ? `${customDirectory}\\${command}.exe`
+            : `${customDirectory}/${command}`
+        }
+        throw new Error(`command ${command} was not found on PATH`)
+      },
+      spawn(spec) {
+        captured = spec
+        return {
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+          collected: {
+            stdout: { readFrom: () => ({ text: 'ok\n', nextOffset: 0, lossy: false }) },
+            stderr: { readFrom: () => ({ text: '', nextOffset: 0, lossy: false }) },
+          },
+        }
+      },
+    }, { clients: { mysql: { searchPaths: [customDirectory] } } })
+    store.set('session-discovery', {
+      type: 'mysql', host: 'h', port: 3306, user: 'u', database: 'd', password: 'p@ss',
+    })
+    await definition.execute!({ sql: 'SELECT 1;' }, execOf('session-discovery'))
+    const pathEntry = Object.entries(captured!.env ?? {}).find(([name]) => name.toLowerCase() === 'path')
+    expect(captured!.argv[0]).toContain(customDirectory)
+    expect(pathEntry?.[1].split(pathSeparator)[0]).toBe(customDirectory)
+    expect(captured!.env?.MYSQL_PWD).toBe('p@ss')
     expect(captured!.argv.join(' ')).not.toContain('p@ss')
   })
 

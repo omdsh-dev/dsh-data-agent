@@ -1,8 +1,7 @@
 /**
  * Data Agent browser half, plugin entry: registers the database workbench
- * into the composer input dock (the strip ABOVE the input bar) for
- * data-agent sessions, and the `data-agent` dictionaries. The old
- * conversation-view tab is gone — the workbench lives inside the session.
+ * as a compact context-row control for data-agent sessions, and the
+ * `data-agent` dictionaries. The workbench itself opens in one Modal.
  * Connection state lives in the server-side connection store, so layout and
  * session switches never lose it — the view only mirrors what
  * `/plugins/data-agent/status` reports.
@@ -11,7 +10,7 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the ui-conversation slot declarations (conversation.input.dock)
+// Type-only: pulls the ui-conversation slot declarations (conversation.input.right)
 // and the session standard props (sessionId) into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the keyed tool.call.toolview slot declaration owned by the
@@ -33,7 +32,7 @@ export const inject = ['slots', 'locale', 'sessions']
 
 /**
  * Client plugin body: register the data-agent dictionaries and the database
- * workbench into the composer input dock. The registration rides the slot
+ * workbench trigger into the composer card's right control region. The registration rides the slot
  * service's effect wrapper, so plugin unload removes it.
  * @param ctx - client root context.
  */
@@ -48,10 +47,10 @@ export function apply(ctx: ClientContext): void {
       getSnapshot: (): SessionListLike => list.getSnapshot() as unknown as SessionListLike,
       subscribe: (fn: () => void): (() => void) => list.subscribe(fn),
     }
-    // The workbench strip sits above the input bar (order 0, first entry);
-    // it renders only for data-agent sessions and returns null elsewhere.
-    scope.slots.inject('conversation.input.dock', () => scope.slots.register({
-      name: 'conversation.input.dock',
+    // The workbench is a compact input-card control; its own CSS places the
+    // registered control at the card's top-right. Non-data-agent sessions render null.
+    scope.slots.inject('conversation.input.right', () => scope.slots.register({
+      name: 'conversation.input.right',
       id: 'data-agent',
       order: 0,
       locale: NS,

@@ -16,7 +16,7 @@ export interface DataAgentWorkbenchInjected {
         };
     };
 }
-/** The workbench's full component props: the dock seat + the locale seat + the injected sessions hook. */
-export type DataAgentWorkbenchProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'data-agent'> & InjectFace<DataAgentWorkbenchInjected>;
+/** The workbench's full component props: the composer-right seat + locale + sessions hook. */
+export type DataAgentWorkbenchProps = PropsRuntime<'conversation.input.right'> & PropsLocale<'data-agent'> & InjectFace<DataAgentWorkbenchInjected>;
 /** The database workbench body. */
 export declare function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkbenchProps): import("react").JSX.Element | null;

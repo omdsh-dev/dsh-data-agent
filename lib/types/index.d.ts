@@ -1,19 +1,22 @@
 /**
- * Data Agent server half for the dsh web GUI. The host row provides the
+ * Data Agent profile entry. The host row provides the
  * `dataAgentConnections` service (shared non-secret profile/binding storage;
  * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
- * wildcard default), and installs the `data-agent` agent preset into
- * `$DSH_HOME/.agent-presets/` (idempotent, never overwrites a user-edited
- * directory).
+ * wildcard default), installs the `data-agent` agent preset into
+ * `$DSH_HOME/.agent-presets/`, and preloads the preset-scoped database tools
+ * and command through this profile bundle entry.
  *
  * The HTTP routes live in the separate `./routes` entry
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
- * this row keeps working in headless profiles without a webserver; the
- * database tools themselves live in the `./tool` entry and are mounted only
- * by the data-agent preset.
+ * this row keeps working in headless profiles without a webserver. The
+ * database implementations still have public `./tool` and `./command`
+ * exports, but the shipped preset does not dynamically import those package
+ * subpaths. Loading them here keeps Desktop on the same profile-startup path
+ * as other UI bundles and avoids Electron ASAR package-resolution drift.
  * @module @yejiming/dsh-data-agent
  */
 import type { Context } from '@deepseek-ai/cordis';
+import type { ScopeKey } from '@deepseek-ai/dsh-scope';
 /** The `dataAgentConnections` service face on the cordis context. */
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -23,9 +26,10 @@ declare module '@deepseek-ai/cordis' {
 import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
 import { type ClientConfig } from './clients.ts';
+import { type Config as ToolConfig } from './tool.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent";
-/** Services required before the store can serve. */
+/** Services required before the profile entry can mount its preset layer. */
 export declare const inject: string[];
 /** Deployment overrides for one database type's CLI client. */
 export type ClientsConfig = Partial<Record<DatabaseType, ClientConfig>>;
@@ -61,6 +65,8 @@ export interface Config {
     queryTimeoutMs: number;
     /** In-memory cap on database-tool captured output. */
     maxResultChars: number;
+    /** Maximum structured rows returned by one database read tool call. */
+    maxRows: number;
     /** Maximum SQL text accepted by the shared Web query adapter. */
     maxQueryChars: number;
     /** Default read-only guard: true rejects write statements in database tools and /query. */
@@ -80,15 +86,18 @@ export declare const Config: z<Schemastery.ObjectS<{
     introspectMaxTables: z<number, number>;
     queryTimeoutMs: z<number, number>;
     maxResultChars: z<number, number>;
+    maxRows: z<number, number>;
     maxQueryChars: z<number, number>;
     readonly: z<boolean, boolean>;
     persistConnections: z<boolean, boolean>;
     clients: z<import("cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
+        searchPaths?: string[] | null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
+        searchPaths: z<string[], string[]>;
     }>, string>>;
     connections: z<import("cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
@@ -116,15 +125,18 @@ export declare const Config: z<Schemastery.ObjectS<{
     introspectMaxTables: z<number, number>;
     queryTimeoutMs: z<number, number>;
     maxResultChars: z<number, number>;
+    maxRows: z<number, number>;
     maxQueryChars: z<number, number>;
     readonly: z<boolean, boolean>;
     persistConnections: z<boolean, boolean>;
     clients: z<import("cosmokit").Dict<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
+        searchPaths?: string[] | null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
+        searchPaths: z<string[], string[]>;
     }>, string>>;
     connections: z<import("cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
@@ -153,21 +165,35 @@ export declare const Config: z<Schemastery.ObjectS<{
 export declare function resolveDshHome(env?: Record<string, string | undefined>): string;
 /**
  * Install the packaged `preset/data-agent/` directory into
- * `$DSH_HOME/.agent-presets/<presetId>/`. Idempotent: an existing target
- * directory is left untouched (user edits survive); `installPreset: false`
- * never calls this. Best-effort — a failure logs a warning with manual
- * install instructions instead of failing the boot.
+ * `$DSH_HOME/.agent-presets/<presetId>/`. Idempotent: an existing target is
+ * normally left untouched. The exact package-owned 0.0.9 composition is
+ * migrated once because its two dynamic package rows are incompatible with
+ * DSH Desktop's unpacked-ASAR loader; user-edited compositions are never
+ * overwritten. `installPreset: false` never calls this. Best-effort — a
+ * failure logs a warning with manual install instructions instead of failing
+ * the boot.
  */
-export declare function installPreset(ctx: Context, presetId: string): Promise<void>;
+export declare function installPreset(ctx: Context, presetId: string): Promise<boolean>;
+/** Public for regression tests of the non-destructive preset migration gate. */
+export declare function isLegacyManagedPreset(source: string): boolean;
 /** Exact profile-local package installation command used by diagnostics/docs. */
 export declare function profileInstallCommand(profile: string): string;
 /** Actionable diagnostic for a roster-visible preset whose profile lacks this package. */
 export declare function missingProfileDependencyMessage(profile: string): string;
+/** Tool configuration inherited by the profile-preloaded preset capabilities. */
+type PresetCapabilitiesConfig = Pick<ToolConfig, 'queryTimeoutMs' | 'maxResultChars' | 'maxRows' | 'maxQueryChars' | 'readonly' | 'clients'>;
 /**
- * Mount the data-agent host row: connection store, config-seeded
- * connections, and preset self-install. HTTP routes are the sibling
- * `data-agent-routes` row (`./routes`).
+ * Register the statically imported database tools and command under the exact
+ * standing key owned by the data-agent preset. Selecting the preset performs
+ * no package import and only links the agent scope to this key.
+ */
+export declare function mountPresetCapabilities(ctx: Context, key: ScopeKey, scopeTag: symbol, config: PresetCapabilitiesConfig): Promise<void>;
+/**
+ * Mount the data-agent profile row: connection store, config-seeded
+ * connections, preset installation, and profile-preloaded preset capabilities.
+ * HTTP routes are the sibling `data-agent-routes` row (`./routes`).
  * @param ctx - host cordis context.
  * @param config - validated loader configuration.
  */
 export declare function apply(ctx: Context, config: Config): Promise<void>;
+export {};

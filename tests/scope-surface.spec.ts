@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import Commands from '@deepseek-ai/dsh-commands'
 import { bindScopeParent, createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { createConnectionStore } from '../src/connections.ts'
+import { mountPresetCapabilities } from '../src/index.ts'
 
 const HOST_TOOLS = [
   'describe_image',
@@ -75,5 +78,40 @@ describe('standing preset tool surface', () => {
     // sufficient by themselves.
     binding.rebind(dataKey)
     expect(ctx.tools.schemas(agentKey).map(item => item.name).sort()).toEqual(expected)
+  })
+
+  it('registers the real package tools from the profile entry under an existing preset key', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(Commands)
+    ctx.provide('subprocess', {
+      resolveExecutable: async (command: string) => `/usr/bin/${command}`,
+      spawn: () => ({ done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }),
+    } as never)
+    ctx.provide('dataAgentConnections', createConnectionStore())
+    for (const name of HOST_TOOLS) ctx.tools.register(tool(name))
+
+    const dataKey = { agentPreset: 'data-agent' }
+    const standing = createScope(ctx, dataKey)
+    const scopeTag = Object.getOwnPropertySymbols(standing.ctx)
+      .find(candidate => Reflect.get(standing.ctx, candidate) === dataKey)!
+    await ctx.plugin(Object.assign(async (inner: Context) => {
+      await mountPresetCapabilities(inner, dataKey, scopeTag, {
+        queryTimeoutMs: 30_000,
+        maxResultChars: 20_000,
+        maxRows: 100,
+        maxQueryChars: 65_536,
+        readonly: false,
+        clients: {},
+      })
+    }, { inject: ['commands', 'dataAgentConnections', 'subprocess', 'tools'] }))
+
+    const agentKey = { id: 'desktop-session' }
+    bindScopeParent(agentKey, dataKey)
+    await mintScope(ctx, agentKey)
+    expect(ctx.tools.schemas(agentKey).map(item => item.name).sort()).toEqual([
+      'sql-cmd', 'sql-query', 'sql-write',
+    ])
   })
 })

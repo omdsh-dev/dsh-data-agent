@@ -1,35 +1,20 @@
 /**
- * The database workbench: connection config (collapsible after connect),
- * a browse button that opens the schema explorer Modal, and the SQL command
- * box, rendered into the composer input dock (the strip ABOVE the input bar)
- * for data-agent sessions.
+ * The database workbench entry for data-agent sessions.
  *
- * Layout is phase-driven by the conversation root's `data-phase` attribute:
- * - hero (blank session): the workbench is a full-width stacked strip above
- *   the input bar (which stays at the bottom);
- * - active (conversation started): the workbench becomes a fixed left rail
- *   (measured from the conversation column), the chat records and the input
- *   bar shift right via the `da-split` CSS rules; if measurement is
- *   unavailable the workbench falls back to a docked bottom panel.
+ * Only a compact database button remains mounted from the composer slot and
+ * is visually lifted into the context row above the composer card.
+ * Clicking it opens one Modal containing connection settings, the schema
+ * explorer, and SQL runner as three tabs. Hero and active conversations share
+ * this exact surface; the plugin never measures or shifts host layout.
  *
- * Interaction model:
- * - after a successful connect the connection form collapses into a summary
- *   row (click 连接配置 to expand the readonly form again);
- * - the schema explorer lives in a Modal (ui-primitives) opened by the
- *   库表 button; a single click on a database toggles its table list in a
- *   file-explorer style tree (folder rows with chevrons, indented table rows
- *   with guide lines, the whole tree scrolls inside the column);
- * - clicking a table loads its columns into the Modal's structure panel.
- *
- * Non-data-agent sessions render null — zero impact on ordinary sessions.
- * Connection state lives on the server (the dataAgentConnections store), so
- * remounts never lose it — this component mirrors `/status` on mount.
+ * Non-data-agent sessions render null before any effect or request runs.
+ * Connection state lives on the server and is mirrored from `/status`.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
-// Type-only: pulls the ui-conversation slot declarations (conversation.input.dock)
+import { IconDataOutline16, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: pulls the ui-conversation slot declarations (conversation.input.right)
 // and the framework-standard view props into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
@@ -176,22 +161,13 @@ export interface DataAgentWorkbenchInjected {
   }
 }
 
-/** The workbench's full component props: the dock seat + the locale seat + the injected sessions hook. */
+/** The workbench's full component props: the composer-right seat + locale + sessions hook. */
 export type DataAgentWorkbenchProps =
-  PropsRuntime<'conversation.input.dock'>
+  PropsRuntime<'conversation.input.right'>
   & PropsLocale<'data-agent'>
   & InjectFace<DataAgentWorkbenchInjected>
 
-/** The conversation column's phase attribute value while the session is blank. */
-function isHeroPhase(element: HTMLElement | null): boolean {
-  return element?.getAttribute('data-phase') === 'hero'
-}
-
-/**
- * 开始对话后（active 布局）左栏工作台相对会话列顶部的下移偏移（px）：
- * 让工作台避开会话头部区域、整体往下沉一些，顶部露出对话记录。
- */
-const RAIL_TOP_OFFSET = 96
+type WorkbenchTab = 'connection' | 'schema' | 'sql'
 
 /** Default port per type (used to fill the form from a saved connection). */
 function defaultPortOf(type: DatabaseType): string {
@@ -255,10 +231,7 @@ function payloadFromSaved(saved: SavedConnection): Record<string, unknown> {
 export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkbenchProps) {
   const list = useSessions(snapshot => snapshot)
   const isDataAgent = list.byId[sessionId as never]?.agentPreset === DATA_AGENT_PRESET
-
-  const rootRef = useRef<HTMLDivElement | null>(null)
-  const [phase, setPhase] = useState<'hero' | 'active'>('hero')
-  const [railRect, setRailRect] = useState<{ left: number; top: number; bottom: number } | null>(null)
+  const tabsId = useId()
 
   // 表单从已保存的连接配置（localStorage）惰性初始化：切换会话/刷新/重启后回填。
   const [initialSaved] = useState(loadConnection)
@@ -281,14 +254,15 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
 
-  // Connection config Modal (form lives here now, not inline in the strip/rail).
-  const [connectModalOpen, setConnectModalOpen] = useState(false)
+  // One workbench Modal owns connection, schema, and SQL as tabs.
+  const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>('connection')
   // Mount-time auto-reconnect in flight (from the saved connection).
   const [restoring, setRestoring] = useState(false)
-  // Schema explorer Modal.
-  const [schemaModalOpen, setSchemaModalOpen] = useState(false)
 
   const [schemas, setSchemas] = useState<string[]>([])
+  const schemasLoaded = useRef(false)
+  const [schemaBusy, setSchemaBusy] = useState(false)
   const [activeSchema, setActiveSchema] = useState<string | null>(null)
   const [tables, setTables] = useState<string[]>([])
   const [activeTable, setActiveTable] = useState<string | null>(null)
@@ -297,90 +271,14 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [sql, setSql] = useState('')
   const [sqlBusy, setSqlBusy] = useState(false)
   const [sqlResult, setSqlResult] = useState<string | null>(null)
-
-  // Track the conversation column phase and its bounds for the left-rail
-  // layout; toggle the da-split class that shifts chat + input to the right.
-  //
-  // Keyed on `isDataAgent` on purpose: the input dock mounts for every
-  // session, and for non-data-agent sessions this component renders null
-  // (see the gate below). A `[]` deps effect would run once on that null
-  // render — rootRef.current is null, no `[data-phase]` ancestor is found,
-  // and the observer never attaches, leaving the workbench stacked forever
-  // even after the conversation goes active. A layout effect is used so the
-  // observer attaches synchronously with the commit, and the poll below
-  // self-heals against a replaced conversation root or a missed mutation.
-  useLayoutEffect(() => {
-    let column = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
-    const refreshPhase = (): void => {
-      if (column !== null) {
-        setPhase((prev) => {
-          const next = isHeroPhase(column) ? 'hero' : 'active'
-          return next === prev ? prev : next
-        })
-      }
-    }
-    const measure = (): void => {
-      if (column !== null) {
-        const rect = column.getBoundingClientRect()
-        const bottom = window.innerHeight - rect.bottom
-        setRailRect((prev) =>
-          prev !== null && prev.left === rect.left && prev.top === rect.top && prev.bottom === bottom
-            ? prev
-            : { left: rect.left, top: rect.top, bottom },
-        )
-      }
-    }
-    const observer = new MutationObserver(refreshPhase)
-    const resizer = new ResizeObserver(measure)
-    const sync = (): void => {
-      const next = rootRef.current?.closest<HTMLElement>('[data-phase]') ?? null
-      if (next !== null) {
-        if (next !== column) {
-          observer.disconnect()
-          resizer.disconnect()
-          column = next
-          observer.observe(column, { attributes: true, attributeFilter: ['data-phase'] })
-          resizer.observe(column)
-        }
-        refreshPhase()
-        measure()
-      }
-    }
-    sync()
-    window.addEventListener('resize', measure)
-    // Self-healing poll: re-find the column (the host may replace the
-    // [data-phase] node while the dock stays mounted) and re-sync the phase
-    // and rail bounds even if a mutation was missed.
-    const poll = window.setInterval(sync, 1000)
-    return () => {
-      window.clearInterval(poll)
-      if (column !== null) {
-        resizer.unobserve(column)
-      }
-      observer.disconnect()
-      resizer.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [isDataAgent])
-
-  // Split layout is active only for a live conversation (phase active) with
-  // a measurable column; everything else stays stacked above the input.
-  const split = phase === 'active' && railRect !== null
-  // da-split toggling is layout work: flip it in the same commit that
-  // switches to the rail, so chat and composer shift right synchronously.
-  useLayoutEffect(() => {
-    const root = document.documentElement
-    const splitClass = css['da-split']
-    if (split && splitClass !== undefined) root.classList.add(splitClass)
-    else if (splitClass !== undefined) root.classList.remove(splitClass)
-    return () => { if (splitClass !== undefined) root.classList.remove(splitClass) }
-  }, [split])
+  const triggerSlotRef = useRef<HTMLDivElement>(null)
 
   // 草稿持久化：任何表单字段变化立即保存（含密码，用户已确认），
   // 使未连接的输入在切换会话/刷新后也能恢复。首轮跳过（初始化回填值
   // 无需重写，也避免从未输入时写入空配置）。
   const firstDraftRun = useRef(true)
   useEffect(() => {
+    if (!isDataAgent) return
     if (firstDraftRun.current) {
       firstDraftRun.current = false
       return
@@ -398,11 +296,12 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       savedAt: new Date().toISOString(),
     }
     saveConnection(draft)
-  }, [type, host, port, user, database, password, passwordRef, credentialMode, rememberPassword, readonly])
+  }, [isDataAgent, type, host, port, user, database, password, passwordRef, credentialMode, rememberPassword, readonly])
 
   // Mirror the server-side connection on mount; auto-reconnect once when the
   // server store was lost (restart).
   useEffect(() => {
+    if (!isDataAgent) return
     let cancelled = false
     const controller = new AbortController()
     const saved = initialSaved
@@ -424,11 +323,6 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             if (body.summary.passwordRef !== undefined) setCredentialMode('reference')
             setCredentialStatus(body.summary.credential)
           }
-          const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`, {
-            signal: controller.signal,
-          })
-          const schemasBody = await parseJsonResponse<SchemasResponse>(response)
-          if (!cancelled && schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
           return
         }
         // Server connection lost (restart): restore with the saved config, once.
@@ -441,12 +335,6 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             if (result.ok) {
               setConnected(true)
               setCredentialStatus(result.summary?.credential)
-              setConnectModalOpen(false)
-              const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`, {
-                signal: controller.signal,
-              })
-              const schemasBody = await parseJsonResponse<SchemasResponse>(response)
-              if (!cancelled && schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
             } else {
               setError(`连接恢复失败：${result.error ?? 'unknown error'}`)
             }
@@ -465,9 +353,30 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       cancelled = true
       controller.abort()
     }
-  }, [initialSaved, sessionId])
+  }, [initialSaved, isDataAgent, sessionId])
 
   const sqlite = type === 'sqlite'
+
+  /** Load schemas on first entry to the schema tab; cache successful empty results too. */
+  const loadSchemas = async (force = false): Promise<void> => {
+    if (schemaBusy || (schemasLoaded.current && !force)) return
+    setSchemaBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
+      const result = await parseJsonResponse<SchemasResponse>(response)
+      if (result.ok) {
+        setSchemas(result.schemas ?? [])
+        schemasLoaded.current = true
+      } else {
+        setError(result.error ?? 'unknown error')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSchemaBusy(false)
+    }
+  }
 
   const connect = async (): Promise<void> => {
     setBusy(true)
@@ -491,11 +400,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       if (result.ok) {
         setConnected(true)
         setCredentialStatus(result.summary?.credential)
-        // Close the config Modal after a successful connect.
-        setConnectModalOpen(false)
-        const schemasResponse = await fetch(`/plugins/data-agent/schemas?sessionId=${encodeURIComponent(sessionId)}`)
-        const schemasBody = await parseJsonResponse<SchemasResponse>(schemasResponse)
-        if (schemasBody.ok) setSchemas(schemasBody.schemas ?? [])
+        setActiveTab('schema')
+        schemasLoaded.current = false
+        await loadSchemas(true)
       } else {
         setError(result.error ?? 'unknown error')
       }
@@ -519,8 +426,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       setConnected(false)
       setCredentialStatus(undefined)
       setReadonly(false)
-      setSchemaModalOpen(false)
+      setActiveTab('connection')
       setSchemas([])
+      schemasLoaded.current = false
       setActiveSchema(null)
       setTables([])
       setActiveTable(null)
@@ -601,6 +509,28 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
     }
   }
 
+  const composerPlaceholder = connected
+    ? t('composer.placeholder.connected')
+    : t('composer.placeholder.disconnected')
+
+  // input.right does not expose a placeholder setter. Bridge only to the
+  // textarea in this trigger's own composer card, and restore the host value
+  // on every cleanup. Disabled host states keep their more important reason.
+  useLayoutEffect(() => {
+    if (!isDataAgent) return
+    const card = triggerSlotRef.current?.closest('[data-composer-card]')
+    const textarea = card?.querySelector<HTMLTextAreaElement>('textarea')
+    if (textarea === undefined || textarea === null || textarea.disabled) return
+
+    const hostPlaceholder = textarea.getAttribute('placeholder')
+    textarea.setAttribute('placeholder', composerPlaceholder)
+    return () => {
+      if (textarea.getAttribute('placeholder') !== composerPlaceholder) return
+      if (hostPlaceholder === null) textarea.removeAttribute('placeholder')
+      else textarea.setAttribute('placeholder', hostPlaceholder)
+    }
+  })
+
   // A session not running the data-agent preset: nothing renders at all.
   if (!isDataAgent) return null
 
@@ -612,219 +542,115 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         ? t('form.database.hive')
         : t('form.database')
 
-  const railStyle = split
-    ? {
-      position: 'fixed' as const,
-      left: railRect!.left,
-      top: railRect!.top + RAIL_TOP_OFFSET,
-      bottom: railRect!.bottom,
-      width: 380,
-    }
-    : undefined
-
   // Form fields are readonly while connected (edit requires disconnecting).
   const formDisabled = busy || connected
+  const triggerState = error !== null
+    ? 'error'
+    : busy || restoring
+      ? 'ongoing'
+      : connected
+        ? 'done'
+        : 'warning'
+  const triggerLabel = error !== null
+    ? t('workbench.open.error')
+    : busy || restoring
+      ? t('workbench.open.checking')
+      : connected
+        ? t('workbench.open.connected')
+        : t('workbench.open.disconnected')
+
+  const tabs: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ReactNode }> = [
+    { id: 'connection', label: t('action.config'), icon: <DatabaseIcon /> },
+    { id: 'schema', label: t('action.browse'), icon: <TableIcon /> },
+    { id: 'sql', label: t('wb.sql'), icon: <TerminalIcon /> },
+  ]
 
   return (
-    <div
-      ref={rootRef}
-      className={`${css.workbench} ${split ? css.rail : phase === 'active' ? css.docked : css.strip}`}
-      style={railStyle}
-    >
-      <div className={css.sections}>
-        {connected ? (
-          // ── connected summary row (config lives in a Modal now) ─────────
-          <section className={css.card}>
-            <div className={css.summaryRow}>
-              <StateDot state="done" size={8} className={css.dot} />
-              <span className={css.statusOk}>{t('state.connected')}</span>
-              <span className={css.summaryType}>{t(`type.${type}`)}</span>
-              <span className={css.summaryDb} title={database}>{database}</span>
-              {credentialStatus !== undefined && (
-                <span
-                  className={css.summaryType}
-                  title={credentialStatus.source}
-                >
-                  {credentialStatus.configured ? t('credential.configured') : t('credential.unconfigured')}
-                </span>
-              )}
-              <span className={css.summaryActions}>
-                <button type="button" className={`${css.ghost} ${css.small}`} onClick={() => setConnectModalOpen(true)}>
-                  {t('action.config')}
-                </button>
-                <button type="button" className={`${css.ghost} ${css.small}`} disabled={busy} onClick={() => { void disconnect() }}>
-                  {t('action.disconnect')}
-                </button>
-              </span>
-            </div>
-          </section>
-        ) : (
-          // ── disconnected hero: a single connect entry, no inline form ────
-          <section className={css.card}>
-            <button type="button" className={css.heroConnect} onClick={() => setConnectModalOpen(true)}>
-              <DatabaseIcon className={css.heroIcon} />
-              <span className={css.heroText}>
-                <span className={css.heroTitle}>{t('form.hero.title')}</span>
-                <span className={css.heroHint}>{t('form.hero.hint')}</span>
-              </span>
-              <ChevronIcon className={css.heroChevron} />
-            </button>
-          </section>
-        )}
-
-        {connected && (
-          // ── schema explorer entry ───────────────────────────────────────
-          <section className={css.card}>
-            <button type="button" className={css.browseRow} onClick={() => setSchemaModalOpen(true)}>
-              <TableIcon className={css.browseIcon} />
-              <span>{t('action.browse')}</span>
-              <ChevronIcon className={css.browseChevron} />
-            </button>
-          </section>
-        )}
-
-        {connected && (
-        <section className={css.card}>
-          <div className={css.cardTitle}>
-            <TerminalIcon className={css.titleIcon} />
-            <span>{t('wb.sql')}</span>
-          </div>
-          <textarea
-            className={css.sqlInput}
-            value={sql}
-            rows={8}
-            spellCheck={false}
-            placeholder={t('wb.sql.placeholder')}
-            onChange={(event) => setSql(event.target.value)}
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault()
-                void runSql()
-              }
-            }}
-          />
-          <div className={css.sqlActions}>
-            <span className={css.shortcutHint}>{t('wb.sql.shortcut')}</span>
-            <button
-              type="button"
-              className={css.primary}
-              disabled={sqlBusy || !connected || sql.trim() === ''}
-              onClick={() => { void runSql() }}
-            >
-              <PlayIcon />
-              {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
-            </button>
-          </div>
-          <pre className={css.sqlResult}>{sqlResult ?? t('wb.sql.empty')}</pre>
-        </section>
-        )}
+    <>
+      <div ref={triggerSlotRef} className={css.triggerSlot}>
+        <Tooltip label={triggerLabel} side="top" delayMs={400}>
+          <button
+            type="button"
+            className={`${css.trigger}${workbenchOpen ? ` ${css.triggerActive}` : ''}`}
+            aria-label={triggerLabel}
+            aria-haspopup="dialog"
+            aria-expanded={workbenchOpen}
+            onClick={() => setWorkbenchOpen(true)}
+          >
+            <IconDataOutline16 size={17} />
+            <StateDot state={triggerState} size={7} className={css.triggerDot} />
+          </button>
+        </Tooltip>
       </div>
 
-      {error !== null && !connectModalOpen && (
-        <div className={css.errorBar}>
-          <div className={css.errorHead}>
-            <AlertIcon className={css.errorIcon} />
-            <span>{t('error.title')}</span>
+      <Modal
+        open={workbenchOpen}
+        onClose={() => setWorkbenchOpen(false)}
+        title={t('wb.workbench.title')}
+        description={t('wb.workbench.description')}
+        closeLabel={t('action.close')}
+        className={css.workbenchModal}
+        contentClassName={css.workbenchModalContent}
+      >
+        <div className={css.workbench}>
+          <div className={css.connectionSummary} role="status">
+            <StateDot state={triggerState} size={8} />
+            <span className={css.connectionState}>
+              {error !== null
+                ? t('error.title')
+                : restoring
+                  ? t('state.reconnecting')
+                  : busy
+                    ? t('state.checking')
+                    : connected
+                      ? t('state.connected')
+                      : t('state.disconnected')}
+            </span>
+            {connected && (
+              <>
+                <span className={css.summaryType}>{t(`type.${type}`)}</span>
+                <span className={css.summaryDb} title={database}>{database}</span>
+                {credentialStatus !== undefined && (
+                  <span className={css.summaryType} title={credentialStatus.source}>
+                    {credentialStatus.configured ? t('credential.configured') : t('credential.unconfigured')}
+                  </span>
+                )}
+              </>
+            )}
           </div>
-          <span className={css.errorText}>{error}</span>
-        </div>
-      )}
 
-      {schemaModalOpen && (
-        <Modal
-          open={schemaModalOpen}
-          onClose={() => setSchemaModalOpen(false)}
-          title={t('wb.modal.title')}
-          closeLabel={t('action.close')}
-          className={css.schemaModal}
-        >
-          <div className={css.modalBody}>
-            <div className={css.modalCol}>
-              <div className={css.modalColTitle}>
-                <span>{t('wb.schemas')}</span>
-                {schemas.length > 0 && <span className={css.colCount}>{schemas.length}</span>}
-              </div>
-              <div className={css.treeScroll}>
-                {schemas.length === 0 && <div className={css.hint}>{t('wb.loading')}</div>}
-                <ul className={css.tree}>
-                  {schemas.map(schema => (
-                    <li key={schema} className={css.treeNode}>
-                      <button
-                        type="button"
-                        className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
-                        onClick={() => { void toggleSchema(schema) }}
-                      >
-                        <ChevronIcon className={`${css.treeChevron}${activeSchema === schema ? ` ${css.open}` : ''}`} />
-                        <FolderIcon className={css.treeIcon} />
-                        <span className={css.treeName}>{schema}</span>
-                        {activeSchema === schema && tables.length > 0 && (
-                          <span className={css.treeCount}>{tables.length}</span>
-                        )}
-                      </button>
-                      {activeSchema === schema && (
-                        <div className={css.treeChildren}>
-                          {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
-                          {tables.map(table => (
-                            <button
-                              key={table}
-                              type="button"
-                              className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
-                              onClick={() => { void selectTable(table) }}
-                            >
-                              <TableIcon className={css.treeIcon} />
-                              <span className={css.treeName}>{table}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className={css.modalHint}>{t('wb.hint.click')}</div>
-            </div>
-
-            <div className={css.modalCol}>
-              <div className={css.modalColTitle}>
-                <span>{t('wb.columns')}{activeTable !== null && ` · ${activeTable}`}</span>
-              </div>
-              {columns === null ? (
-                <div className={css.emptyState}>
-                  <TableIcon className={css.emptyStateIcon} />
-                  <span className={css.emptyStateText}>{t('wb.hint.click')}</span>
-                </div>
-              ) : (
-                <div className={css.colScroll}>
-                  <table className={css.columnsTable}>
-                    <thead>
-                      <tr><th>name</th><th>type</th><th>null</th></tr>
-                    </thead>
-                    <tbody>
-                      {columns.map(column => (
-                        <tr key={column.name}>
-                          <td>{column.name}</td>
-                          <td className={css.typeCell}>{column.type}</td>
-                          <td className={css.nullCell}>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+          <div className={css.tabs} role="tablist" aria-label={t('wb.workbench.tabs')}>
+            {tabs.map(tab => {
+              const disabled = tab.id !== 'connection' && !connected
+              return (
+                <button
+                  key={tab.id}
+                  id={`${tabsId}-${tab.id}-tab`}
+                  type="button"
+                  role="tab"
+                  className={`${css.tab}${activeTab === tab.id ? ` ${css.tabActive}` : ''}`}
+                  aria-selected={activeTab === tab.id}
+                  aria-controls={`${tabsId}-${tab.id}-panel`}
+                  disabled={disabled}
+                  onClick={() => {
+                    setActiveTab(tab.id)
+                    if (tab.id === 'schema') void loadSchemas()
+                  }}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              )
+            })}
           </div>
-        </Modal>
-      )}
 
-      {connectModalOpen && (
-        <Modal
-          open={connectModalOpen}
-          onClose={() => setConnectModalOpen(false)}
-          title={t('form.title')}
-          closeLabel={t('action.close')}
-          className={css.connectModal}
-        >
-          <div className={css.connectModalBody}>
+          {activeTab === 'connection' && (
+          <section
+            id={`${tabsId}-connection-panel`}
+            role="tabpanel"
+            aria-labelledby={`${tabsId}-connection-tab`}
+            className={css.tabPanel}
+          >
             <div className={css.fieldGrid}>
               <label className={css.field}>
                 <span className={css.label}>{t('form.type')}</span>
@@ -969,19 +795,142 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                 </button>
               )}
             </div>
+          </section>
+          )}
 
-            {error !== null && (
-              <div className={css.errorBar}>
-                <div className={css.errorHead}>
-                  <AlertIcon className={css.errorIcon} />
-                  <span>{t('error.title')}</span>
-                </div>
-                <span className={css.errorText}>{error}</span>
+          {activeTab === 'schema' && connected && (
+          <section
+            id={`${tabsId}-schema-panel`}
+            role="tabpanel"
+            aria-labelledby={`${tabsId}-schema-tab`}
+            className={`${css.tabPanel} ${css.schemaPanel}`}
+          >
+            <div className={css.modalCol}>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.schemas')}</span>
+                {schemas.length > 0 && <span className={css.colCount}>{schemas.length}</span>}
               </div>
-            )}
-          </div>
-        </Modal>
-      )}
-    </div>
+              <div className={css.treeScroll}>
+                {schemas.length === 0 && (
+                  <div className={css.hint}>{schemaBusy ? t('wb.loading') : t('wb.empty')}</div>
+                )}
+                <ul className={css.tree}>
+                  {schemas.map(schema => (
+                    <li key={schema} className={css.treeNode}>
+                      <button
+                        type="button"
+                        className={`${css.treeItem}${activeSchema === schema ? ` ${css.active}` : ''}`}
+                        onClick={() => { void toggleSchema(schema) }}
+                      >
+                        <ChevronIcon className={`${css.treeChevron}${activeSchema === schema ? ` ${css.open}` : ''}`} />
+                        <FolderIcon className={css.treeIcon} />
+                        <span className={css.treeName}>{schema}</span>
+                        {activeSchema === schema && tables.length > 0 && (
+                          <span className={css.treeCount}>{tables.length}</span>
+                        )}
+                      </button>
+                      {activeSchema === schema && (
+                        <div className={css.treeChildren}>
+                          {tables.length === 0 && <div className={css.hint}>{t('wb.empty')}</div>}
+                          {tables.map(table => (
+                            <button
+                              key={table}
+                              type="button"
+                              className={`${css.treeItem}${activeTable === table ? ` ${css.active}` : ''}`}
+                              onClick={() => { void selectTable(table) }}
+                            >
+                              <TableIcon className={css.treeIcon} />
+                              <span className={css.treeName}>{table}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className={css.modalHint}>{t('wb.hint.click')}</div>
+            </div>
+
+            <div className={css.modalCol}>
+              <div className={css.modalColTitle}>
+                <span>{t('wb.columns')}{activeTable !== null && ` · ${activeTable}`}</span>
+              </div>
+              {columns === null ? (
+                <div className={css.emptyState}>
+                  <TableIcon className={css.emptyStateIcon} />
+                  <span className={css.emptyStateText}>{t('wb.hint.click')}</span>
+                </div>
+              ) : (
+                <div className={css.colScroll}>
+                  <table className={css.columnsTable}>
+                    <thead>
+                      <tr><th>name</th><th>type</th><th>null</th></tr>
+                    </thead>
+                    <tbody>
+                      {columns.map(column => (
+                        <tr key={column.name}>
+                          <td>{column.name}</td>
+                          <td className={css.typeCell}>{column.type}</td>
+                          <td className={css.nullCell}>{column.nullable === undefined ? '' : column.nullable ? 'YES' : 'NO'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+          )}
+
+          {activeTab === 'sql' && connected && (
+          <section
+            id={`${tabsId}-sql-panel`}
+            role="tabpanel"
+            aria-labelledby={`${tabsId}-sql-tab`}
+            className={`${css.tabPanel} ${css.sqlPanel}`}
+          >
+            <textarea
+              className={css.sqlInput}
+              value={sql}
+              rows={9}
+              spellCheck={false}
+              placeholder={t('wb.sql.placeholder')}
+              onChange={(event) => setSql(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  void runSql()
+                }
+              }}
+            />
+            <div className={css.sqlActions}>
+              <span className={css.shortcutHint}>{t('wb.sql.shortcut')}</span>
+              <button
+                type="button"
+                className={css.primary}
+                disabled={sqlBusy || sql.trim() === ''}
+                onClick={() => { void runSql() }}
+              >
+                <PlayIcon />
+                {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
+              </button>
+            </div>
+            <pre className={css.sqlResult}>{sqlResult ?? t('wb.sql.empty')}</pre>
+          </section>
+          )}
+
+          {error !== null && (
+            <div className={css.errorBar} role="alert">
+              <div className={css.errorHead}>
+                <AlertIcon className={css.errorIcon} />
+                <span>{t('error.title')}</span>
+              </div>
+              <span className={css.errorText}>{error}</span>
+            </div>
+          )}
+        </div>
+      </Modal>
+    </>
   )
 }
