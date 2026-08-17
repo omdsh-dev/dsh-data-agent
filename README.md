@@ -3,7 +3,7 @@
 **中文** | [English](README.en.md)
 
 <p align="center">
-  <img src="assets/dsh-data-agent-banner.png" alt="dsh-data-agent HERO图" width="100%">
+  <img src="assets/dsh-data-agent-banner.webp" alt="dsh-data-agent HERO图" width="100%">
 </p>
 <p align="center">
   <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
@@ -34,7 +34,7 @@
 
 dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据库后，直接提出业务问题，DSH会自动查看库表、编写并执行SQL、根据真实结果继续分析，最终给出清晰的数据结论和商业洞察。插件同时支持Web UI与dsh-tui，无需修改DSH源码。
 
-![数据分析图表](assets/charts.png)
+![数据分析图表](assets/charts.webp)
 
 ## 主要功能
 
@@ -49,30 +49,26 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 
 Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal中配置连接、浏览库表、查看字段结构或临时运行SQL。开始对话前后都不占用输入框上方或左侧的对话空间。
 
-![数据库工作台](assets/tables.png)
+![数据库工作台](assets/tables.webp)
 
 创建会话时选择“数据模式”，DSH就会以数据分析工作流处理后续问题。
 
-![数据模式预设](assets/settings.png)
+![数据模式预设](assets/settings.webp)
 
 ## 快速安装
 
-Web UI、DSH Desktop和dsh-tui使用独立的DSH profile。请把插件安装到实际使用的profile；同时使用多个界面时，分别执行对应命令。
+以下命令将插件安装到Web profile。
 
 ### 方式一：npm安装（推荐）
 
 ```sh
 dsh plugin --profile web add @yejiming/dsh-data-agent
-dsh plugin --profile desktop add @yejiming/dsh-data-agent
-dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 ```
 
 ### 方式二：从GitHub安装
 
 ```sh
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
-dsh plugin --profile desktop add github:omdsh-dev/dsh-data-agent
-dsh plugin --profile dsh-tui add github:omdsh-dev/dsh-data-agent
 ```
 
 插件会自动安装“数据模式”预设，并在profile启动时预加载该预设的数据库工具与命令；选择预设时不再动态导入插件子路径，无需本地构建。
@@ -130,8 +126,6 @@ dsh --profile dsh-tui
 ```
 
 同一会话再次打开连接表单时，会恢复最近填写的数据库类型、地址、端口、用户、数据库和只读模式。密码始终隐藏且不会恢复。
-
-![dsh-tui数据分析](assets/tui.png)
 
 ## 推荐的提问方式
 

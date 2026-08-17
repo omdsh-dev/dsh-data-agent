@@ -3,7 +3,7 @@
 [中文](README.md) | **English**
 
 <p align="center">
-  <img src="assets/dsh-data-agent-banner.png" alt="dsh-data-agent hero banner" width="100%">
+  <img src="assets/dsh-data-agent-banner.webp" alt="dsh-data-agent hero banner" width="100%">
 </p>
 <p align="center">
   <img src="https://img.shields.io/github/v/release/omdsh-dev/dsh-data-agent?style=flat-square" alt="Version">
@@ -34,7 +34,7 @@
 
 dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a database and ask a business question; DSH inspects schemas, writes and runs SQL, continues the analysis from real results, and returns clear conclusions and business insights. The plugin supports both the Web UI and dsh-tui without modifying the DSH source code.
 
-![Data analysis charts](assets/charts.png)
+![Data analysis charts](assets/charts.webp)
 
 ## Features
 
@@ -49,30 +49,26 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 
 The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
 
-![Database workbench](assets/tables.png)
+![Database workbench](assets/tables.webp)
 
 Choose “Data Mode” when creating a session, and DSH will use the data-analysis workflow for everything that follows.
 
-![Data Mode preset](assets/settings.png)
+![Data Mode preset](assets/settings.webp)
 
 ## Quick Install
 
-The Web UI, DSH Desktop, and dsh-tui use separate DSH profiles. Install the plugin into every profile you actually use.
+The commands below install the plugin into the Web profile.
 
 ### Method 1: npm (recommended)
 
 ```sh
 dsh plugin --profile web add @yejiming/dsh-data-agent
-dsh plugin --profile desktop add @yejiming/dsh-data-agent
-dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 ```
 
 ### Method 2: GitHub
 
 ```sh
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
-dsh plugin --profile desktop add github:omdsh-dev/dsh-data-agent
-dsh plugin --profile dsh-tui add github:omdsh-dev/dsh-data-agent
 ```
 
 The plugin installs the Data Mode preset automatically and preloads its database tools and command when the profile starts. Selecting the preset no longer performs dynamic package-subpath imports. No local build is required.
@@ -130,8 +126,6 @@ After connecting, return to the chat input and ask a business question. Other us
 ```
 
 When you reopen the connection form in the same session, it restores the latest database type, host, port, user, database, and read-only mode. The password always remains masked and is never restored.
-
-![Data analysis in dsh-tui](assets/tui.png)
 
 ## How to Ask Better Analysis Questions
 
