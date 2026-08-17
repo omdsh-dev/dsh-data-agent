@@ -27,7 +27,7 @@ export interface SavedConnection {
   /** Non-secret credential reference; mutually exclusive with `password`. */
   passwordRef?: string
   /** Explicit form mode; absent legacy records infer it from passwordRef. */
-  credentialMode?: 'password' | 'reference'
+  credentialMode?: 'none' | 'password' | 'reference'
   /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
   persistPassword?: boolean
   readonly?: boolean
@@ -79,7 +79,9 @@ function parseSaved(value: unknown): SavedConnection | null {
     saved.credentialMode = 'reference'
     return saved
   }
-  if (candidate.credentialMode === 'password') saved.credentialMode = 'password'
+  if (candidate.credentialMode === 'password' || candidate.credentialMode === 'none') {
+    saved.credentialMode = candidate.credentialMode
+  }
   // Legacy records may carry a password; strip it unless the opt-in flag is set
   // (a persisted password only survives when persistPassword was explicitly true).
   const persistPassword = candidate.persistPassword === true
@@ -101,7 +103,12 @@ export function saveConnection(connection: SavedConnection, storage: StorageLike
       toWrite.credentialMode = 'reference'
     } else {
       delete toWrite.passwordRef
-      if (toWrite.persistPassword !== true) delete toWrite.password
+      if (toWrite.credentialMode === 'none') {
+        delete toWrite.password
+        delete toWrite.persistPassword
+      } else if (toWrite.persistPassword !== true) {
+        delete toWrite.password
+      }
     }
     storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify(toWrite))
   } catch {

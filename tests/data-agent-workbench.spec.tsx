@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { DataAgentWorkbench, type SessionListLike } from '../src/client/DataAgentWorkbench.tsx'
 import { zh } from '../src/client/locales.ts'
+import { CONNECTION_STORAGE_KEY } from '../src/client/persistence.ts'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconDataOutline16: () => React.createElement('span', { 'data-testid': 'database-icon' }),
@@ -137,6 +138,70 @@ describe('DataAgentWorkbench composer entry', () => {
 
     await screen.findByRole('button', { name: '数据库工作台：已连接' })
     expect(textarea.placeholder).toBe('数据库连接成功，请描述分析内容')
+  })
+
+  it('shows reauthentication instead of a green connected state after a temporary password is lost', async () => {
+    const fetchMock = vi.fn(async () => response({
+      connected: false,
+      reconnectRequired: true,
+      summary: {
+        type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+        credentialMode: 'password', credential: { configured: false }, ready: false, reconnectRequired: true,
+      },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(composerWorkbenchNode('data-agent'))
+    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+
+    const trigger = await screen.findByRole('button', { name: '数据库工作台：需要重新认证' })
+    expect(textarea.placeholder).toBe('数据库需要重新认证，请点击输入框右上角的配置按钮')
+    expect(screen.getByTestId('state-dot').getAttribute('data-state')).toBe('warning')
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    expect(within(dialog).getByText('需要重新认证')).toBeTruthy()
+    expect((within(dialog).getByLabelText('密码') as HTMLInputElement).disabled).toBe(false)
+    expect((within(dialog).getByRole('tab', { name: '库表' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('automatically restores a matching profile when the user opted to remember its password', async () => {
+    localStorage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      password: 'remembered-secret', credentialMode: 'password', persistPassword: true, savedAt: 'x',
+    }))
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/status')) {
+        return response({
+          connected: false,
+          reconnectRequired: true,
+          summary: {
+            type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+            credentialMode: 'password', credential: { configured: false }, ready: false, reconnectRequired: true,
+          },
+        })
+      }
+      if (url.endsWith('/connect') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        expect(body.password).toBe('remembered-secret')
+        return response({
+          ok: true,
+          summary: {
+            type: 'mysql', database: 'dsh_data_agent_demo', credentialMode: 'password',
+            credential: { configured: true, source: 'memory' }, ready: true, reconnectRequired: false,
+          },
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(composerWorkbenchNode('data-agent'))
+    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+
+    await screen.findByRole('button', { name: '数据库工作台：已连接' })
+    expect(textarea.placeholder).toBe('数据库连接成功，请描述分析内容')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('loads schemas lazily on first schema-tab entry for a restored connection', async () => {

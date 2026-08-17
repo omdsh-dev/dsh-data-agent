@@ -31,6 +31,11 @@ export declare const persistedConnectionProfileSchema: z.ZodObject<{
     database: z.ZodString;
     readonly: z.ZodOptional<z.ZodBoolean>;
     passwordRef: z.ZodOptional<z.ZodString>;
+    credentialMode: z.ZodOptional<z.ZodEnum<{
+        none: "none";
+        password: "password";
+        reference: "reference";
+    }>>;
     updatedAt: z.ZodString;
 }, z.core.$strict>;
 /** Durable session-to-profile binding schema. */

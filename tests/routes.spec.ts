@@ -11,12 +11,15 @@ const config: Config = {
   readonly: false,
 }
 
-function routeFixture() {
+function routeFixture(ready = true) {
   let handler: ((req: any, res: any) => Promise<void>) | undefined
   const calls: { method: string; args: unknown[] }[] = []
   const summary = {
     type: 'mysql' as const, host: 'db', database: 'orders', passwordRef: 'DB_PASSWORD',
-    credential: { configured: true, source: 'env' },
+    credentialMode: 'reference' as const,
+    credential: { configured: ready, source: 'env' },
+    ready,
+    reconnectRequired: !ready,
   }
   const service = {
     async connect(...args: unknown[]) { calls.push({ method: 'connect', args }); return { tables: ['users'], summary } },
@@ -90,5 +93,14 @@ describe('Web route adapter', () => {
     expect(fixture.calls.map(call => call.method)).toEqual([
       'status', 'listSchemas', 'listTables', 'describe', 'query', 'disconnect',
     ])
+  })
+
+  it('does not report a durable profile as connected when credentials need restoring', async () => {
+    const fixture = routeFixture(false)
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/status?sessionId=s')).body).toMatchObject({
+      connected: false,
+      reconnectRequired: true,
+      summary: { ready: false, reconnectRequired: true },
+    })
   })
 })

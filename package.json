@@ -1,7 +1,7 @@
 {
   "name": "@yejiming/dsh-data-agent",
   "description": "Data Agent for DSH Web and TUI: shared database connections, a masked TUI form, secure credential references, SQL tools, and the data-agent preset",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publishConfig": {
     "access": "public"
   },

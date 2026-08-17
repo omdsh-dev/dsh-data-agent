@@ -149,6 +149,7 @@ describe('DataAgentConnectionService', () => {
     expect(durable.bindings.get('session-a')?.profileId).toBe('session:session-a')
     const stored = durable.profiles.get('session:session-a')!
     expect(stored.passwordRef).toBe('ORDERS_DB_PASSWORD')
+    expect(stored.credentialMode).toBe('reference')
     expect(stored).not.toHaveProperty('password')
     expect(JSON.stringify([...durable.profiles, ...durable.bindings])).not.toContain('super-secret')
   })
@@ -263,9 +264,54 @@ describe('DataAgentConnectionService', () => {
 
     const tuiHost = fakeContext({ secret: () => 'tui-secret', output: () => ({ stdout: '1\n' }) })
     const tui = createConnectionService(tuiHost.ctx, serviceOptions, durable.persistence)
-    expect((await tui.status('shared-session'))?.passwordRef).toBe('ANALYTICS_PASSWORD')
+    expect(await tui.status('shared-session')).toMatchObject({
+      passwordRef: 'ANALYTICS_PASSWORD', ready: true, reconnectRequired: false,
+    })
     await tui.query('shared-session', 'SELECT 1;', signal())
     expect(tuiHost.spawned[0]!.env).toEqual({ PGPASSWORD: 'tui-secret' })
+  })
+
+  it('requires reauthentication after restart when a temporary password was not persisted', async () => {
+    const durable = memoryPersistence()
+    const webHost = fakeContext()
+    const web = createConnectionService(webHost.ctx, serviceOptions, durable.persistence)
+    await web.connect('shared-session', {
+      type: 'mysql', host: 'localhost', user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      password: 'process-only-secret',
+    }, signal())
+
+    const stored = durable.profiles.get('session:shared-session')!
+    expect(stored.credentialMode).toBe('password')
+    expect(stored).not.toHaveProperty('password')
+
+    const desktopHost = fakeContext()
+    const desktop = createConnectionService(desktopHost.ctx, serviceOptions, durable.persistence)
+    expect(await desktop.status('shared-session')).toMatchObject({
+      credentialMode: 'password',
+      credential: { configured: false },
+      ready: false,
+      reconnectRequired: true,
+    })
+    await expect(desktop.listSchemas('shared-session', signal())).rejects.toThrow(/凭据需要重新输入/)
+    expect(desktopHost.spawned).toHaveLength(0)
+  })
+
+  it('restores an explicitly passwordless profile without requiring reauthentication', async () => {
+    const durable = memoryPersistence()
+    const web = createConnectionService(fakeContext().ctx, serviceOptions, durable.persistence)
+    await web.connect('shared-session', {
+      type: 'mysql', host: 'localhost', user: 'local', database: 'passwordless',
+    }, signal())
+
+    expect(durable.profiles.get('session:shared-session')?.credentialMode).toBe('none')
+    const desktopHost = fakeContext({ output: () => ({ stdout: '1\n' }) })
+    const desktop = createConnectionService(desktopHost.ctx, serviceOptions, durable.persistence)
+    expect(await desktop.status('shared-session')).toMatchObject({
+      credentialMode: 'none', ready: true, reconnectRequired: false,
+    })
+    await desktop.query('shared-session', 'SELECT 1;', signal())
+    expect(desktopHost.spawned).toHaveLength(1)
+    expect(desktopHost.spawned[0]!.env).toEqual({})
   })
 
   it('redacts a resolved secret from client stdout and stderr', async () => {
@@ -286,8 +332,11 @@ describe('DataAgentConnectionService', () => {
 describe('connection storage schemas', () => {
   it('accepts safe records and rejects secret/unknown fields', () => {
     expect(persistedConnectionProfileSchema.safeParse({
-      type: 'mysql', database: 'orders', passwordRef: 'DB_PASSWORD', updatedAt: 'x',
+      type: 'mysql', database: 'orders', passwordRef: 'DB_PASSWORD', credentialMode: 'reference', updatedAt: 'x',
     }).success).toBe(true)
+    expect(persistedConnectionProfileSchema.safeParse({
+      type: 'mysql', database: 'orders', credentialMode: 'invalid', updatedAt: 'x',
+    }).success).toBe(false)
     expect(persistedConnectionProfileSchema.safeParse({
       type: 'mysql', database: 'orders', password: 'secret', updatedAt: 'x',
     }).success).toBe(false)

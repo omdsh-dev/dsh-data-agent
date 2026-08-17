@@ -222,7 +222,7 @@ export function formatConnectionStatus(summary: ConnectionSummary | undefined): 
     ? summary.database
     : `${summary.host ?? 'localhost'}${summary.port !== undefined ? `:${summary.port}` : ''}`
   const lines = [
-    '数据库状态：已连接',
+    summary.reconnectRequired === true ? '数据库状态：需要重新认证' : '数据库状态：已连接',
     `类型：${summary.type}`,
     `地址：${endpoint}`,
     `数据库：${summary.database}`,

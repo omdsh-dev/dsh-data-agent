@@ -14,6 +14,8 @@ import { type QueryResult } from './query.ts';
 export declare const WILDCARD_SESSION = "*";
 /** Supported database client kinds. */
 export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala';
+/** How a non-SQLite profile authenticates without ever persisting a secret. */
+export type CredentialMode = 'none' | 'password' | 'reference';
 /** Safe credential facts returned to UI/command surfaces. */
 export interface CredentialSummary {
     configured: boolean;
@@ -38,6 +40,8 @@ export interface DatabaseConnectionInput {
 }
 /** Runtime connection. `tables` and temporary `password` are never durable. */
 export interface DatabaseConnection extends DatabaseConnectionInput {
+    /** Internal authentication shape retained in the non-secret durable profile. */
+    credentialMode?: CredentialMode;
     tables?: string[];
 }
 /** Password-free public connection view. */
@@ -53,6 +57,11 @@ export interface ConnectionSummary {
     name?: string;
     tables?: string[];
     credential?: CredentialSummary;
+    credentialMode?: CredentialMode;
+    /** True only when the current process can execute a database operation now. */
+    ready?: boolean;
+    /** A saved profile exists, but its credential must be supplied/configured again. */
+    reconnectRequired?: boolean;
 }
 /** Value stored in the `profiles` domain table. Never add secrets here. */
 export interface PersistedConnectionProfile {
@@ -64,6 +73,7 @@ export interface PersistedConnectionProfile {
     database: string;
     readonly?: boolean;
     passwordRef?: string;
+    credentialMode?: CredentialMode;
     updatedAt: string;
 }
 /** Value stored in the `bindings` domain table. */

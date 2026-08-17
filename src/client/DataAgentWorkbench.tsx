@@ -138,9 +138,12 @@ interface ConnectionWireSummary {
   readonly?: boolean
   tables?: string[]
   credential?: { configured: boolean; source?: string }
+  credentialMode?: 'none' | 'password' | 'reference'
+  ready?: boolean
+  reconnectRequired?: boolean
 }
 interface ConnectResponse { ok: boolean; tables?: string[]; summary?: ConnectionWireSummary; error?: string }
-interface StatusResponse { connected: boolean; summary?: ConnectionWireSummary }
+interface StatusResponse { connected: boolean; reconnectRequired?: boolean; summary?: ConnectionWireSummary }
 interface SchemasResponse { ok: boolean; schemas?: string[]; error?: string }
 interface TablesResponse { ok: boolean; tables?: string[]; error?: string }
 interface DescribeResponse { ok: boolean; columns?: ColumnInfo[]; error?: string }
@@ -227,6 +230,22 @@ function payloadFromSaved(saved: SavedConnection): Record<string, unknown> {
   return body
 }
 
+/** Whether localStorage contains enough information for a safe automatic retry. */
+function canAutoReconnect(saved: SavedConnection): boolean {
+  if (saved.type === 'sqlite' || saved.credentialMode === 'none') return true
+  if (saved.passwordRef !== undefined && saved.passwordRef !== '') return true
+  return saved.persistPassword === true && saved.password !== undefined && saved.password !== ''
+}
+
+/** Avoid replaying the last browser credential into a different server-side profile. */
+function savedMatchesSummary(saved: SavedConnection, summary: ConnectionWireSummary): boolean {
+  if (saved.type !== summary.type || saved.database !== summary.database) return false
+  if (saved.type === 'sqlite') return true
+  return (saved.host ?? '') === (summary.host ?? '')
+    && (saved.port ?? undefined) === (summary.port ?? undefined)
+    && (saved.user ?? '') === (summary.user ?? '')
+}
+
 /** The database workbench body. */
 export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkbenchProps) {
   const list = useSessions(snapshot => snapshot)
@@ -253,6 +272,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
+  const [reconnectRequired, setReconnectRequired] = useState(false)
 
   // One workbench Modal owns connection, schema, and SQL as tabs.
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
@@ -273,7 +293,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [sqlResult, setSqlResult] = useState<string | null>(null)
   const triggerSlotRef = useRef<HTMLDivElement>(null)
 
-  // 草稿持久化：任何表单字段变化立即保存（含密码，用户已确认），
+  // 草稿持久化：任何表单字段变化立即保存；密码仅在用户勾选后保存，
   // 使未连接的输入在切换会话/刷新后也能恢复。首轮跳过（初始化回填值
   // 无需重写，也避免从未输入时写入空配置）。
   const firstDraftRun = useRef(true)
@@ -310,30 +330,43 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       .then(response => parseJsonResponse<StatusResponse>(response))
       .then(async (body) => {
         if (cancelled) return
-        if (body.connected) {
-          setConnected(true)
-          if (body.summary !== undefined) {
-            setType(body.summary.type)
-            setHost(body.summary.host ?? '')
-            setPort(body.summary.port !== undefined ? String(body.summary.port) : '')
-            setUser(body.summary.user ?? '')
-            setDatabase(body.summary.database)
-            setReadonly(body.summary.readonly === true)
-            setPasswordRef(body.summary.passwordRef ?? '')
-            if (body.summary.passwordRef !== undefined) setCredentialMode('reference')
-            setCredentialStatus(body.summary.credential)
+        const summary = body.summary
+        const matchesSaved = saved !== null && summary !== undefined && savedMatchesSummary(saved, summary)
+        if (summary !== undefined) {
+          setType(summary.type)
+          setHost(summary.host ?? '')
+          setPort(summary.port !== undefined ? String(summary.port) : '')
+          setUser(summary.user ?? '')
+          setDatabase(summary.database)
+          setReadonly(summary.readonly === true)
+          setPasswordRef(summary.passwordRef ?? '')
+          setCredentialMode(summary.credentialMode === 'reference' || summary.passwordRef !== undefined
+            ? 'reference'
+            : 'password')
+          setCredentialStatus(summary.credential)
+          if (!matchesSaved) {
+            setPassword('')
+            setRememberPassword(false)
           }
+        }
+        setConnected(body.connected)
+        setReconnectRequired(body.reconnectRequired === true)
+        if (body.connected) {
           return
         }
-        // Server connection lost (restart): restore with the saved config, once.
-        // 草稿未完成（database 为空）时不自动重连，仅保留表单回填。
-        if (saved !== null && saved.database !== '') {
+        // Restore only when a reusable secret (or explicit passwordless mode)
+        // is available and belongs to this exact durable profile.
+        const referenceUnavailable = summary?.credentialMode === 'reference'
+          && summary.credential?.configured === false
+        if (saved !== null && saved.database !== '' && canAutoReconnect(saved)
+          && (summary === undefined || matchesSaved) && !referenceUnavailable) {
           setRestoring(true)
           try {
             const result = await performConnect(sessionId, payloadFromSaved(saved), controller.signal)
             if (cancelled) return
             if (result.ok) {
               setConnected(true)
+              setReconnectRequired(false)
               setCredentialStatus(result.summary?.credential)
             } else {
               setError(`连接恢复失败：${result.error ?? 'unknown error'}`)
@@ -399,7 +432,20 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       const result = await performConnect(sessionId, body)
       if (result.ok) {
         setConnected(true)
+        setReconnectRequired(false)
         setCredentialStatus(result.summary?.credential)
+        if (result.summary?.credentialMode === 'none' && !sqlite) {
+          saveConnection({
+            type,
+            host,
+            ...port !== '' ? { port: Number(port) } : {},
+            user,
+            database,
+            readonly,
+            credentialMode: 'none',
+            savedAt: new Date().toISOString(),
+          })
+        }
         setActiveTab('schema')
         schemasLoaded.current = false
         await loadSchemas(true)
@@ -424,6 +470,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       })
       await parseJsonResponse<DisconnectResponse>(response)
       setConnected(false)
+      setReconnectRequired(false)
       setCredentialStatus(undefined)
       setReadonly(false)
       setActiveTab('connection')
@@ -511,7 +558,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
   const composerPlaceholder = connected
     ? t('composer.placeholder.connected')
-    : t('composer.placeholder.disconnected')
+    : reconnectRequired
+      ? t('composer.placeholder.reconnectRequired')
+      : t('composer.placeholder.disconnected')
 
   // input.right does not expose a placeholder setter. Bridge only to the
   // textarea in this trigger's own composer card, and restore the host value
@@ -557,7 +606,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       ? t('workbench.open.checking')
       : connected
         ? t('workbench.open.connected')
-        : t('workbench.open.disconnected')
+        : reconnectRequired
+          ? t('workbench.open.reconnectRequired')
+          : t('workbench.open.disconnected')
 
   const tabs: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ReactNode }> = [
     { id: 'connection', label: t('action.config'), icon: <DatabaseIcon /> },
@@ -604,9 +655,11 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                     ? t('state.checking')
                     : connected
                       ? t('state.connected')
-                      : t('state.disconnected')}
+                      : reconnectRequired
+                        ? t('state.reconnectRequired')
+                        : t('state.disconnected')}
             </span>
-            {connected && (
+            {(connected || reconnectRequired) && (
               <>
                 <span className={css.summaryType}>{t(`type.${type}`)}</span>
                 <span className={css.summaryDb} title={database}>{database}</span>

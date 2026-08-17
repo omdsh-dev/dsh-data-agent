@@ -24,7 +24,7 @@ export interface SavedConnection {
     /** Non-secret credential reference; mutually exclusive with `password`. */
     passwordRef?: string;
     /** Explicit form mode; absent legacy records infer it from passwordRef. */
-    credentialMode?: 'password' | 'reference';
+    credentialMode?: 'none' | 'password' | 'reference';
     /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
     persistPassword?: boolean;
     readonly?: boolean;

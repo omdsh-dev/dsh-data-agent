@@ -132,7 +132,13 @@ export function apply(ctx: Context, _config: Config): void {
             if (req.method === 'GET' && routeIs(segments, 'status')) {
               const sessionId = requireString(url.searchParams.get('sessionId'), 'sessionId')
               const summary = await scope.dataAgentConnections.status(sessionId)
-              writeJson(200, summary === undefined ? { connected: false } : { connected: true, summary })
+              writeJson(200, summary === undefined
+                ? { connected: false, reconnectRequired: false }
+                : {
+                    connected: summary.ready === true,
+                    reconnectRequired: summary.reconnectRequired === true,
+                    summary,
+                  })
               return
             }
 

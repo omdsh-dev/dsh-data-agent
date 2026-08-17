@@ -80,6 +80,20 @@ describe('persistence', () => {
     })
   })
 
+  it('round-trips an explicit passwordless mode without any secret fields', () => {
+    const storage = memoryStorage()
+    saveConnection({
+      ...fullConnection,
+      credentialMode: 'none',
+      persistPassword: true,
+    }, storage)
+    const raw = storage.map.get(CONNECTION_STORAGE_KEY)!
+    expect(raw).toContain('"credentialMode":"none"')
+    expect(raw).not.toContain('"password"')
+    expect(raw).not.toContain('persistPassword')
+    expect(loadConnection(storage)?.credentialMode).toBe('none')
+  })
+
   it('round-trips readonly and infers reference mode from a v1-shaped record', () => {
     const storage = memoryStorage()
     storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({

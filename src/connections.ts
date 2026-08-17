@@ -32,6 +32,9 @@ export const WILDCARD_SESSION = '*'
 /** Supported database client kinds. */
 export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
 
+/** How a non-SQLite profile authenticates without ever persisting a secret. */
+export type CredentialMode = 'none' | 'password' | 'reference'
+
 /** Safe credential facts returned to UI/command surfaces. */
 export interface CredentialSummary {
   configured: boolean
@@ -58,6 +61,8 @@ export interface DatabaseConnectionInput {
 
 /** Runtime connection. `tables` and temporary `password` are never durable. */
 export interface DatabaseConnection extends DatabaseConnectionInput {
+  /** Internal authentication shape retained in the non-secret durable profile. */
+  credentialMode?: CredentialMode
   tables?: string[]
 }
 
@@ -74,6 +79,11 @@ export interface ConnectionSummary {
   name?: string
   tables?: string[]
   credential?: CredentialSummary
+  credentialMode?: CredentialMode
+  /** True only when the current process can execute a database operation now. */
+  ready?: boolean
+  /** A saved profile exists, but its credential must be supplied/configured again. */
+  reconnectRequired?: boolean
 }
 
 /** Value stored in the `profiles` domain table. Never add secrets here. */
@@ -86,6 +96,7 @@ export interface PersistedConnectionProfile {
   database: string
   readonly?: boolean
   passwordRef?: string
+  credentialMode?: CredentialMode
   updatedAt: string
 }
 
@@ -220,6 +231,13 @@ export function normalizeConnectionInput(
   const connection: DatabaseConnection = {
     type: input.type,
     database: input.type === 'sqlite' ? resolve(cwd, input.database) : input.database,
+    credentialMode: input.type === 'sqlite'
+      ? 'none'
+      : input.passwordRef !== undefined
+        ? 'reference'
+        : input.password !== undefined && input.password.length > 0
+          ? 'password'
+          : 'none',
   }
   if (input.type !== 'sqlite') {
     if (input.host !== undefined && input.host.length > 0) connection.host = input.host
@@ -274,13 +292,20 @@ export function createConnectionService(
   }
 
   const resolveCredential = async (connection: DatabaseConnection): Promise<DatabaseConnection> => {
-    if (connection.passwordRef === undefined) return { ...connection, tables: copyTables(connection.tables) }
-    const ref = validatedCredentialRef(connection.passwordRef)
-    const hit = await requireContext().credentials.resolve(ref)
-    if (hit === undefined || hit.value.length === 0) {
-      throw new Error(`凭据引用 "${connection.passwordRef}" 未配置`)
+    const mode = credentialModeOf(connection)
+    if (mode === 'reference') {
+      if (connection.passwordRef === undefined) throw new Error('数据库凭据引用缺失，请重新配置连接')
+      const ref = validatedCredentialRef(connection.passwordRef)
+      const hit = await requireContext().credentials.resolve(ref)
+      if (hit === undefined || hit.value.length === 0) {
+        throw new Error(`凭据引用 "${connection.passwordRef}" 未配置`)
+      }
+      return { ...connection, password: hit.value, tables: copyTables(connection.tables) }
     }
-    return { ...connection, password: hit.value, tables: copyTables(connection.tables) }
+    if (mode === 'password' && connection.password === undefined) {
+      throw new Error('数据库凭据需要重新输入；请打开数据库配置并重新连接')
+    }
+    return { ...connection, tables: copyTables(connection.tables) }
   }
 
   const queryOptions = (mode?: QueryOptions['mode'], connect = false): QueryOptions => ({
@@ -344,14 +369,30 @@ export function createConnectionService(
   }
 
   const credentialSummary = async (connection: DatabaseConnection): Promise<CredentialSummary | undefined> => {
-    if (connection.type === 'sqlite') return undefined
-    if (connection.password !== undefined) return { configured: true, source: 'memory' }
-    if (connection.passwordRef === undefined) return { configured: false }
+    const mode = credentialModeOf(connection)
+    if (connection.type === 'sqlite' || mode === 'none') return undefined
+    if (mode === 'password') {
+      return connection.password === undefined
+        ? { configured: false }
+        : { configured: true, source: 'memory' }
+    }
+    if (mode !== 'reference' || connection.passwordRef === undefined) return { configured: false }
     const info = await requireContext().credentials.describe(validatedCredentialRef(connection.passwordRef))
     return {
       configured: info.configured,
       ...info.source !== undefined ? { source: info.source } : {},
     }
+  }
+
+  const statusSummary = async (connection: DatabaseConnection): Promise<ConnectionSummary> => {
+    const summary = summarize(connection)
+    const mode = credentialModeOf(connection)
+    summary.credentialMode = mode
+    summary.credential = await credentialSummary(connection)
+    const ready = mode === 'none' || summary.credential?.configured === true
+    summary.ready = ready
+    summary.reconnectRequired = !ready
+    return summary
   }
 
   const service: DataAgentConnections = {
@@ -393,9 +434,7 @@ export function createConnectionService(
     async status(sessionId) {
       const connection = rawConnection(sessionId)
       if (connection === undefined) return undefined
-      const summary = summarize(connection)
-      summary.credential = await credentialSummary(connection)
-      return summary
+      return statusSummary(connection)
     },
     async connect(sessionId, input, signal) {
       if (sessionId.length === 0) throw new Error('sessionId 必须是非空字符串')
@@ -407,8 +446,7 @@ export function createConnectionService(
       await persistAtomically(sessionId, profileId, profileFromConnection(normalized, updatedAt))
       const published: DatabaseConnection = { ...normalized, profileId, tables }
       runtime.set(sessionId, published)
-      const summary = summarize(published)
-      summary.credential = await credentialSummary(published)
+      const summary = await statusSummary(published)
       return { tables, summary }
     },
     async disconnect(sessionId) {
@@ -421,8 +459,7 @@ export function createConnectionService(
       const raw = rawConnection(sessionId)!
       const published = { ...raw, tables }
       runtime.set(sessionId, published)
-      const summary = summarize(published)
-      summary.credential = await credentialSummary(published)
+      const summary = await statusSummary(published)
       return { tables, summary }
     },
     async resolveForExecution(sessionId) {
@@ -540,6 +577,8 @@ function connectionFromProfile(profileId: string, profile: PersistedConnectionPr
     ...profile.user !== undefined ? { user: profile.user } : {},
     ...profile.readonly !== undefined ? { readonly: profile.readonly } : {},
     ...profile.passwordRef !== undefined ? { passwordRef: profile.passwordRef } : {},
+    credentialMode: profile.credentialMode
+      ?? (profile.type === 'sqlite' ? 'none' : profile.passwordRef !== undefined ? 'reference' : 'password'),
   }
 }
 
@@ -554,7 +593,17 @@ function profileFromConnection(connection: DatabaseConnection, updatedAt: string
     ...connection.user !== undefined ? { user: connection.user } : {},
     ...connection.readonly !== undefined ? { readonly: connection.readonly } : {},
     ...connection.passwordRef !== undefined ? { passwordRef: connection.passwordRef } : {},
+    ...connection.credentialMode !== undefined ? { credentialMode: connection.credentialMode } : {},
   }
+}
+
+/** Infer legacy records while leaving ambiguous secret-less SQL profiles conservative. */
+function credentialModeOf(connection: DatabaseConnection): CredentialMode {
+  if (connection.credentialMode !== undefined) return connection.credentialMode
+  if (connection.type === 'sqlite') return 'none'
+  if (connection.passwordRef !== undefined) return 'reference'
+  if (connection.password !== undefined) return 'password'
+  return 'none'
 }
 
 function requireIdentifier(type: DatabaseType, value: string | undefined, label: string): string {

@@ -32,6 +32,7 @@ export const persistedConnectionProfileSchema = z.object({
   database: z.string().min(1),
   readonly: z.boolean().optional(),
   passwordRef: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+  credentialMode: z.enum(['none', 'password', 'reference']).optional(),
   updatedAt: z.string().min(1),
 }).strict()
 
