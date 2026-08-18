@@ -109,6 +109,8 @@ export interface AnalysisDatasetRequestV1 {
 /** The wire request accepted by the render-analysis tool. */
 export interface AnalysisRequestV1 {
   title: string
+  /** Semantic output basename; directory is always analysis-reports/. */
+  outputName?: string
   summary?: string
   datasets: AnalysisDatasetRequestV1[]
   views: AnalysisViewV1[]
@@ -126,6 +128,8 @@ export interface AnalysisReportV1 {
   version: typeof ANALYSIS_REPORT_VERSION
   title: string
   summary?: string
+  /** Absolute path of the generated HTML artifact (absent on legacy v1 meta). */
+  htmlPath?: string
   datasets: AnalysisDatasetResultV1[]
   views: AnalysisViewV1[]
 }
@@ -314,8 +318,10 @@ function parseView(value: unknown, label: string, datasetIds: ReadonlySet<string
  */
 export function parseAnalysisRequest(input: unknown, prefix = 'render-analysis'): AnalysisRequestV1 {
   if (!isRecord(input)) fail(prefix + ': 请求必须是对象')
-  assertOnlyKeys(input, ['title', 'summary', 'datasets', 'views'], prefix)
+  assertOnlyKeys(input, ['title', 'outputName', 'summary', 'datasets', 'views'], prefix)
   const title = requireNonEmptyString(input['title'], prefix + '.title')
+  const outputName = optionalString(input, 'outputName', prefix)
+  if (outputName !== undefined && outputName.trim().length === 0) fail(prefix + '.outputName: 必须是非空字符串')
   const summary = optionalString(input, 'summary', prefix)
   const datasets = input['datasets']
   if (!Array.isArray(datasets) || datasets.length < MIN_ANALYSIS_DATASETS || datasets.length > MAX_ANALYSIS_DATASETS) {
@@ -347,6 +353,7 @@ export function parseAnalysisRequest(input: unknown, prefix = 'render-analysis')
     parsedViews.push(view)
   }
   const request: AnalysisRequestV1 = { title, datasets: parsedDatasets, views: parsedViews }
+  if (outputName !== undefined) request.outputName = outputName
   if (summary !== undefined) request.summary = summary
   return request
 }
@@ -354,12 +361,13 @@ export function parseAnalysisRequest(input: unknown, prefix = 'render-analysis')
 /** Strictly parse a persisted report meta; throws on any shape violation. */
 export function parseAnalysisReport(input: unknown, prefix = 'analysis'): AnalysisReportV1 {
   if (!isRecord(input)) fail(prefix + ': 报告必须是对象')
-  assertOnlyKeys(input, ['version', 'title', 'summary', 'datasets', 'views'], prefix)
+  assertOnlyKeys(input, ['version', 'title', 'summary', 'htmlPath', 'datasets', 'views'], prefix)
   if (input['version'] !== ANALYSIS_REPORT_VERSION) {
     fail(prefix + ': 不支持的报告版本（期望 version ' + ANALYSIS_REPORT_VERSION + '）')
   }
   const title = requireNonEmptyString(input['title'], prefix + '.title')
   const summary = optionalString(input, 'summary', prefix)
+  const htmlPath = optionalString(input, 'htmlPath', prefix)
   const datasets = input['datasets']
   if (!Array.isArray(datasets) || datasets.length < MIN_ANALYSIS_DATASETS || datasets.length > MAX_ANALYSIS_DATASETS) {
     fail(prefix + ': datasets 必须是 ' + MIN_ANALYSIS_DATASETS + '-' + MAX_ANALYSIS_DATASETS + ' 个')
@@ -408,6 +416,7 @@ export function parseAnalysisReport(input: unknown, prefix = 'analysis'): Analys
   }
   const report: AnalysisReportV1 = { version: ANALYSIS_REPORT_VERSION, title, datasets: parsedDatasets, views: parsedViews }
   if (summary !== undefined) report.summary = summary
+  if (htmlPath !== undefined) report.htmlPath = htmlPath
   return report
 }
 
@@ -500,14 +509,16 @@ export function rowsToArrays(columns: string[], rows: readonly Record<string, st
 
 /** JSON-encoded UTF-8 size of the normalized report (the 512 KiB bound). */
 export function reportJsonBytes(report: AnalysisReportV1): number {
-  return new TextEncoder().encode(JSON.stringify(report)).length
+  const { htmlPath: _htmlPath, ...dataReport } = report
+  return new TextEncoder().encode(JSON.stringify(dataReport)).length
 }
 
 /** One-line model-facing summary; never re-injects rows into model context (D5). */
-export function formatAnalysisSummary(report: Pick<AnalysisReportV1, 'title' | 'datasets' | 'views'>): string {
+export function formatAnalysisSummary(report: Pick<AnalysisReportV1, 'title' | 'datasets' | 'views' | 'htmlPath'>): string {
   const emptyIds = report.datasets.filter((dataset) => dataset.rows.length === 0).map((dataset) => dataset.id)
   let text = '已生成分析报告《' + report.title + '》：' + report.datasets.length + ' 个数据集、' + report.views.length + ' 个视图（version ' + ANALYSIS_REPORT_VERSION + '）。'
   if (emptyIds.length > 0) text += '其中 ' + emptyIds.length + ' 个数据集无数据：' + emptyIds.join('、') + '。'
+  if (report.htmlPath !== undefined) text += 'Dashboard HTML已保存：' + report.htmlPath
   return text
 }
 
@@ -623,6 +634,10 @@ export const RENDER_ANALYSIS_PARAMETERS = {
     required: true,
     description: '报告标题，如「月度经营分析」',
   },
+  outputName: {
+    type: 'string',
+    description: '可选语义化HTML文件名（仅basename，可省略.html），如「电商经营全景分析-2023-09至2026-08」；缺省时使用title，不要使用随机ID',
+  },
   summary: {
     type: 'string',
     description: '可选一句话结论/摘要，显示在报告头部',
@@ -655,6 +670,7 @@ export const ANALYSIS_REPORT_OUTPUT_SCHEMA = {
     version: { type: 'integer', const: ANALYSIS_REPORT_VERSION, required: true },
     title: { type: 'string', required: true },
     summary: { type: 'string' },
+    htmlPath: { type: 'string', required: true },
     datasets: {
       type: 'array',
       required: true,

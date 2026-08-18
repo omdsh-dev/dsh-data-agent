@@ -40,11 +40,11 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 
 - **Analyze data through conversation**: Describe your goal in natural language. DSH understands the question, breaks it into analysis steps, queries real data, and organizes the conclusions. You can keep asking follow-up questions to explore the same context in greater depth.
 - **Discover business insights automatically**: Data Agent goes beyond returning query results. It helps compare trends, locate anomalies, identify valuable customers or products, and turn the data into explanations that support decisions.
-- **Web analysis reports (render-analysis)**: In the Web UI the agent can choose, within an ordinary tool call, to produce a single chart or a Dashboard-style report (metric/line/bar/pie/scatter/table views) with an inline preview and a “View analysis” Modal. Whether to chart is the agent's decision — schema exploration, single scalars, and queries without visual value are never forced into charts.
+- **Cross-surface HTML reports (render-analysis)**: In an ordinary tool call, the agent can choose to produce a single chart or a Dashboard-style report (metric/line/bar/pie/scatter/table views). Every successful call saves an offline HTML file under `analysis-reports/` in the current workspace. Web also shows an inline preview and a “View analysis” Modal; dsh-tui returns the file path. Whether to chart remains the agent's decision — schema exploration, single scalars, and queries without visual value are never forced into charts.
 - **Works with both Web UI and dsh-tui**: For a visual workflow, we recommend [zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui), where you can connect databases, browse schemas, and inspect results in the browser. For a keyboard-first workflow, we recommend [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), where you can use the same Data Mode, connect through `/database`, and move directly into conversational analysis. Both interfaces provide the core Data Agent experience.
 - **Connect common business databases**: Supports MySQL, PostgreSQL, SQLite, Oracle, Hive, and Impala across application databases, analytics systems, local data files, and data warehouses.
 - **Let DSH complete the analysis loop**: DSH inspects table structures, writes SQL, runs the query, and adjusts its approach based on errors or returned data instead of stopping at an unverified SQL draft.
-- **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, and `sql-cmd`; Web additionally provides `render-analysis`. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
+- **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, `sql-cmd`, and `render-analysis`; Web, Desktop, dsh-tui, and headless profiles use the same tool protocol. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
 - **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
 The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
@@ -90,17 +90,24 @@ Then:
 
 For example, ask: “Analyze order changes over the last 30 days, identify the regions and products with the largest revenue decline, and explain the main causes.” DSH will inspect the relevant tables, generate and run the queries, and complete the analysis from real results.
 
-### Web analysis reports
+### Analysis reports and HTML artifacts
 
-In the Web UI, Data Mode also provides the render-analysis tool: the agent first explores and verifies facts with sql-query, then decides for itself whether a visualization helps. When it does, one tool call produces one versioned analysis report:
+Data Mode provides the render-analysis tool on every surface. The agent first explores and verifies facts with sql-query, then decides for itself whether a visualization helps. When it does, one tool call produces one versioned analysis report:
 
 - A report holds 1-6 read-only datasets and 1-8 views (metric, line, bar, pie, scatter, table); multiple views may reuse one dataset, and aggregation or Top N is written in the SQL itself;
 - Simple questions produce a single main chart (inline preview in the result row); complex questions produce a compact summary plus a “View analysis” button;
 - “View analysis” opens a large Modal with every view of that report: a compact metric band, a full-width main chart, a two-column secondary grid, and a detail table — responsive across light/dark themes and narrow screens;
+- Regardless of the active UI, the complete Dashboard is written atomically to `analysis-reports/*.html` under the session workspace and appears in DSH's Produced row where supported. The filename defaults to the report title or a semantic `outputName` basename, without a long UUID. Data, styles, and SVG rendering code are inline, so the file opens without a network connection;
 - The complete report snapshot is persisted with the session log: refreshing or replaying history never re-queries the database and creates no extra browser storage;
-- The tool is Web-only: the dsh-tui tool surface is unchanged and loads no chart or browser dependencies.
+- Web still renders its preview from the same report meta; the Node HTML generator loads neither ECharts nor Web client code.
 
 ## Using Data Agent in dsh-tui
+
+Install Data Agent into the dsh-tui profile. `render-analysis` does not require a particular dsh-TUI version or scene capability:
+
+```sh
+dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
+```
 
 Start the terminal interface:
 
@@ -124,6 +131,8 @@ After connecting, return to the chat input and ask a business question. Other us
 /database test         Test the current connection
 /database disconnect   Disconnect the current database
 ```
+
+After the agent generates a report, the tool card shows dataset, view, empty-data facts, and the absolute HTML path. TUI does not print a character Dashboard and does not register `/analysis`; open the HTML in a local browser to inspect all six view types and raw data. The file belongs to that tool call, and `/resume` does not re-query the database.
 
 When you reopen the connection form in the same session, it restores the latest database type, host, port, user, database, and read-only mode. The password always remains masked and is never restored.
 

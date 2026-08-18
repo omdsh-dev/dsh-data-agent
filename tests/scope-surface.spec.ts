@@ -45,9 +45,10 @@ async function mintScope(ctx: Context, key: object): Promise<Scope> {
 
 describe('standing preset tool surface', () => {
   it.each([
-    ['Web', true, [...DATA_TOOLS, 'render-analysis'].sort()],
-    ['TUI', false, [...DATA_TOOLS].sort()],
-  ] as const)('rebinds an existing blank %s agent to the exact data-mode tools', async (_surface, web, expected) => {
+    ['Web', [...DATA_TOOLS, 'render-analysis'].sort()],
+    ['TUI', [...DATA_TOOLS, 'render-analysis'].sort()],
+    ['headless', [...DATA_TOOLS, 'render-analysis'].sort()],
+  ] as const)('rebinds an existing blank %s agent to the exact data-mode tools', async (surface, expected) => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRegistry)
@@ -57,10 +58,10 @@ describe('standing preset tool surface', () => {
     const standard = await mintScope(ctx, standardKey)
     standard.ctx.tools.register(tool('standard_local'))
 
-    const dataKey = { agentPreset: web ? 'data-web-fixture' : 'data-tui-fixture' }
+    const dataKey = { agentPreset: `data-${surface}-fixture` }
     const data = await mintScope(ctx, dataKey)
     for (const name of DATA_TOOLS) data.ctx.tools.register(tool(name))
-    if (web) data.ctx.tools.register(tool('render-analysis'))
+    data.ctx.tools.register(tool('render-analysis'))
     // Same operation installed by src/command.ts in the standing preset.
     const ownToolNames = new Set<string>([...DATA_TOOLS, 'render-analysis'])
     const inheritedToolNames = data.ctx.tools.schemas()
@@ -68,7 +69,7 @@ describe('standing preset tool surface', () => {
       .filter(name => !ownToolNames.has(name))
     data.ctx.tools.restrict({ deny: inheritedToolNames })
 
-    const agentKey = { id: web ? 'blank-web' : 'blank-tui' }
+    const agentKey = { id: `blank-${surface}` }
     const binding = bindScopeParent(agentKey, standardKey)
     await mintScope(ctx, agentKey)
     expect(ctx.tools.schemas(agentKey).map(item => item.name)).toContain('ssh_exec')
@@ -97,6 +98,7 @@ describe('standing preset tool surface', () => {
     const scopeTag = Object.getOwnPropertySymbols(standing.ctx)
       .find(candidate => Reflect.get(standing.ctx, candidate) === dataKey)!
     await ctx.plugin(Object.assign(async (inner: Context) => {
+      inner.extend({ [scopeTag]: dataKey }).tools.register(tool('str_replace_editor'))
       await mountPresetCapabilities(inner, dataKey, scopeTag, {
         queryTimeoutMs: 30_000,
         maxResultChars: 20_000,
@@ -111,7 +113,8 @@ describe('standing preset tool surface', () => {
     bindScopeParent(agentKey, dataKey)
     await mintScope(ctx, agentKey)
     expect(ctx.tools.schemas(agentKey).map(item => item.name).sort()).toEqual([
-      'sql-cmd', 'sql-query', 'sql-write',
+      'render-analysis', 'sql-cmd', 'sql-query', 'sql-write', 'str_replace_editor',
     ])
+    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual(['database'])
   })
 })

@@ -24,8 +24,6 @@ import { defineTool, type InferValue, type JsonValue } from '@deepseek-ai/dsh-to
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin) and
 // the ctx.dataAgentConnections merge (the main data-agent row).
 import type {} from '@deepseek-ai/dsh-subprocess'
-// Type-only: pulls the webServer service merge used as the Web capability gate.
-import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from './index.ts'
 import { classifyStatement, clientsSchema, enforceReadRowLimit, type ClientConfig } from './clients.ts'
 import {
@@ -56,6 +54,8 @@ import {
   runnerOptions,
   type ResolvedRunnerConfig,
 } from './structured-read.ts'
+import { analysisArtifactRelativePath, writeAnalysisHtml } from './analysis-html.ts'
+import { sanitizePresentationText } from './presentation-text.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-tool'
@@ -132,7 +132,7 @@ interface PlannedDataset {
 }
 
 /**
- * The Web-only render-analysis tool (D1-D5): one call builds one versioned
+ * The surface-neutral render-analysis tool (D1-D5): one call builds one versioned
  * analysis report from 1-6 read-only datasets and 1-8 views. The full report
  * is persisted as presentationMeta; the model only receives a short summary
  * (output.render), never the rows themselves.
@@ -141,8 +141,9 @@ function defineRenderAnalysisTool(ctx: Context, resolved: ResolvedRunnerConfig) 
   return defineTool({
     name: 'render-analysis',
     description:
-      'Web only: render one versioned analysis report (v1) from 1-6 read-only datasets and 1-8 '
-      + 'metric, line, bar, pie, scatter, or table views. First use sql-query to inspect and verify data, '
+      'Render one versioned analysis report (v1) from 1-6 read-only datasets using 1-8 metric, line, bar, pie, '
+      + 'scatter, or table views, then save an offline Dashboard HTML file under analysis-reports/ in the current '
+      + 'session workspace. First use sql-query to inspect and verify data, '
       + 'then call this tool only when visualization adds value. Use one primary chart for a simple relationship '
       + 'or 3-6 complementary views for multi-metric, time-series, or segmented analysis. Put aggregation, Top N, '
       + 'and sorting in SQL, and add ORDER BY for line or time datasets. Reuse a dataset across views via datasetId; '
@@ -159,14 +160,17 @@ function defineRenderAnalysisTool(ctx: Context, resolved: ResolvedRunnerConfig) 
     },
     presentCall: (args) => ({
       card: 'generic',
-      kind: 'read',
-      title: 'render-analysis《' + args.title + '》',
-      rawInput: args.title,
+      kind: 'edit',
+      title: 'render-analysis《' + sanitizePresentationText(args.title) + '》',
+      rawInput: sanitizePresentationText(args.title),
+      locations: [{ path: analysisArtifactRelativePath(args.title, args.outputName) }],
     }),
     presentResult: (args, result) => ({
       card: 'generic',
-      title: 'render-analysis《' + args.title + '》',
-      content: result.content,
+      title: 'render-analysis《' + sanitizePresentationText(args.title) + '》',
+      content: result.content.map(item => item.type === 'text'
+        ? { ...item, text: sanitizePresentationText(item.text) }
+        : item),
     }),
     async execute(args, exec) {
       const request = parseAnalysisRequest(args)
@@ -220,7 +224,12 @@ function defineRenderAnalysisTool(ctx: Context, resolved: ResolvedRunnerConfig) 
       if (bytes > MAX_REPORT_BYTES) {
         throw new Error('render-analysis: 报告 JSON 超过 ' + MAX_REPORT_BYTES + ' 字节上限（当前 ' + bytes + ' 字节）；请聚合、筛选或拆分报告，不得静默删减数据')
       }
-      return report as InferValue<typeof ANALYSIS_REPORT_OUTPUT_SCHEMA>
+      const sessionCwd = (exec.agent as { session?: { header?: { cwd?: unknown } } } | undefined)?.session?.header?.cwd
+      const complete = await writeAnalysisHtml(report, {
+        cwd: typeof sessionCwd === 'string' && sessionCwd.length > 0 ? sessionCwd : process.cwd(),
+        outputName: request.outputName,
+      })
+      return complete as InferValue<typeof ANALYSIS_REPORT_OUTPUT_SCHEMA>
     },
   })
 }
@@ -407,13 +416,7 @@ export function apply(ctx: Context, config: Config): void {
     },
   }))
 
-  // D6: this plugin is mounted in the data-agent standing preset scope. A
-  // blank-session preset switch only rebinds the existing agent to that scope,
-  // so Web's tool must be registered here instead of waiting for agent/created.
-  // The sibling database-command restriction filters inherited host tools but
-  // deliberately leaves this standing-scope registration visible. TUI/headless
-  // profiles have no webServer, so no render-analysis tool is registered.
-  if (ctx.get('webServer') !== undefined) {
-    ctx.tools.register(defineRenderAnalysisTool(ctx, resolved))
-  }
+  // Mounted in the data-agent standing preset scope: every UI gets the same
+  // file-producing tool, while Web may additionally render presentationMeta.
+  ctx.tools.register(defineRenderAnalysisTool(ctx, resolved))
 }

@@ -41,6 +41,7 @@ describe('parseAnalysisRequest', () => {
 
   it('parses optional summary, labels, width and format', () => {
     const request = parseAnalysisRequest(baseRequest({
+      outputName: '月度经营分析-2026-08',
       summary: '结论：营收环比上升',
       views: [{
         id: 'v1', kind: 'metric', datasetId: 'ds1', field: 'revenue', label: '营收', format: 'percent',
@@ -49,6 +50,7 @@ describe('parseAnalysisRequest', () => {
         x: { field: 'month', type: 'category', label: '月份' }, y: ['revenue'],
       }],
     }))
+    expect(request.outputName).toBe('月度经营分析-2026-08')
     expect(request.summary).toBe('结论：营收环比上升')
     expect(request.views[0]).toMatchObject({ kind: 'metric', format: 'percent' })
     expect(request.views[1]).toMatchObject({ label: '趋势', width: 'half', x: { label: '月份' } })
@@ -56,6 +58,7 @@ describe('parseAnalysisRequest', () => {
 
   it('rejects unknown top-level fields (additionalProperties=false)', () => {
     expect(() => parseAnalysisRequest(baseRequest({ evil: 'option' }))).toThrow(/不支持的字段 "evil"/)
+    expect(() => parseAnalysisRequest(baseRequest({ outputName: '   ' }))).toThrow(/outputName: 必须是非空字符串/)
   })
 
   it('rejects unknown dataset and view fields', () => {
@@ -175,6 +178,14 @@ describe('parseAnalysisReport / rowsToArrays / size bound', () => {
     expect(parsed.views.map((view) => view.id)).toEqual(['v1', 'v2'])
   })
 
+  it('accepts new htmlPath meta while keeping legacy version 1 reports valid', () => {
+    const legacy = buildReport()
+    expect(parseAnalysisReport(legacy).htmlPath).toBeUndefined()
+    const current = { ...legacy, htmlPath: '/workspace/analysis-reports/report.html' }
+    expect(parseAnalysisReport(current).htmlPath).toBe('/workspace/analysis-reports/report.html')
+    expect(reportJsonBytes(current)).toBe(reportJsonBytes(legacy))
+  })
+
   it('rejects reports with misaligned rows or wrong cells', () => {
     const report = buildReport() as unknown as Record<string, unknown>
     const datasets = report.datasets as Record<string, unknown>[]
@@ -202,12 +213,13 @@ describe('parseAnalysisReport / rowsToArrays / size bound', () => {
   })
 
   it('summarizes counts, version and empty datasets without re-injecting rows', () => {
-    const report = buildReport()
+    const report = { ...buildReport(), htmlPath: '/workspace/analysis-reports/report.html' }
     const text = formatAnalysisSummary(report)
     expect(text).toContain('月度经营分析')
     expect(text).toContain('2 个数据集、2 个视图')
     expect(text).toContain('version 1')
     expect(text).not.toContain('1月')
+    expect(text).toContain(report.htmlPath)
     const empty = { ...report, datasets: report.datasets.map((d) => ({ ...d, rows: [] })) }
     const emptyText = formatAnalysisSummary(empty)
     expect(emptyText).toContain('无数据')

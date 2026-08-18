@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { createConnectionStore, type DatabaseConnection } from '../src/connections.ts'
 import { apply, type Config } from '../src/tool.ts'
 import type { AnalysisReportV1 } from '../src/analysis.ts'
@@ -22,12 +25,32 @@ interface SpawnResult {
 interface ToolDefinitionFace {
   name?: string
   description?: string
-  execute?: (args: unknown, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown>
+  execute?: (args: unknown, exec: {
+    callId: string
+    agent?: { id: string, session?: { header?: { cwd?: string } } }
+    signal: AbortSignal
+  }) => Promise<unknown>
   output?: {
     render?: (args: unknown, value: unknown) => { type: string, text: string }[]
     presentationMeta?: (args: unknown, value: unknown) => unknown
   }
+  presentCall?: (args: any) => {
+    title?: string
+    rawInput?: string
+    kind?: string
+    locations?: { path: string }[]
+  }
+  presentResult?: (args: any, result: { content: { type: string, text: string }[] }) => {
+    title?: string
+    content?: { type: string, text: string }[]
+  }
 }
+
+const testWorkspace = mkdtempSync(join(tmpdir(), 'dsh-data-agent-render-'))
+let callSequence = 0
+
+afterAll(() => rmSync(testWorkspace, { recursive: true, force: true }))
+afterEach(() => rmSync(join(testWorkspace, 'analysis-reports'), { recursive: true, force: true }))
 
 function spawnOk(text: string): SpawnResult {
   return {
@@ -84,7 +107,12 @@ function makeContext(options: {
 }
 
 function execOf(sessionId: string) {
-  return { agent: { id: sessionId }, signal: new AbortController().signal }
+  callSequence += 1
+  return {
+    callId: `call-${callSequence}`,
+    agent: { id: sessionId, session: { header: { cwd: testWorkspace } } },
+    signal: new AbortController().signal,
+  }
 }
 
 const BASE_ARGS = {
@@ -94,12 +122,13 @@ const BASE_ARGS = {
 }
 
 describe('render-analysis tool', () => {
-  it('registers the Web-only tool with a description that guides agentic choice', () => {
+  it('registers the surface-neutral tool with a description that guides agentic choice', () => {
     const { agentDefinitions } = makeContext({})
     const definition = agentDefinitions['render-analysis']!
     expect(definition.name).toBe('render-analysis')
     expect(definition.description).toContain('First use sql-query to inspect and verify data')
     expect(definition.description).toContain('3-6 complementary views')
+    expect(definition.description).not.toContain('Web only')
     expect(definition.description).not.toMatch(/[\u3400-\u9fff]/)
     expect(definition.execute).toBeTypeOf('function')
   })
@@ -226,7 +255,8 @@ describe('render-analysis tool', () => {
     store.set('session-a', { type: 'sqlite', database: '/tmp/orders.db' })
     const controller = new AbortController()
     const pending = agentDefinitions['render-analysis']!.execute!(BASE_ARGS, {
-      agent: { id: 'session-a' },
+      callId: 'cancelled-call',
+      agent: { id: 'session-a', session: { header: { cwd: testWorkspace } } },
       signal: controller.signal,
     })
     controller.abort(new Error('caller cancelled'))
@@ -346,6 +376,9 @@ describe('render-analysis tool', () => {
     store.set('session-a', { type: 'mysql', host: 'h', port: 3306, user: 'u', database: 'd' })
     const definition = agentDefinitions['render-analysis']!
     const report = await definition.execute!(BASE_ARGS, execOf('session-a')) as AnalysisReportV1
+    expect(report.htmlPath).toMatch(new RegExp(`^${testWorkspace}/analysis-reports/.+\\.html$`))
+    expect(existsSync(report.htmlPath!)).toBe(true)
+    expect(readFileSync(report.htmlPath!, 'utf8')).toContain('<!doctype html>')
     const meta = definition.output!.presentationMeta!(BASE_ARGS, report)
     // Session JSON round-trip (the persistence boundary): stringify + parse.
     const restored = JSON.parse(JSON.stringify({ meta, version: 1 })) as { meta: unknown }
@@ -356,6 +389,37 @@ describe('render-analysis tool', () => {
     const render = definition.output!.render!(BASE_ARGS, report)
     expect(render[0]!.text).not.toContain('2026-01')
     expect(render[0]!.text).toContain('1 个数据集、1 个视图')
+    expect(render[0]!.text).toContain(report.htmlPath!)
+    const card = definition.presentResult!(BASE_ARGS, { content: render })
+    expect(card.content?.map(item => item.text).join('\n')).toContain('1 个数据集、1 个视图')
+    expect(card.content?.map(item => item.text).join('\n')).toContain('Dashboard HTML已保存')
+    expect(card.content?.map(item => item.text).join('\n')).not.toContain('运行 /analysis')
+    expect(card.content?.map(item => item.text).join('\n')).not.toContain('2026-01')
+  })
+
+  it('sanitizes control sequences from generic card titles and raw input', () => {
+    const { agentDefinitions } = makeContext({})
+    const definition = agentDefinitions['render-analysis']!
+    const call = definition.presentCall!({ ...BASE_ARGS, title: '\u001b]8;;https://evil.invalid\u0007危险\u001b[31m' })
+    expect(call.title).toBe('render-analysis《⟦OSC⟧危险⟦ESC⟧》')
+    expect(call.rawInput).toBe('⟦OSC⟧危险⟦ESC⟧')
+    expect(call.kind).toBe('edit')
+    expect(call.locations).toHaveLength(1)
+    expect(call.locations![0]!.path).toMatch(/^analysis-reports\/.+\.html$/)
+    expect(call.title).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/)
+    expect(call.locations![0]!.path).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/)
+  })
+
+  it('declares the exact semantic output path as a native produced-file location', () => {
+    const { agentDefinitions } = makeContext({})
+    const call = agentDefinitions['render-analysis']!.presentCall!({
+      ...BASE_ARGS,
+      outputName: '电商经营全景分析-2023-09至2026-08.html',
+    })
+    expect(call).toMatchObject({
+      kind: 'edit',
+      locations: [{ path: 'analysis-reports/电商经营全景分析-2023-09至2026-08.html' }],
+    })
   })
 
   it('rejects reports over the 512 KiB total bound without deleting data', async () => {

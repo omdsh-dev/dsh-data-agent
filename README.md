@@ -40,11 +40,11 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 
 - **通过对话完成数据分析**：直接用自然语言描述目标，DSH会理解问题、拆解分析步骤、查询真实数据并整理结论。你可以继续追问，分析会沿着当前上下文逐步深入。
 - **自动寻找商业洞察**：不仅返回查询结果，还能帮助比较趋势、定位异常、识别高价值客户或商品，并把数据转化为便于业务决策的说明。
-- **Web 分析报告（render-analysis）**：Web 界面中 Agent 可在普通工具调用里自主生成单图或 Dashboard 式综合分析报告（metric/line/bar/pie/scatter/table 视图），结果行提供内联预览与「查看分析」Modal；是否画图由 Agent 按问题判断，schema 探查、单标量等查询不会被强制生成图表。
+- **跨界面HTML分析报告（render-analysis）**：Agent可在普通工具调用里自主生成单图或Dashboard式综合分析报告（metric/line/bar/pie/scatter/table视图）。每次成功调用都会在当前工作目录的`analysis-reports/`中保存一份离线可打开的HTML；Web同时提供内联预览与“查看分析”Modal，dsh-tui直接返回文件路径。是否画图由Agent按问题判断，schema探查、单标量等查询不会被强制生成图表。
 - **完整兼容Web UI与dsh-tui**：喜欢可视化操作时，可以在Web界面连接数据库、浏览库表和查看结果，推荐使用[zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui)；习惯键盘工作流时，可以在终端中使用同一“数据模式”，通过`/database`完成连接，然后直接开始对话分析，推荐使用[ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)。两种界面都能使用数据Agent的核心能力。
 - **连接常见业务数据库**：支持MySQL、PostgreSQL、SQLite、Oracle、Hive和Impala，可用于业务系统、分析库、本地数据文件及数仓场景。
 - **DSH自动完成分析闭环**：DSH会根据当前问题查看表结构、编写SQL、执行查询，并结合报错或返回结果继续调整，而不是只生成一段未经验证的SQL。
-- **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`；Web额外提供`render-analysis`。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
+- **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`与`render-analysis`；Web、Desktop、dsh-tui和headless profile使用同一工具协议。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
 - **安全地使用真实数据**：支持只读模式和数据库只读账号；TUI密码会被隐藏，且不会作为表单草稿恢复。是否允许修改数据由你决定。
 
 Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal中配置连接、浏览库表、查看字段结构或临时运行SQL。开始对话前后都不占用输入框上方或左侧的对话空间。
@@ -90,17 +90,24 @@ dsh --profile web
 
 例如，输入“分析最近30天订单变化，找出销售额下降最明显的地区和商品，并解释主要原因”，DSH会自行查看相关表、生成并执行查询，再根据真实结果完成分析。
 
-### Web 分析报告
+### 分析报告与HTML文件
 
-在 Web UI 中，数据模式还提供 render-analysis 工具：Agent 会先用 sql-query 探查并核对事实，再自行判断可视化是否有帮助。判断需要画图时，一次工具调用会生成一份版本化分析报告：
+数据模式提供render-analysis工具：Agent会先用sql-query探查并核对事实，再自行判断可视化是否有帮助。判断需要画图时，一次工具调用会生成一份版本化分析报告：
 
 - 报告包含 1-6 个只读数据集与 1-8 个视图（metric、line、bar、pie、scatter、table），同一数据集可被多个视图复用，聚合与 Top N 都写在 SQL 中；
 - 简单问题生成单个主图（结果行内联预览），复杂问题生成紧凑摘要 + 「查看分析」按钮；
 - 「查看分析」在大型 Modal 中展示本次报告的全部视图：紧凑指标带、全宽主图、双列辅助图与明细表，浅色/深色主题与窄屏单列自适应；
+- 无论当前使用哪种UI，完整Dashboard都会原子保存到会话工作目录的`analysis-reports/*.html`，并在支持的DSH界面进入“产物”栏；文件名默认使用报告标题，也可用语义化`outputName`指定basename，不追加长UUID；文件内联数据、样式和SVG渲染代码，断网时也能直接打开；
 - 完整报告快照随会话日志持久化：刷新或历史回放不重新查询数据库，也不产生新的浏览器存储；
-- 仅 Web 提供该工具；dsh-tui 的工具面保持不变，也不会加载图表或浏览器依赖。
+- Web仍从同一份报告meta渲染预览；Node侧HTML生成器不加载ECharts或Web client代码。
 
 ## 在dsh-tui中使用
+
+把Data Agent安装到dsh-tui profile即可；`render-analysis`不要求特定dsh-TUI版本或scene能力：
+
+```sh
+dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
+```
 
 启动终端界面：
 
@@ -124,6 +131,8 @@ dsh --profile dsh-tui
 /database test         测试当前连接
 /database disconnect   断开当前连接
 ```
+
+Agent生成分析报告后，工具卡会显示数据集、视图、空数据摘要与HTML绝对路径。TUI不会输出字符Dashboard，也没有`/analysis`命令；直接在本机浏览器中打开该HTML即可查看六类视图和原始数据。文件来自本次工具调用，`/resume`不会重新查询数据库。
 
 同一会话再次打开连接表单时，会恢复最近填写的数据库类型、地址、端口、用户、数据库和只读模式。密码始终隐藏且不会恢复。
 

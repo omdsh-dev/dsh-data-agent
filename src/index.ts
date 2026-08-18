@@ -151,12 +151,11 @@ export function resolveDshHome(env: Record<string, string | undefined> = process
 /**
  * Install the packaged `preset/data-agent/` directory into
  * `$DSH_HOME/.agent-presets/<presetId>/`. Idempotent: an existing target is
- * normally left untouched. The exact package-owned 0.0.9 composition is
- * migrated once because its two dynamic package rows are incompatible with
- * DSH Desktop's unpacked-ASAR loader; user-edited compositions are never
- * overwritten. `installPreset: false` never calls this. Best-effort — a
- * failure logs a warning with manual install instructions instead of failing
- * the boot.
+ * normally left untouched. Exact package-owned legacy compositions are
+ * migrated once when their runtime contract changes; user-edited compositions
+ * are never overwritten. `installPreset: false` never calls this. Best-effort
+ * — a failure logs a warning with manual install instructions instead of
+ * failing the boot.
  */
 export async function installPreset(ctx: Context, presetId: string): Promise<boolean> {
   const targetDir = join(resolveDshHome(), '.agent-presets', presetId)
@@ -182,15 +181,20 @@ export async function installPreset(ctx: Context, presetId: string): Promise<boo
   }
 }
 
-/** SHA-256 of the unmodified 0.0.9 composition that imported /tool and /command dynamically. */
-const LEGACY_PRESET_0_0_9_SHA256 = 'bae875a90d638ea78715030246b0f8a9f1a2c3359ca61febb6ceb59d0fcd930a'
+/** SHA-256 values of unmodified package-owned compositions safe to migrate. */
+const LEGACY_MANAGED_PRESET_SHA256 = new Set([
+  // 0.0.9: imported /tool and /command dynamically.
+  'bae875a90d638ea78715030246b0f8a9f1a2c3359ca61febb6ceb59d0fcd930a',
+  // 0.0.11 before HTML artifacts: described render-analysis as Web-only.
+  'd3c6f4049580069eec1c6b7de101f12c7fb30482ad317434afb69afb08a91fc6',
+])
 
 /** Public for regression tests of the non-destructive preset migration gate. */
 export function isLegacyManagedPreset(source: string): boolean {
-  return createHash('sha256').update(source).digest('hex') === LEGACY_PRESET_0_0_9_SHA256
+  return LEGACY_MANAGED_PRESET_SHA256.has(createHash('sha256').update(source).digest('hex'))
 }
 
-/** Upgrade only the exact package-owned legacy composition; preserve every edited preset. */
+/** Upgrade only exact package-owned legacy compositions; preserve every edited preset. */
 async function synchronizeExistingPreset(
   ctx: Context,
   targetDir: string,
@@ -204,7 +208,7 @@ async function synchronizeExistingPreset(
       const replacement = await readFile(join(sourceDir, 'agent.cordis.yml'), 'utf8')
       await writeFile(composition, replacement, 'utf8')
       ctx.logger.info(
-        'data-agent: migrated preset at %s to profile-preloaded tools (removed dynamic /tool and /command rows)',
+        'data-agent: migrated package-owned preset at %s to the current runtime contract',
         composition,
       )
       return true

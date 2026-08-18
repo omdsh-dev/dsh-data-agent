@@ -15,8 +15,10 @@ describe('Web/TUI package and preset composition', () => {
     expect(pkg.peerDependencies.react).toContain('^19.0.0')
     expect(pkg.peerDependenciesMeta.react.optional).toBe(true)
     expect(pkg.peerDependenciesMeta['@deepseek-ai/dsh-client-runtime'].optional).toBe(true)
-    expect(pkg.peerDependencies['@deepseek-ai/dsh-client-ui-tool']).toBe('^0.1.0-rc.6')
+    expect(pkg.peerDependencies['@deepseek-ai/dsh-client-ui-tool']).toBe('^0.1.0-rc.7')
     expect(pkg.peerDependenciesMeta['@deepseek-ai/dsh-client-ui-tool'].optional).toBe(true)
+    expect(pkg.peerDependencies['@deepseek-harness-tui/dsh-tui']).toBeUndefined()
+    expect(pkg.devDependencies['@deepseek-harness-tui/dsh-tui']).toBeUndefined()
     // The keyed tool.call.toolview slot must exist before this package registers
     // into it: the client inject list loads the tool renderer ahead of us.
     expect(pkg.dsh.client.inject).toContain('@deepseek-ai/dsh-client-ui-tool')
@@ -36,10 +38,10 @@ describe('Web/TUI package and preset composition', () => {
     expect([...toolSource.matchAll(/name: '(sql-query|sql-write|sql-cmd)'/g)].map(match => match[1])).toEqual([
       'sql-query', 'sql-write', 'sql-cmd',
     ])
-    // render-analysis is registered directly in the standing preset scope,
-    // gated on the Web capability.
+    // render-analysis is registered directly in every data-agent standing scope.
     expect(toolSource).toContain("name: 'render-analysis'")
-    expect(toolSource).toContain("ctx.get('webServer')")
+    expect(toolSource).not.toContain("ctx.get('webServer')")
+    expect(toolSource).not.toContain("ctx.get('dataAgentTuiAnalysis')")
     const commandSource = readFileSync(new URL('src/command.ts', root), 'utf8')
     expect(commandSource).toContain("DATA_AGENT_TOOL_NAMES = ['str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd']")
     expect(DATA_AGENT_TOOL_NAMES).toEqual(['str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd'])
@@ -47,13 +49,26 @@ describe('Web/TUI package and preset composition', () => {
     expect(preset).not.toContain("name: '@deepseek-ai/dsh-tool-fs'")
     expect(preset).not.toContain('）、read、write、edit')
     expect(preset).not.toContain('（write/edit）')
-    // The persona names the Web-only analysis capability without adding a row.
+    // The persona describes the shared HTML artifact without adding a row.
     expect(preset).toContain('render-analysis')
+    expect(preset).toContain('analysis-reports/')
+    expect(preset).not.toContain('/analysis')
     expect(preset).toContain('不强制画图')
   })
 
-  it('does not classify the new preset or a user edit as the package-owned 0.0.9 legacy composition', () => {
+  it('migrates the package-owned Web-only preset while preserving the new preset and user edits', () => {
     const preset = readFileSync(new URL('preset/data-agent/agent.cordis.yml', root), 'utf8')
+    const webOnlyPreset = preset.replace(
+      `      另有 render-analysis：把一次调用渲染成一份版本化分析
+      报告（1-6 个只读数据集、1-8 个 metric/line/bar/pie/scatter/table 视图，同一数据集可被
+      多个视图通过 datasetId 复用），并在当前工作目录的 analysis-reports/ 中保存离线 HTML
+      Dashboard。Web 可同时打开分析面板；TUI 只返回 HTML 路径，不输出字符图。是否生成分析
+      由你自主判断：先用 sql-query 探查表结构与样例数据并`,
+      `      Web 界面可用时另有 render-analysis：把一次调用渲染成一份版本化分析报告（1-6 个只读
+      数据集、1-8 个 metric/line/bar/pie/scatter/table 视图，同一数据集可被多个视图通过
+      datasetId 复用）。是否生成分析由你自主判断：先用 sql-query 探查表结构与样例数据并`,
+    )
+    expect(isLegacyManagedPreset(webOnlyPreset)).toBe(true)
     expect(isLegacyManagedPreset(preset)).toBe(false)
     expect(isLegacyManagedPreset(`${preset}\n# user edit\n`)).toBe(false)
   })
@@ -111,8 +126,8 @@ describe('Web/TUI package and preset composition', () => {
   })
 })
 
-describe('render-analysis Web-capability gating (D6)', () => {
-  function makeToolContext(webServer: boolean) {
+describe('render-analysis cross-surface registration', () => {
+  function makeToolContext() {
     const registered: { name?: string }[] = []
     const ctx = {
       tools: { register(def: { name?: string }) { registered.push(def) } },
@@ -121,10 +136,7 @@ describe('render-analysis Web-capability gating (D6)', () => {
         spawn: () => ({ done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }),
       },
       dataAgentConnections: createConnectionStore(),
-      get(name: string) {
-        if (name === 'webServer') return webServer ? {} : undefined
-        return undefined
-      },
+      get() { return undefined },
     } as never
     applyToolHalf(ctx as never, {
       queryTimeoutMs: 5000,
@@ -137,9 +149,8 @@ describe('render-analysis Web-capability gating (D6)', () => {
     return registered.map(def => def.name)
   }
 
-  it('registers render-analysis in the standing scope only when webServer exists', () => {
-    expect(makeToolContext(false)).toEqual(['sql-query', 'sql-write', 'sql-cmd'])
-    expect(makeToolContext(true)).toEqual(['sql-query', 'sql-write', 'sql-cmd', 'render-analysis'])
+  it('registers with no Web or TUI presentation service', () => {
+    expect(makeToolContext()).toEqual(['sql-query', 'sql-write', 'sql-cmd', 'render-analysis'])
   })
 
   it('denies host tools while retaining preset-owned tools without agent/created', () => {
@@ -158,6 +169,7 @@ describe('render-analysis Web-capability gating (D6)', () => {
       },
       commands: { register() {} },
       dataAgentConnections: createConnectionStore(),
+      get() { return undefined },
       emit() {},
       effect(setup: () => () => void) {
         const dispose = setup()
@@ -166,7 +178,9 @@ describe('render-analysis Web-capability gating (D6)', () => {
     } as never
     applyCommandHalf(ctx)
     expect(restrictions).toEqual([{ deny: ['describe_image', 'ssh_exec'] }])
+    expect((ctx.commands as unknown as { registered?: unknown }).registered).toBeUndefined()
     const command = readFileSync(new URL('src/command.ts', root), 'utf8')
     expect(command).not.toContain("ctx.on('agent/created'")
+    expect(command).not.toContain("name: 'analysis'")
   })
 })

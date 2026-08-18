@@ -1,13 +1,12 @@
 /**
  * Real end-to-end SQLite smoke (task 7.2 tool path, 7.4 TUI shared path):
  * the REAL subprocess service + the REAL sqlite3 binary, exercised through
- * the render-analysis tool definition registered in the Web standing scope.
- * No model, no HTTP, no browser — the shared tool half is what
- * both surfaces run, and the Web-only client rendering is covered by the
- * jsdom component tests.
+ * the render-analysis tool definition registered for Web and the public TUI
+ * analysis bridge shape. No model, HTTP, or browser is involved here: both
+ * surfaces execute the exact same shared tool half.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -19,7 +18,11 @@ import { parseAnalysisReport } from '../src/analysis.ts'
 
 interface ToolDefinitionFace {
   name?: string
-  execute?: (args: unknown, exec: { agent?: { id: string }, signal: AbortSignal }) => Promise<unknown>
+  execute?: (args: unknown, exec: {
+    callId: string
+    agent?: { id: string, session?: { header?: { cwd?: string } } }
+    signal: AbortSignal
+  }) => Promise<unknown>
   output?: { render?: (args: unknown, value: unknown) => { type: string, text: string }[] }
 }
 
@@ -33,7 +36,7 @@ const CONFIG: Config = {
 }
 
 describe('real sqlite smoke through the shared tool half', () => {
-  it('builds a multi-dataset report with the real sqlite3 client and real subprocess service', async () => {
+  it('builds the same report on Web and TUI and executes each dataset exactly once per surface', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-da-smoke-'))
     const db = join(dir, 'orders.db')
     try {
@@ -43,21 +46,7 @@ describe('real sqlite smoke through the shared tool half', () => {
         "INSERT INTO orders VALUES ('2026-01', 10, '东'), ('2026-02', 20, '东'), ('2026-01', 5, '西');",
       ])
 
-      const ctx = new Context()
-      await ctx.plugin(SubprocessLocal)
-      ctx.provide('dataAgentConnections', { resolveForExecution: async () => ({ type: 'sqlite', database: db }) } as never)
-      ctx.provide('webServer', {} as never)
-
-      let captured: ToolDefinitionFace | undefined
-      ctx.provide('tools', {
-        register(def: ToolDefinitionFace) {
-          if (def.name === 'render-analysis') captured = def
-        },
-      } as never)
-      apply(ctx as never, CONFIG)
-
-      expect(captured?.name).toBe('render-analysis')
-      const report = await captured!.execute!({
+      const request = {
         title: 'SQLite 冒烟报告',
         summary: '真实客户端执行',
         datasets: [
@@ -70,7 +59,45 @@ describe('real sqlite smoke through the shared tool half', () => {
           { id: 'v2', kind: 'pie', datasetId: 'regions', categoryField: 'region', valueField: 'total' },
           { id: 'v3', kind: 'table', datasetId: 'regions' },
         ],
-      }, { agent: { id: 'smoke-session' }, signal: new AbortController().signal }) as AnalysisReportV1
+      }
+      const run = async (surface: 'web' | 'tui') => {
+        const runtime = new Context()
+        await runtime.plugin(SubprocessLocal)
+        const subprocess = runtime.get('subprocess')!
+        let spawnCount = 0
+        let captured: ToolDefinitionFace | undefined
+        const ctx = {
+          subprocess: {
+            resolveExecutable: subprocess.resolveExecutable.bind(subprocess),
+            spawn: (...args: Parameters<typeof subprocess.spawn>) => {
+              spawnCount += 1
+              return subprocess.spawn(...args)
+            },
+          },
+          dataAgentConnections: { resolveForExecution: async () => ({ type: 'sqlite', database: db }) },
+          tools: {
+            register(def: ToolDefinitionFace) {
+              if (def.name === 'render-analysis') captured = def
+            },
+          },
+          get() { return undefined },
+        }
+        apply(ctx as never, CONFIG)
+        expect(captured?.name).toBe('render-analysis')
+        const report = await captured!.execute!({
+          ...request,
+          outputName: `SQLite-冒烟报告-${surface}`,
+        }, {
+          callId: `smoke-${surface}`,
+          agent: { id: `smoke-${surface}`, session: { header: { cwd: dir } } },
+          signal: new AbortController().signal,
+        }) as AnalysisReportV1
+        return { captured: captured!, report, spawnCount }
+      }
+
+      const web = await run('web')
+      const tui = await run('tui')
+      const report = web.report
 
       expect(report.version).toBe(1)
       expect(report.datasets.map((dataset) => dataset.id)).toEqual(['trend', 'regions'])
@@ -78,24 +105,16 @@ describe('real sqlite smoke through the shared tool half', () => {
       expect(report.datasets[0]!.rows).toEqual([['2026-01', '15'], ['2026-02', '20']])
       expect(report.datasets[1]!.rows).toEqual([['东', '30'], ['西', '5']])
       expect(parseAnalysisReport(report).views.map((view) => view.id)).toEqual(['m1', 'v1', 'v2', 'v3'])
+      expect(report.htmlPath).not.toBe(tui.report.htmlPath)
+      expect(existsSync(report.htmlPath!)).toBe(true)
+      expect(existsSync(tui.report.htmlPath!)).toBe(true)
+      expect({ ...tui.report, htmlPath: undefined }).toEqual({ ...web.report, htmlPath: undefined })
+      expect(web.spawnCount).toBe(2)
+      expect(tui.spawnCount).toBe(2)
       // The model-facing render is short and never re-injects rows.
-      const render = captured!.output!.render!({}, report)
+      const render = web.captured.output!.render!({}, report)
       expect(render[0]!.text).toContain('2 个数据集、4 个视图')
       expect(render[0]!.text).not.toContain('2026-01')
-
-      // TUI-shape regression: without the webServer capability the same tool
-      // half registers no render-analysis definition.
-      const tuiCtx = new Context()
-      await tuiCtx.plugin(SubprocessLocal)
-      tuiCtx.provide('dataAgentConnections', { resolveForExecution: async () => ({ type: 'sqlite', database: db }) } as never)
-      let tuiCaptured: ToolDefinitionFace | undefined
-      tuiCtx.provide('tools', {
-        register(def: ToolDefinitionFace) {
-          if (def.name === 'render-analysis') tuiCaptured = def
-        },
-      } as never)
-      apply(tuiCtx as never, CONFIG)
-      expect(tuiCaptured).toBeUndefined()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

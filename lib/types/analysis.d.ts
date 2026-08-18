@@ -87,6 +87,8 @@ export interface AnalysisDatasetRequestV1 {
 /** The wire request accepted by the render-analysis tool. */
 export interface AnalysisRequestV1 {
     title: string;
+    /** Semantic output basename; directory is always analysis-reports/. */
+    outputName?: string;
     summary?: string;
     datasets: AnalysisDatasetRequestV1[];
     views: AnalysisViewV1[];
@@ -102,6 +104,8 @@ export interface AnalysisReportV1 {
     version: typeof ANALYSIS_REPORT_VERSION;
     title: string;
     summary?: string;
+    /** Absolute path of the generated HTML artifact (absent on legacy v1 meta). */
+    htmlPath?: string;
     datasets: AnalysisDatasetResultV1[];
     views: AnalysisViewV1[];
 }
@@ -136,7 +140,7 @@ export declare function rowsToArrays(columns: string[], rows: readonly Record<st
 /** JSON-encoded UTF-8 size of the normalized report (the 512 KiB bound). */
 export declare function reportJsonBytes(report: AnalysisReportV1): number;
 /** One-line model-facing summary; never re-injects rows into model context (D5). */
-export declare function formatAnalysisSummary(report: Pick<AnalysisReportV1, 'title' | 'datasets' | 'views'>): string;
+export declare function formatAnalysisSummary(report: Pick<AnalysisReportV1, 'title' | 'datasets' | 'views' | 'htmlPath'>): string;
 /** The view union: exactly the six supported kinds, nothing else. */
 export declare const ANALYSIS_VIEWS_SCHEMA: {
     readonly oneOf: readonly [{
@@ -422,6 +426,10 @@ export declare const RENDER_ANALYSIS_PARAMETERS: {
         readonly type: "string";
         readonly required: true;
         readonly description: "报告标题，如「月度经营分析」";
+    };
+    readonly outputName: {
+        readonly type: "string";
+        readonly description: "可选语义化HTML文件名（仅basename，可省略.html），如「电商经营全景分析-2023-09至2026-08」；缺省时使用title，不要使用随机ID";
     };
     readonly summary: {
         readonly type: "string";
@@ -747,6 +755,10 @@ export declare const ANALYSIS_REPORT_OUTPUT_SCHEMA: {
         };
         readonly summary: {
             readonly type: "string";
+        };
+        readonly htmlPath: {
+            readonly type: "string";
+            readonly required: true;
         };
         readonly datasets: {
             readonly type: "array";

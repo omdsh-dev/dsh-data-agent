@@ -43,7 +43,7 @@ function makeContext(overrides: {
   const ctx = {
     tools: {
       register(def: typeof definition) {
-        definition = def
+        if (def.name === 'sql-cmd') definition = def
         if (def.name !== undefined) definitions[def.name] = def
       },
     },

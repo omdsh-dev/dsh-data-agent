@@ -166,12 +166,11 @@ export declare function resolveDshHome(env?: Record<string, string | undefined>)
 /**
  * Install the packaged `preset/data-agent/` directory into
  * `$DSH_HOME/.agent-presets/<presetId>/`. Idempotent: an existing target is
- * normally left untouched. The exact package-owned 0.0.9 composition is
- * migrated once because its two dynamic package rows are incompatible with
- * DSH Desktop's unpacked-ASAR loader; user-edited compositions are never
- * overwritten. `installPreset: false` never calls this. Best-effort — a
- * failure logs a warning with manual install instructions instead of failing
- * the boot.
+ * normally left untouched. Exact package-owned legacy compositions are
+ * migrated once when their runtime contract changes; user-edited compositions
+ * are never overwritten. `installPreset: false` never calls this. Best-effort
+ * — a failure logs a warning with manual install instructions instead of
+ * failing the boot.
  */
 export declare function installPreset(ctx: Context, presetId: string): Promise<boolean>;
 /** Public for regression tests of the non-destructive preset migration gate. */
