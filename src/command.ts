@@ -12,12 +12,12 @@ import type {} from '@deepseek-ai/dsh-user-questions'
 import {
   redactSecretText,
   type ConnectionFormDraft,
+  type ConnectionFormInitial,
   type ConnectionSummary,
   type DatabaseConnectionInput,
-  type DatabaseType,
 } from './connections.ts'
+import { DATABASE_TYPES, defaultDatabasePort, isDatabaseType } from './database-types.ts'
 import {
-  defaultDatabasePort,
   isDshTuiTerminal,
   runTuiConnectionForm,
 } from './tui-connection-form.ts'
@@ -29,7 +29,7 @@ export const inject = ['commands', 'dataAgentConnections', 'tools']
 export const DATABASE_COMMAND_USAGE = [
   '用法：',
   '  /database status',
-  '  /database connect --type <mysql|postgres|sqlite|oracle|hive|impala> --database <name|path> [--host <host>] [--port <port>] [--user <user>] [--password-ref <REF>] [--readonly]',
+  `  /database connect --type <${DATABASE_TYPES.join('|')}> --database <name|path> [--host <host>] [--port <port>] [--user <user>] [--password-ref <REF>] [--readonly] [--secure]`,
   '  /database test',
   '  /database disconnect',
   '安全提示：TUI 无参数 connect 可输入掩码临时密码；命令参数不接受 --password，请使用 --password-ref。',
@@ -53,7 +53,7 @@ export interface DatabaseCommandInteraction {
   collectTuiConnection(
     signal: AbortSignal,
     options: {
-      initialDraft?: ConnectionFormDraft
+      initialDraft?: ConnectionFormInitial
       persistDraft(draft: ConnectionFormDraft): Promise<void>
     },
   ): Promise<DatabaseConnectionInput | undefined>
@@ -161,6 +161,7 @@ export function parseDatabaseAction(rawInput: string): DatabaseAction {
 export function parseConnectArguments(tokens: readonly string[]): DatabaseConnectionInput {
   const values = new Map<string, string>()
   let readonly: boolean | undefined
+  let secure: boolean | undefined
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!
     if (token === '--password' || token.startsWith('--password=') || token.startsWith('password=')) {
@@ -172,6 +173,14 @@ export function parseConnectArguments(tokens: readonly string[]): DatabaseConnec
     }
     if (token === '--readwrite') {
       readonly = false
+      continue
+    }
+    if (token === '--secure') {
+      secure = true
+      continue
+    }
+    if (token === '--insecure') {
+      secure = false
       continue
     }
     const assignment = token.startsWith('--') ? token.slice(2).split('=', 2) : token.split('=', 2)
@@ -212,6 +221,7 @@ export function parseConnectArguments(tokens: readonly string[]): DatabaseConnec
     input.port = number
   }
   if (readonly !== undefined) input.readonly = readonly
+  if (type === 'clickhouse' && secure !== undefined) input.secure = secure
   return input
 }
 
@@ -228,6 +238,7 @@ export function formatConnectionStatus(summary: ConnectionSummary | undefined): 
     `数据库：${summary.database}`,
     `只读：${summary.readonly === true ? '是' : '否'}`,
   ]
+  if (summary.type === 'clickhouse') lines.push(`HTTPS：${summary.secure === true ? '是' : '否'}`)
   if (summary.user !== undefined) lines.push(`用户：${summary.user}`)
   if (summary.profileId !== undefined) lines.push(`Profile：${summary.name ?? summary.profileId}`)
   if (summary.passwordRef !== undefined) lines.push(`凭据引用：${summary.passwordRef}`)
@@ -278,10 +289,19 @@ async function askForConnection(
         ]
       : [
           { id: 'host', header: '主机', question: '数据库主机（留空使用 127.0.0.1）' },
-          { id: 'port', header: '端口', question: `数据库端口（留空使用 ${defaultDatabasePort(typeValue)}）` },
+          {
+            id: 'port',
+            header: '端口',
+            question: typeValue === 'clickhouse'
+              ? `数据库端口（留空使用HTTP ${defaultDatabasePort('clickhouse')}；HTTPS ${defaultDatabasePort('clickhouse', true)}）`
+              : `数据库端口（留空使用 ${defaultDatabasePort(typeValue)}）`,
+          },
           { id: 'user', header: '用户', question: '数据库用户名' },
           { id: 'database', header: '数据库', question: '数据库名 / Oracle 服务名' },
           { id: 'passwordRef', header: '凭据引用', question: 'DSH credential reference（可留空）' },
+          ...(typeValue === 'clickhouse'
+            ? [{ id: 'secure', header: 'HTTPS', question: '是否使用HTTPS并验证服务器证书？', options: [{ label: '是' }, { label: '否' }] }]
+            : []),
           { id: 'readonly', header: '只读', question: '是否启用只读模式？', options: [{ label: '是' }, { label: '否' }] },
         ]
     const details = await questions.ask({ agent: invocation.agent, signal: invocation.signal, questions: detailQuestions })
@@ -294,8 +314,11 @@ async function askForConnection(
     }
     if (typeValue !== 'sqlite') {
       input.host = answerValue(details, 'host')?.trim() || '127.0.0.1'
+      if (typeValue === 'clickhouse') input.secure = answerValue(details, 'secure') === '是'
       const portText = answerValue(details, 'port')?.trim()
-      input.port = portText === undefined || portText === '' ? defaultDatabasePort(typeValue) : Number(portText)
+      input.port = portText === undefined || portText === ''
+        ? defaultDatabasePort(typeValue, input.secure === true)
+        : Number(portText)
       const user = answerValue(details, 'user')?.trim()
       if (user !== undefined && user !== '') input.user = user
       const passwordRef = answerValue(details, 'passwordRef')?.trim()
@@ -308,12 +331,7 @@ async function askForConnection(
   }
 }
 
-const DATABASE_TYPES = ['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala'] as const
 const CONNECT_ARGUMENTS = new Set(['type', 'host', 'port', 'user', 'database', 'passwordRef', 'profileId', 'name'])
-
-function isDatabaseType(value: unknown): value is DatabaseType {
-  return typeof value === 'string' && (DATABASE_TYPES as readonly string[]).includes(value)
-}
 
 function normalizeArgumentName(value: string): string {
   return value.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())

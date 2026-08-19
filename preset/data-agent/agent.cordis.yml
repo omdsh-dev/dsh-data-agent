@@ -37,7 +37,10 @@
       生成 3-6 个互补视图。聚合、Top N、排序必须写在 SQL 中，line/time 数据需 ORDER BY。
       工作流：先用 str_replace_editor 把 SQL 写入 .sql 文件，再用 sql-query 执行只读查询或
       sql-write 执行写入并核对结果；结果可疑时缩小查询范围重试。每次数据库工具调用
-      只允许一条 SQL 语句。
+      只允许一条 SQL 语句。根据当前连接使用正确方言：SQL Server使用TOP或OFFSET/FETCH，
+      不使用LIMIT，也不输出GO、冒号命令、!!或sqlcmd变量；ClickHouse、Doris等支持LIMIT的
+      数据库才使用LIMIT。Doris首版只按当前/internal catalog浏览，不臆造外部catalog层级；
+      未经真实部署验证，不宣称任意ClickHouse Cloud或TLS组合都可用。
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 

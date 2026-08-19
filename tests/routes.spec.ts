@@ -29,6 +29,10 @@ function routeFixture(ready = true) {
     async listTables(...args: unknown[]) { calls.push({ method: 'listTables', args }); return ['users'] },
     async describe(...args: unknown[]) { calls.push({ method: 'describe', args }); return [{ name: 'id', type: 'int' }] },
     async query(...args: unknown[]) { calls.push({ method: 'query', args }); return { exitCode: 0, stdout: '1\n', stderr: '', truncated: false } },
+    async executeInteractive(...args: unknown[]) {
+      calls.push({ method: 'executeInteractive', args })
+      return { kind: 'table', columns: ['id'], rows: [{ id: '1' }], elapsedMs: 3, truncated: false, maxRows: 50_000 }
+    },
   }
   const ctx: any = {
     dataAgentConnections: service,
@@ -69,6 +73,12 @@ describe('Web route adapter', () => {
     expect(() => validateConnectBody({
       sessionId: 's', type: 'mysql', database: 'orders', password: 'plain', passwordRef: 'DB_PASSWORD',
     })).toThrow(/不能同时提供/)
+    expect(validateConnectBody({
+      sessionId: 's', type: 'clickhouse', database: 'analytics', secure: true,
+    })).toMatchObject({ type: 'clickhouse', secure: true })
+    expect(validateConnectBody({ sessionId: 's', type: 'doris', database: 'analytics' }).type).toBe('doris')
+    expect(validateConnectBody({ sessionId: 's', type: 'sqlserver', database: 'warehouse' }).type).toBe('sqlserver')
+    expect(() => validateConnectBody({ sessionId: 's', type: 'future-db', database: 'x' })).toThrow(/受支持/)
   })
 
   it('keeps the connect path/response and delegates to the shared service', async () => {
@@ -91,7 +101,7 @@ describe('Web route adapter', () => {
     expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/query', { sessionId: 's', sql: 'SELECT 1;' })).body).toMatchObject({ ok: true })
     expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/disconnect', { sessionId: 's' })).body).toEqual({ ok: true })
     expect(fixture.calls.map(call => call.method)).toEqual([
-      'status', 'listSchemas', 'listTables', 'describe', 'query', 'disconnect',
+      'status', 'listSchemas', 'listTables', 'describe', 'executeInteractive', 'disconnect',
     ])
   })
 

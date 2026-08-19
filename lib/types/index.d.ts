@@ -25,14 +25,14 @@ declare module '@deepseek-ai/cordis' {
 }
 import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
-import { type ClientConfig } from './clients.ts';
+import { type CliDatabaseType, type ClientConfig } from './clients.ts';
 import { type Config as ToolConfig } from './tool.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent";
 /** Services required before the profile entry can mount its preset layer. */
 export declare const inject: string[];
 /** Deployment overrides for one database type's CLI client. */
-export type ClientsConfig = Partial<Record<DatabaseType, ClientConfig>>;
+export type ClientsConfig = Partial<Record<CliDatabaseType, ClientConfig>>;
 /**
  * One config-seeded connection. Deliberately password-free: passwords are a
  * memory-only / connect-time value, so only the /connect route may carry one.
@@ -47,6 +47,8 @@ export interface SeededConnectionConfig {
     database: string;
     /** Optional per-seed read-only guard. */
     readonly?: boolean;
+    /** ClickHouse only: use HTTPS with certificate verification. */
+    secure?: boolean;
     /** Safe credential reference. Real passwords are rejected by the schema. */
     passwordRef?: string;
     password?: never;
@@ -94,27 +96,29 @@ export declare const Config: z<Schemastery.ObjectS<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
         searchPaths?: string[] | null | undefined;
-    } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
+    } & import("@deepseek-ai/cosmokit").Dict, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
-    }>, string>>;
+    }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
     connections: z<import("cosmokit").Dict<{
-        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
+        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
+        secure?: boolean | null | undefined;
         passwordRef?: string | null | undefined;
         password?: null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver">;
         host: z<string, string>;
         port: z<number, number>;
         user: z<string, string>;
         database: z<string, string>;
         readonly: z<boolean, boolean>;
+        secure: z<boolean, boolean>;
         passwordRef: z<string, string>;
         password: z<never, never>;
     }>, string>>;
@@ -133,27 +137,29 @@ export declare const Config: z<Schemastery.ObjectS<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
         searchPaths?: string[] | null | undefined;
-    } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
+    } & import("@deepseek-ai/cosmokit").Dict, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
-    }>, string>>;
+    }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
     connections: z<import("cosmokit").Dict<{
-        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | null | undefined;
+        type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;
         port?: number | null | undefined;
         user?: string | null | undefined;
         database?: string | null | undefined;
         readonly?: boolean | null | undefined;
+        secure?: boolean | null | undefined;
         passwordRef?: string | null | undefined;
         password?: null | undefined;
     } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
-        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala">;
+        type: z<"mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver", "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver">;
         host: z<string, string>;
         port: z<number, number>;
         user: z<string, string>;
         database: z<string, string>;
         readonly: z<boolean, boolean>;
+        secure: z<boolean, boolean>;
         passwordRef: z<string, string>;
         password: z<never, never>;
     }>, string>>;

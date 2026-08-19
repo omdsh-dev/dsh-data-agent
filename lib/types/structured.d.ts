@@ -4,7 +4,7 @@
  * {@link buildStructuredQueryTemplate} in `src/clients.ts`); this module turns
  * that captured stdout into the canonical `{ columns, rows }` shape and
  * enforces the row cap a second time (first line of defense is the SQL-level
- * LIMIT injection, second is truncation while parsing).
+ * dialect-aware SQL rewriting, second is truncation while parsing).
  *
  * The parsers are deliberately output-shape based, not grammar based. Values
  * stay as strings because every client renders SQL values as text (NULL

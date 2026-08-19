@@ -69,7 +69,7 @@ export interface Config {
   queryTimeoutMs: number
   /** In-memory cap on captured output. */
   maxResultChars: number
-  /** Enforced read-query row cap (LIMIT injection + structured truncation). */
+  /** Enforced read-query row cap (dialect rewrite + structured truncation). */
   maxRows: number
   /** Maximum SQL text length accepted per dataset statement. */
   maxQueryChars: number
@@ -261,7 +261,7 @@ export function apply(ctx: Context, config: Config): void {
       sql: {
         type: 'string',
         required: true,
-        description: '一条只读 SQL，如 "SELECT * FROM orders LIMIT 5;"、"SHOW TABLES;"、"DESCRIBE users;"',
+        description: '一条符合当前数据库方言的只读 SQL，如 "SELECT * FROM orders;"、"SHOW TABLES;"、"DESCRIBE users;"',
       },
     },
     output: {
@@ -376,7 +376,7 @@ export function apply(ctx: Context, config: Config): void {
       sql: {
         type: 'string',
         required: true,
-        description: '一条 SQL 文本（或客户端命令），如 "SHOW TABLES;"、"DESCRIBE users;"、"SELECT * FROM orders LIMIT 5;"',
+        description: '一条符合当前数据库方言的 SQL 文本（或数据库命令），如 "SHOW TABLES;"、"DESCRIBE users;"、"SELECT * FROM orders;"',
       },
     },
     output: {

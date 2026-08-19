@@ -9,7 +9,7 @@
  * key is versioned so a future shape change can migrate or ignore old data.
  * @module @yejiming/dsh-data-agent/persistence
  */
-import type { DatabaseType } from './DataAgentWorkbench.tsx';
+import { type DatabaseType } from '../database-types.ts';
 /** localStorage key holding the most recent connection configuration. */
 export declare const CONNECTION_STORAGE_KEY = "dsh-data-agent.connection.v1";
 /** The persisted connection configuration. */
@@ -28,6 +28,8 @@ export interface SavedConnection {
     /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
     persistPassword?: boolean;
     readonly?: boolean;
+    /** ClickHouse only: HTTPS with normal certificate verification. */
+    secure?: boolean;
     /** Diagnostic timestamp of the save. */
     savedAt: string;
 }

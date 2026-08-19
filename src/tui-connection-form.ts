@@ -9,9 +9,20 @@
  * @module @yejiming/dsh-data-agent/tui-connection-form
  */
 
-import type { ConnectionFormDraft, DatabaseConnectionInput, DatabaseType } from './connections.ts'
+import {
+  validatePasswordRef,
+  type ConnectionFormDraft,
+  type ConnectionFormInitial,
+  type DatabaseConnectionInput,
+} from './connections.ts'
+import {
+  DATABASE_TYPES,
+  databaseTypeLabel as sharedDatabaseTypeLabel,
+  defaultDatabasePort as sharedDefaultDatabasePort,
+  type DatabaseType,
+} from './database-types.ts'
 
-export const TUI_DATABASE_TYPES = ['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala'] as const
+export const TUI_DATABASE_TYPES = DATABASE_TYPES
 
 export type TuiConnectionField =
   | 'type'
@@ -20,6 +31,8 @@ export type TuiConnectionField =
   | 'user'
   | 'database'
   | 'password'
+  | 'passwordRef'
+  | 'secure'
   | 'readonly'
   | 'confirm'
   | 'cancel'
@@ -31,11 +44,13 @@ export interface TuiConnectionFormState {
   user: string
   database: string
   password: string
+  passwordRef: string
+  secure: boolean
   readonly: boolean
   focus: TuiConnectionField
   cursor: number
   selector?: {
-    field: 'type' | 'readonly'
+    field: 'type' | 'readonly' | 'secure'
     index: number
   }
   error?: string
@@ -79,12 +94,12 @@ export interface RunTuiConnectionFormOptions {
   input?: TuiFormInput
   output?: TuiFormOutput
   signal?: AbortSignal
-  initialDraft?: ConnectionFormDraft
+  initialDraft?: ConnectionFormInitial
   persistDraft?: (draft: ConnectionFormDraft) => void | Promise<void>
 }
 
 /** Initial form intentionally leaves host/port empty so placeholders are real defaults. */
-export function createTuiConnectionFormState(initialDraft?: ConnectionFormDraft): TuiConnectionFormState {
+export function createTuiConnectionFormState(initialDraft?: ConnectionFormInitial): TuiConnectionFormState {
   return {
     type: initialDraft?.type ?? 'mysql',
     host: initialDraft?.host ?? '',
@@ -92,6 +107,8 @@ export function createTuiConnectionFormState(initialDraft?: ConnectionFormDraft)
     user: initialDraft?.user ?? '',
     database: initialDraft?.database ?? '',
     password: '',
+    passwordRef: initialDraft?.passwordRef ?? '',
+    secure: initialDraft?.secure ?? false,
     readonly: initialDraft?.readonly ?? false,
     focus: 'type',
     cursor: 0,
@@ -107,25 +124,21 @@ export function connectionFormDraft(state: TuiConnectionFormState): ConnectionFo
     user: state.user,
     database: state.database,
     readonly: state.readonly,
+    ...state.type === 'clickhouse' ? { secure: state.secure } : {},
   }
 }
 
 /** Relevant focus order for the selected database kind. */
 export function tuiConnectionFields(type: DatabaseType): readonly TuiConnectionField[] {
-  return type === 'sqlite'
-    ? ['type', 'database', 'readonly', 'confirm', 'cancel']
-    : ['type', 'host', 'port', 'user', 'database', 'password', 'readonly', 'confirm', 'cancel']
+  if (type === 'sqlite') return ['type', 'database', 'readonly', 'confirm', 'cancel']
+  const fields: TuiConnectionField[] = ['type', 'host', 'port', 'user', 'database', 'password', 'passwordRef']
+  if (type === 'clickhouse') fields.push('secure')
+  return [...fields, 'readonly', 'confirm', 'cancel']
 }
 
 /** Default network port shown as a placeholder and applied only at submit time. */
-export function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>): number {
-  switch (type) {
-    case 'mysql': return 3306
-    case 'postgres': return 5432
-    case 'oracle': return 1521
-    case 'hive': return 10000
-    case 'impala': return 21050
-  }
+export function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>, secure = false): number {
+  return sharedDefaultDatabasePort(type, secure)
 }
 
 /** Detect the supported host without coupling to dsh-tui modules. */
@@ -176,9 +189,9 @@ export function updateTuiConnectionForm(
     }
     return { kind: 'editing', state }
   }
-  if (state.focus === 'readonly') {
+  if (state.focus === 'readonly' || state.focus === 'secure') {
     if (key.name === 'enter' || key.name === 'space') {
-      state = { ...state, selector: { field: 'readonly', index: state.readonly ? 1 : 0 } }
+      state = { ...state, selector: { field: state.focus, index: state[state.focus] ? 1 : 0 } }
     }
     return { kind: 'editing', state }
   }
@@ -202,7 +215,9 @@ export function renderTuiConnectionForm(state: TuiConnectionFormState, columns =
     lines.push(...renderField(state, field, width))
   }
   if (state.error !== undefined) lines.push('', red(`! ${state.error}`))
-  lines.push('', dim('密码仅在当前进程内使用，不写入命令、会话或持久化配置。'))
+  lines.push('', dim(state.type === 'sqlite'
+    ? 'SQLite 连接不收集数据库凭据。'
+    : '临时密码不持久化；凭据引用可随非敏感连接 profile 恢复。'))
   return lines.join('\n')
 }
 
@@ -368,7 +383,7 @@ function validateTuiConnectionForm(state: TuiConnectionFormState): { input?: Dat
   if (state.type === 'sqlite') return { input: { type: 'sqlite', database, readonly: state.readonly } }
 
   const portText = state.port.trim()
-  const port = portText === '' ? defaultDatabasePort(state.type) : Number(portText)
+  const port = portText === '' ? defaultDatabasePort(state.type, state.secure) : Number(portText)
   if (!Number.isInteger(port) || port < 1 || port > 65535) return { error: '端口必须是 1–65535 的整数，或留空使用默认值' }
   const input: DatabaseConnectionInput = {
     type: state.type,
@@ -377,9 +392,21 @@ function validateTuiConnectionForm(state: TuiConnectionFormState): { input?: Dat
     database,
     readonly: state.readonly,
   }
+  if (state.type === 'clickhouse') input.secure = state.secure
   const user = state.user.trim()
   if (user !== '') input.user = user
-  if (state.password !== '') input.password = state.password
+  const passwordRef = state.passwordRef.trim()
+  if (state.password !== '' && passwordRef !== '') return { error: '临时密码与凭据引用不能同时填写' }
+  if (passwordRef !== '') {
+    try {
+      validatePasswordRef(passwordRef)
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : String(error) }
+    }
+    input.passwordRef = passwordRef
+  } else if (state.password !== '') {
+    input.password = state.password
+  }
   return { input }
 }
 
@@ -410,8 +437,9 @@ function replaceField(
   return { ...state, [state.focus]: value, cursor }
 }
 
-function isTextField(field: TuiConnectionField): field is 'host' | 'port' | 'user' | 'database' | 'password' {
-  return field === 'host' || field === 'port' || field === 'user' || field === 'database' || field === 'password'
+function isTextField(field: TuiConnectionField): field is 'host' | 'port' | 'user' | 'database' | 'password' | 'passwordRef' {
+  return field === 'host' || field === 'port' || field === 'user' || field === 'database'
+    || field === 'password' || field === 'passwordRef'
 }
 
 function moveFocus(state: TuiConnectionFormState, delta: number): TuiConnectionFormState {
@@ -430,9 +458,25 @@ function updateOpenSelector(state: TuiConnectionFormState, key: TuiFormKey): Tui
   const optionCount = selector.field === 'type' ? TUI_DATABASE_TYPES.length : 2
   if (key.name === 'escape') return { kind: 'editing', state: closeSelector(state) }
   if (key.name === 'enter') {
-    const selected = selector.field === 'type'
-      ? { ...state, type: TUI_DATABASE_TYPES[selector.index]! }
-      : { ...state, readonly: selector.index === 1 }
+    let selected: TuiConnectionFormState
+    if (selector.field === 'type') {
+      const type = TUI_DATABASE_TYPES[selector.index]!
+      const previousDefault = state.type === 'sqlite' ? '' : String(defaultDatabasePort(state.type, state.secure))
+      const secure = type === 'clickhouse' && state.secure
+      const port = state.port === '' || state.port === previousDefault
+        ? type === 'sqlite' ? '' : String(defaultDatabasePort(type, secure))
+        : state.port
+      selected = { ...state, type, secure, port }
+    } else if (selector.field === 'secure') {
+      const secure = selector.index === 1
+      const previousDefault = String(defaultDatabasePort('clickhouse', state.secure))
+      const port = state.port === '' || state.port === previousDefault
+        ? String(defaultDatabasePort('clickhouse', secure))
+        : state.port
+      selected = { ...state, secure, port }
+    } else {
+      selected = { ...state, readonly: selector.index === 1 }
+    }
     return { kind: 'editing', state: closeSelector(selected) }
   }
   let delta = 0
@@ -465,6 +509,7 @@ function renderField(state: TuiConnectionFormState, field: TuiConnectionField, w
   let placeholder = false
   if (field === 'type') value = databaseTypeLabel(state.type)
   else if (field === 'readonly') value = state.readonly ? '是' : '否'
+  else if (field === 'secure') value = state.secure ? '是' : '否'
   else {
     const raw = state[field]
     if (field === 'password') value = '*'.repeat([...raw].length)
@@ -474,9 +519,11 @@ function renderField(state: TuiConnectionFormState, field: TuiConnectionField, w
       value = field === 'host'
         ? '127.0.0.1（默认）'
         : field === 'port'
-          ? `${defaultDatabasePort(state.type as Exclude<DatabaseType, 'sqlite'>)}（默认）`
+          ? `${defaultDatabasePort(state.type as Exclude<DatabaseType, 'sqlite'>, state.secure)}（默认）`
           : field === 'password'
             ? '可留空'
+            : field === 'passwordRef'
+              ? '例如 DB_PASSWORD，可留空'
             : field === 'user'
               ? '可留空'
               : '请输入'
@@ -485,7 +532,7 @@ function renderField(state: TuiConnectionFormState, field: TuiConnectionField, w
   const maxValue = Math.max(8, width - 20)
   const shown = truncate(value.replace(/[\r\n\u001B]/g, ' '), maxValue)
   const content = placeholder ? dim(shown) : shown
-  const expandable = field === 'type' || field === 'readonly'
+  const expandable = field === 'type' || field === 'readonly' || field === 'secure'
   const line = `${pointer} ${label.padEnd(8, '　')} [ ${focused ? cyan(content) : content}${expandable ? ' ▾' : ''} ]`
   if (state.selector?.field !== field) return [line]
   return [line, ...renderSelectorOptions(state)]
@@ -498,7 +545,7 @@ function renderSelectorOptions(state: TuiConnectionFormState): string[] {
     : ['否', '是']
   const selectedIndex = selector.field === 'type'
     ? TUI_DATABASE_TYPES.indexOf(state.type)
-    : state.readonly ? 1 : 0
+    : state[selector.field] ? 1 : 0
   return labels.map((label, index) => {
     const pointer = index === selector.index ? cyan('›') : ' '
     const marker = index === selectedIndex ? cyan('●') : dim('○')
@@ -508,14 +555,7 @@ function renderSelectorOptions(state: TuiConnectionFormState): string[] {
 }
 
 function databaseTypeLabel(type: DatabaseType): string {
-  switch (type) {
-    case 'mysql': return 'MySQL'
-    case 'postgres': return 'PostgreSQL'
-    case 'sqlite': return 'SQLite'
-    case 'oracle': return 'Oracle'
-    case 'hive': return 'Hive'
-    case 'impala': return 'Impala'
-  }
+  return sharedDatabaseTypeLabel(type)
 }
 
 function fieldLabel(field: Exclude<TuiConnectionField, 'confirm' | 'cancel'>, type: DatabaseType): string {
@@ -526,6 +566,8 @@ function fieldLabel(field: Exclude<TuiConnectionField, 'confirm' | 'cancel'>, ty
     case 'user': return '数据库用户'
     case 'database': return type === 'sqlite' ? '文件路径' : '数据库名'
     case 'password': return '密码'
+    case 'passwordRef': return '凭据引用'
+    case 'secure': return 'HTTPS'
     case 'readonly': return '只读模式'
   }
 }

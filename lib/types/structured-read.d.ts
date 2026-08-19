@@ -2,7 +2,7 @@
  * Shared structured read-query execution extracted from the sql-query tool
  * (task 2.1). Both sql-query and render-analysis run every read dataset
  * through this helper, so connection resolution, single-statement assertion,
- * read classification, LIMIT/maxRows enforcement, client execution, secret
+ * read classification, dialect-aware maxRows enforcement, client execution, secret
  * redaction, timeout/cancellation, non-zero-exit surfacing and structured
  * parsing share one code path. Existing sql-query behavior and messages stay
  * unchanged.
@@ -45,6 +45,6 @@ export declare function runnerOptions(resolved: Pick<ResolvedRunnerConfig, 'quer
 /**
  * Execute one read-only SQL through the structured client template and parse
  * it into the canonical { columns, rows } shape, with maxRows enforced at both
- * the SQL level (LIMIT injection) and the parse level.
+ * the SQL level (dialect rewrite) and the parse level.
  */
 export declare function runStructuredReadQuery(ctx: Context, connection: DatabaseConnection, sql: string, resolved: ResolvedRunnerConfig, toolName: string, signal: AbortSignal): Promise<StructuredReadResult>;

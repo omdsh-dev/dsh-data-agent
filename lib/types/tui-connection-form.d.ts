@@ -8,9 +8,10 @@
  * listeners exactly. It never imports dsh-tui, React, or Ink.
  * @module @yejiming/dsh-data-agent/tui-connection-form
  */
-import type { ConnectionFormDraft, DatabaseConnectionInput, DatabaseType } from './connections.ts';
-export declare const TUI_DATABASE_TYPES: readonly ["mysql", "postgres", "sqlite", "oracle", "hive", "impala"];
-export type TuiConnectionField = 'type' | 'host' | 'port' | 'user' | 'database' | 'password' | 'readonly' | 'confirm' | 'cancel';
+import { type ConnectionFormDraft, type ConnectionFormInitial, type DatabaseConnectionInput } from './connections.ts';
+import { type DatabaseType } from './database-types.ts';
+export declare const TUI_DATABASE_TYPES: readonly ["mysql", "postgres", "sqlite", "oracle", "hive", "impala", "clickhouse", "doris", "sqlserver"];
+export type TuiConnectionField = 'type' | 'host' | 'port' | 'user' | 'database' | 'password' | 'passwordRef' | 'secure' | 'readonly' | 'confirm' | 'cancel';
 export interface TuiConnectionFormState {
     type: DatabaseType;
     host: string;
@@ -18,11 +19,13 @@ export interface TuiConnectionFormState {
     user: string;
     database: string;
     password: string;
+    passwordRef: string;
+    secure: boolean;
     readonly: boolean;
     focus: TuiConnectionField;
     cursor: number;
     selector?: {
-        field: 'type' | 'readonly';
+        field: 'type' | 'readonly' | 'secure';
         index: number;
     };
     error?: string;
@@ -71,17 +74,17 @@ export interface RunTuiConnectionFormOptions {
     input?: TuiFormInput;
     output?: TuiFormOutput;
     signal?: AbortSignal;
-    initialDraft?: ConnectionFormDraft;
+    initialDraft?: ConnectionFormInitial;
     persistDraft?: (draft: ConnectionFormDraft) => void | Promise<void>;
 }
 /** Initial form intentionally leaves host/port empty so placeholders are real defaults. */
-export declare function createTuiConnectionFormState(initialDraft?: ConnectionFormDraft): TuiConnectionFormState;
+export declare function createTuiConnectionFormState(initialDraft?: ConnectionFormInitial): TuiConnectionFormState;
 /** Project form state onto the only values allowed to cross the durable seam. */
 export declare function connectionFormDraft(state: TuiConnectionFormState): ConnectionFormDraft;
 /** Relevant focus order for the selected database kind. */
 export declare function tuiConnectionFields(type: DatabaseType): readonly TuiConnectionField[];
 /** Default network port shown as a placeholder and applied only at submit time. */
-export declare function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>): number;
+export declare function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>, secure?: boolean): number;
 /** Detect the supported host without coupling to dsh-tui modules. */
 export declare function isDshTuiTerminal(argv?: readonly string[], input?: Pick<TuiFormInput, 'isTTY'>, output?: Pick<TuiFormOutput, 'isTTY'>): boolean;
 /** Pure keyboard reducer, kept separate from terminal ownership for regression tests. */

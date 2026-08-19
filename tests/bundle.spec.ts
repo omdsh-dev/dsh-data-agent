@@ -32,10 +32,24 @@ describe('client bundle purity (built artifact, task 6.7)', () => {
 
   it.runIf(hasBundle)('contains no Node or Vite environment probes', () => {
     const bundle = readFileSync(bundlePath, 'utf8')
+    const platformModules = new Set([
+      'react', 'react/jsx-runtime', 'react-dom', 'react-dom/client', 'cordis',
+      '@deepseek-ai/dsh-client-ui-slots',
+      '@deepseek-ai/dsh-client-web-react',
+      '@deepseek-ai/dsh-client-ui-primitives',
+      '@deepseek-ai/dsh-client-schema-form',
+    ])
     // DSH evaluates the closure factory in a browser without a Node process
-    // global; unresolved probes from inlined dependencies fail at plugin boot.
+    // global or Node built-ins; unresolved probes/imports from inlined
+    // dependencies fail at plugin boot before the workbench can render.
     expect(bundle).not.toMatch(/\bprocess\.env\b/)
     expect(bundle).not.toMatch(/\bimport\.meta\.env\b/)
+    expect(bundle).not.toMatch(/\bnode:module\b/)
+    expect(bundle).not.toMatch(/\bcreateRequire\b/)
+    const unsupportedRequires = [...bundle.matchAll(/\brequire\((['"])([^'"]+)\1\)/g)]
+      .map(match => match[2]!)
+      .filter(dependency => !platformModules.has(dependency))
+    expect(unsupportedRequires).toEqual([])
   })
 
   it.runIf(hasBundle)('keeps the Web client free of removed TUI scene code', () => {

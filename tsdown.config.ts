@@ -30,7 +30,7 @@ const PLATFORM_MODULES = [
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/** Node-half library: server, routes, tool, human command, and invariant entries. */
+/** Node-half library: server, routes, tool, human command, invariant, and ecosystem entries. */
 const nodeHalf: UserConfig = {
   name: PLUGIN_ID,
   entry: {
@@ -39,6 +39,7 @@ const nodeHalf: UserConfig = {
     tool: 'src/tool.ts',
     command: 'src/command.ts',
     invariant: 'src/invariant.ts',
+    ecosystem: 'src/ecosystem.ts',
   },
   outDir: 'lib',
   format: ['esm'],
@@ -79,6 +80,8 @@ const client: UserConfig = {
     // Bundle purity gate (mirror of the module-edge rules): platform seed
     // entries stay external, every other @deepseek-ai value import is a
     // build error — cross-plugin collaboration goes through cordis services.
+    // Also inspect the final chunk because dependency condition resolution can
+    // introduce a Node built-in after source-level resolve hooks have run.
     name: 'dsh-client-bundle-purity',
     resolveId(source: string) {
       if (!source.startsWith('@deepseek-ai/')) return null
@@ -87,6 +90,19 @@ const client: UserConfig = {
         `client bundle purity: "${source}" is not a platform module — cross-plugin value imports are forbidden; `
         + 'collaborate through cordis services (type-only imports are erased and never reach this gate)',
       )
+    },
+    generateBundle(_options, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (output.type !== 'chunk') continue
+        for (const match of output.code.matchAll(/\brequire\((['"])([^'"]+)\1\)/g)) {
+          const dependency = match[2]!
+          if (PLATFORM_MODULES.includes(dependency as (typeof PLATFORM_MODULES)[number])) continue
+          this.error(
+            `client bundle purity: emitted require("${dependency}") is not a platform module — `
+            + 'bundle the browser implementation or remove the unsupported runtime dependency',
+          )
+        }
+      }
     },
   }, {
     name: 'dsh-css-modules-inline',

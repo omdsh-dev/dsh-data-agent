@@ -102,6 +102,29 @@ describe('database client discovery', () => {
     ]))
   })
 
+  it('uses MySQL discovery for Doris and Microsoft ODBC paths for SQL Server', async () => {
+    const doris = await buildClientSearchDirectories(
+      'doris',
+      undefined,
+      signal(),
+      fakeSystem('darwin', { MYSQL_HOME: '/srv/mysql', PATH: '/usr/bin' }),
+    )
+    expect(doris).toEqual(expect.arrayContaining([
+      '/srv/mysql/bin', '/opt/homebrew/opt/mysql-client/bin',
+    ]))
+
+    const sqlserver = await buildClientSearchDirectories(
+      'sqlserver',
+      undefined,
+      signal(),
+      fakeSystem('win32', { ProgramFiles: 'C:\\Program Files', Path: 'C:\\Windows\\System32' }),
+    )
+    expect(sqlserver).toEqual(expect.arrayContaining([
+      'C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\180\\Tools\\Binn',
+      'C:\\Program Files\\Microsoft SQL Server\\Client SDK\\ODBC\\170\\Tools\\Binn',
+    ]))
+  })
+
   it('sorts Windows PostgreSQL version directories newest first and uses the effective Path key', async () => {
     const system = fakeSystem(
       'win32',

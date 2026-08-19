@@ -13,7 +13,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
 import type {} from './index.ts'
-import type { DatabaseConnectionInput, DatabaseType } from './connections.ts'
+import type { DatabaseConnectionInput } from './connections.ts'
+import { DATABASE_TYPES, isDatabaseType } from './database-types.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_INTROSPECT_MAX_TABLES,
@@ -59,13 +60,14 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
   const sessionId = requireString(candidate.sessionId, 'sessionId')
   const type = candidate.type
   if (!isDatabaseType(type)) {
-    throw new Error('type 必须是 "mysql"、"postgres"、"sqlite"、"oracle"、"hive" 或 "impala"')
+    throw new Error(`type 必须是受支持的数据库类型：${DATABASE_TYPES.join('、')}`)
   }
   const database = requireString(candidate.database, 'database')
   const password = optionalString(candidate.password, 'password')
   const passwordRef = optionalString(candidate.passwordRef, 'passwordRef')
   if (password !== undefined && passwordRef !== undefined) throw new Error('password 与 passwordRef 不能同时提供')
   const readonly = optionalBoolean(candidate.readonly, 'readonly')
+  const secure = optionalBoolean(candidate.secure, 'secure')
   const profileId = optionalString(candidate.profileId, 'profileId')
   const profileName = optionalString(candidate.name, 'name')
 
@@ -75,6 +77,7 @@ export function validateConnectBody(value: unknown, cwd = process.cwd()): Connec
     database: type === 'sqlite' ? resolve(cwd, database) : database,
   }
   if (readonly !== undefined) request.readonly = readonly
+  if (type === 'clickhouse' && secure !== undefined) request.secure = secure
   if (profileId !== undefined) request.profileId = profileId
   if (profileName !== undefined) request.name = profileName
   if (type === 'sqlite') return request
@@ -170,7 +173,7 @@ export function apply(ctx: Context, _config: Config): void {
               const body = await readJson(req) as Record<string, unknown>
               const sessionId = requireString(body.sessionId, 'sessionId')
               const sql = requireString(body.sql, 'sql')
-              const result = await scope.dataAgentConnections.query(sessionId, sql, signal)
+              const result = await scope.dataAgentConnections.executeInteractive(sessionId, sql, signal)
               writeJson(200, { ok: true, result })
               return
             }
@@ -218,9 +221,4 @@ function optionalBoolean(value: unknown, label: string): boolean | undefined {
   if (value === undefined) return undefined
   if (typeof value !== 'boolean') throw new Error(`${label} 必须是布尔值`)
   return value
-}
-
-function isDatabaseType(value: unknown): value is DatabaseType {
-  return value === 'mysql' || value === 'postgres' || value === 'sqlite'
-    || value === 'oracle' || value === 'hive' || value === 'impala'
 }

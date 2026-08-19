@@ -10,6 +10,7 @@ import {
 import {
   persistedConnectionFormDraftSchema,
   persistedConnectionProfileSchema,
+  latestConnectionProfile,
   sessionConnectionBindingSchema,
 } from '../src/storage.ts'
 
@@ -25,8 +26,10 @@ function memoryPersistence() {
   const bindings = new Map<string, SessionConnectionBinding>()
   const drafts = new Map<string, PersistedConnectionFormDraft>()
   let failBindingWrite = false
+  let failDraftWrite = false
   const persistence: ConnectionPersistence = {
     getProfile: id => profiles.get(id),
+    getLatestProfile: () => latestConnectionProfile(profiles.entries()),
     async putProfile(id, value) { profiles.set(id, value) },
     async deleteProfile(id) { return profiles.delete(id) },
     getBinding: id => bindings.get(id),
@@ -39,9 +42,23 @@ function memoryPersistence() {
     },
     async deleteBinding(id) { return bindings.delete(id) },
     getDraft: id => drafts.get(id),
-    async putDraft(id, value) { drafts.set(id, value) },
+    async putDraft(id, value) {
+      if (failDraftWrite) {
+        failDraftWrite = false
+        throw new Error('draft medium unavailable')
+      }
+      drafts.set(id, value)
+    },
+    async deleteDraft(id) { return drafts.delete(id) },
   }
-  return { persistence, profiles, bindings, drafts, failNextBindingWrite() { failBindingWrite = true } }
+  return {
+    persistence,
+    profiles,
+    bindings,
+    drafts,
+    failNextBindingWrite() { failBindingWrite = true },
+    failNextDraftWrite() { failDraftWrite = true },
+  }
 }
 
 function fakeContext(options?: {
@@ -151,6 +168,9 @@ describe('DataAgentConnectionService', () => {
     expect(stored.passwordRef).toBe('ORDERS_DB_PASSWORD')
     expect(stored.credentialMode).toBe('reference')
     expect(stored).not.toHaveProperty('password')
+    expect(durable.drafts.get('session-a')).toMatchObject({
+      type: 'mysql', host: 'db', port: '3306', user: 'app', database: 'orders', readonly: true,
+    })
     expect(JSON.stringify([...durable.profiles, ...durable.bindings])).not.toContain('super-secret')
   })
 
@@ -171,6 +191,63 @@ describe('DataAgentConnectionService', () => {
     expect(restored.getFormDraft('session-a')?.database).toBe('analytics')
   })
 
+  it('merges an exact draft with its bound profile credential reference', async () => {
+    const durable = memoryPersistence()
+    const host = fakeContext({ secret: () => 'resolved-secret' })
+    const service = createConnectionService(host.ctx, serviceOptions, durable.persistence)
+    await service.connect('session-a', {
+      type: 'postgres', host: 'connected-host', user: 'connected-user', database: 'connected-db',
+      passwordRef: 'ANALYTICS_PASSWORD', readonly: false,
+    }, signal())
+    await service.saveFormDraft('session-a', {
+      type: 'postgres', host: 'edited-host', port: '5433', user: 'edited-user', database: 'edited-db', readonly: true,
+    })
+
+    expect(service.getFormDraft('session-a')).toEqual({
+      type: 'postgres', host: 'edited-host', port: '5433', user: 'edited-user', database: 'edited-db',
+      readonly: true, passwordRef: 'ANALYTICS_PASSWORD',
+    })
+    expect(JSON.stringify(durable.drafts.get('session-a'))).not.toContain('ANALYTICS_PASSWORD')
+    expect(JSON.stringify(durable.drafts.get('session-a'))).not.toContain('resolved-secret')
+  })
+
+  it('uses the latest successful profile as unbound form defaults without sharing the connection', async () => {
+    const durable = memoryPersistence()
+    const host = fakeContext({ secret: () => 'resolved-secret' })
+    const service = createConnectionService(host.ctx, serviceOptions, durable.persistence)
+    await service.connect('session-a', {
+      type: 'mysql', host: 'db.internal', port: 3307, user: 'app', database: 'orders',
+      passwordRef: 'ORDERS_PASSWORD', readonly: true,
+    }, signal())
+
+    expect(service.getFormDraft('new-session')).toEqual({
+      type: 'mysql', host: 'db.internal', port: '3307', user: 'app', database: 'orders',
+      readonly: true, passwordRef: 'ORDERS_PASSWORD',
+    })
+    expect(await service.status('new-session')).toBeUndefined()
+    await expect(service.resolveForExecution('new-session')).rejects.toThrow(/未找到当前会话的连接/)
+  })
+
+  it('prefers an exact bound profile over a newer unrelated profile when no draft exists', () => {
+    const durable = memoryPersistence()
+    durable.profiles.set('exact-profile', {
+      type: 'postgres', host: 'exact-db', port: 5432, user: 'exact-user', database: 'exact',
+      passwordRef: 'EXACT_PASSWORD', updatedAt: '2026-08-19T01:00:00.000Z',
+    })
+    durable.profiles.set('newer-profile', {
+      type: 'mysql', host: 'newer-db', port: 3306, user: 'newer-user', database: 'newer',
+      passwordRef: 'NEWER_PASSWORD', updatedAt: '2026-08-19T02:00:00.000Z',
+    })
+    durable.bindings.set('session-a', {
+      profileId: 'exact-profile', updatedAt: '2026-08-19T01:00:00.000Z',
+    })
+    const service = createConnectionService(fakeContext().ctx, serviceOptions, durable.persistence)
+
+    expect(service.getFormDraft('session-a')).toMatchObject({
+      type: 'postgres', host: 'exact-db', user: 'exact-user', database: 'exact', passwordRef: 'EXACT_PASSWORD',
+    })
+  })
+
   it('resolves a credential again for connect and every later operation', async () => {
     let secret = 'first-secret'
     const host = fakeContext({
@@ -188,6 +265,59 @@ describe('DataAgentConnectionService', () => {
     expect(host.spawned[0]!.env).toEqual({ PGPASSWORD: 'first-secret' })
     expect(host.spawned[1]!.env).toEqual({ PGPASSWORD: 'rotated-secret' })
     expect(host.spawned.flatMap(item => item.argv).join(' ')).not.toContain('secret')
+  })
+
+  it('keeps accessible system schemas and hides inaccessible ordinary schemas before the limit', async () => {
+    const host = fakeContext({
+      output: spec => {
+        if (spec.stdio.stdin.data.includes('SHOW DATABASES')) {
+          return {
+            stdout: ['Database', 'private_archive', 'performance_schema', 'analytics', 'orders'].join('\n'),
+          }
+        }
+        const databaseFlag = spec.argv.indexOf('-D')
+        const database = databaseFlag === -1 ? undefined : spec.argv[databaseFlag + 1]
+        if (database === 'private_archive') {
+          return {
+            exitCode: 1,
+            stderr: "ERROR 1044 (42000) at line 1: Access denied for user 'app'@'localhost' to database 'private_archive'",
+          }
+        }
+        return { stdout: `Tables_in_${database ?? 'unknown'}\nusers\n` }
+      },
+    })
+    const service = createConnectionService(host.ctx, {
+      ...serviceOptions,
+      introspectMaxTables: 3,
+    })
+    await service.connect('s', { type: 'mysql', database: 'orders' }, signal())
+
+    await expect(service.listSchemas('s', signal()))
+      .resolves.toEqual(['performance_schema', 'analytics', 'orders'])
+    const currentDatabaseProbes = host.spawned.filter(spec => {
+      const databaseFlag = spec.argv.indexOf('-D')
+      return spec.argv[databaseFlag + 1] === 'orders' && spec.stdio.stdin.data.trim() === 'SHOW TABLES;'
+    })
+    expect(currentDatabaseProbes).toHaveLength(0)
+  })
+
+  it('propagates non-1044 MySQL schema probe failures', async () => {
+    const host = fakeContext({
+      output: spec => {
+        if (spec.stdio.stdin.data.includes('SHOW DATABASES')) {
+          return { stdout: 'Database\nanalytics\n' }
+        }
+        const databaseFlag = spec.argv.indexOf('-D')
+        if (spec.argv[databaseFlag + 1] === 'analytics') {
+          return { exitCode: 1, stderr: 'ERROR 2006 (HY000): MySQL server has gone away' }
+        }
+        return { stdout: 'Tables_in_orders\nusers\n' }
+      },
+    })
+    const service = createConnectionService(host.ctx, serviceOptions)
+    await service.connect('s', { type: 'mysql', database: 'orders' }, signal())
+
+    await expect(service.listSchemas('s', signal())).rejects.toThrow(/元数据查询失败.*ERROR 2006/)
   })
 
   it('fails before spawning when a credential reference is not configured', async () => {
@@ -229,6 +359,14 @@ describe('DataAgentConnectionService', () => {
     await expect(service.connect('s', { type: 'sqlite', database: 'second.db' }, signal())).rejects.toThrow(/medium unavailable/)
     expect(service.get('s')?.database).toBe('/workspace/first.db')
     expect(durable.profiles.get('session:s')?.database).toBe('/workspace/first.db')
+    expect(durable.drafts.get('s')?.database).toBe('/workspace/first.db')
+
+    durable.failNextDraftWrite()
+    await expect(service.connect('s', { type: 'sqlite', database: 'third.db' }, signal())).rejects.toThrow(/draft medium unavailable/)
+    expect(service.get('s')?.database).toBe('/workspace/first.db')
+    expect(durable.profiles.get('session:s')?.database).toBe('/workspace/first.db')
+    expect(durable.bindings.get('s')?.profileId).toBe('session:s')
+    expect(durable.drafts.get('s')?.database).toBe('/workspace/first.db')
   })
 
   it('isolates bindings and restores wildcard fallback after disconnect', async () => {
@@ -314,6 +452,29 @@ describe('DataAgentConnectionService', () => {
     expect(desktopHost.spawned[0]!.env).toEqual({})
   })
 
+  it('returns structured interactive reads capped for 50,000-row exports and preserves write messages', async () => {
+    const host = fakeContext({
+      output: spec => {
+        if (spec.stdio.stdin.data.includes('sqlite_master')) return { stdout: 'users\n' }
+        if (spec.stdio.stdin.data.includes('SELECT id')) return { stdout: 'id,name\n1,Alice\n2,张三\n' }
+        return { stdout: 'write ok\n' }
+      },
+    })
+    const service = createConnectionService(host.ctx, serviceOptions)
+    await service.connect('s', { type: 'sqlite', database: 'orders.db' }, signal())
+
+    const read = await service.executeInteractive('s', 'SELECT id, name FROM users;', signal())
+    expect(read).toEqual({
+      kind: 'table', columns: ['id', 'name'],
+      rows: [{ id: '1', name: 'Alice' }, { id: '2', name: '张三' }],
+      elapsedMs: expect.any(Number), truncated: false, maxRows: 50_000,
+    })
+    expect(host.spawned[1]!.stdio.stdin.data).toContain('LIMIT 50001')
+
+    const write = await service.executeInteractive('s', 'DELETE FROM users WHERE id = 99;', signal())
+    expect(write).toMatchObject({ kind: 'message', exitCode: 0, stdout: 'write ok\n' })
+  })
+
   it('redacts a resolved secret from client stdout and stderr', async () => {
     const host = fakeContext({
       secret: () => 'leaky-secret',
@@ -330,6 +491,17 @@ describe('DataAgentConnectionService', () => {
 })
 
 describe('connection storage schemas', () => {
+  it('selects the latest profile deterministically without changing its record', () => {
+    const first = { type: 'sqlite' as const, database: '/first.db', updatedAt: '2026-08-19T01:00:00.000Z' }
+    const tied = { type: 'sqlite' as const, database: '/tied.db', updatedAt: '2026-08-19T02:00:00.000Z' }
+    expect(latestConnectionProfile([
+      ['profile-z', tied],
+      ['profile-a', tied],
+      ['profile-old', first],
+    ])).toEqual({ profileId: 'profile-z', profile: tied })
+    expect(latestConnectionProfile([])).toBeUndefined()
+  })
+
   it('accepts safe records and rejects secret/unknown fields', () => {
     expect(persistedConnectionProfileSchema.safeParse({
       type: 'mysql', database: 'orders', passwordRef: 'DB_PASSWORD', credentialMode: 'reference', updatedAt: 'x',

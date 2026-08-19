@@ -1,0 +1,77 @@
+{
+  "inventoryVersion": "1",
+  "packageName": "@yejiming/dsh-data-agent",
+  "nativeRuntime": {
+    "bundleRows": [
+      "@yejiming/dsh-data-agent",
+      "@yejiming/dsh-data-agent/routes"
+    ],
+    "presetRows": [
+      "@deepseek-ai/dsh-persona",
+      "@deepseek-ai/dsh-tool-str-replace-editor"
+    ],
+    "commands": ["database"],
+    "tools": [
+      "render-analysis",
+      "sql-cmd",
+      "sql-query",
+      "sql-write",
+      "str_replace_editor"
+    ],
+    "services": ["dataAgentConnections"],
+    "routes": [
+      "GET describe",
+      "GET schemas",
+      "GET status",
+      "GET tables",
+      "POST connect",
+      "POST disconnect",
+      "POST query"
+    ],
+    "webSlots": [
+      "conversation.input.right",
+      "tool.call.toolview"
+    ],
+    "storageDomains": ["data_agent_connections@1"],
+    "surfaces": ["desktop", "headless", "tui", "web"],
+    "databaseTypes": [
+      "clickhouse",
+      "doris",
+      "hive",
+      "impala",
+      "mysql",
+      "oracle",
+      "postgres",
+      "sqlite",
+      "sqlserver"
+    ],
+    "publicExports": [
+      ".",
+      "./client",
+      "./command",
+      "./cordis.patch.yml",
+      "./invariant",
+      "./package.json",
+      "./routes",
+      "./src/*",
+      "./tool"
+    ],
+    "packageFiles": [
+      "cordis.patch.yml",
+      "lib/**",
+      "preset/**"
+    ]
+  },
+  "abilities": [
+    { "id": "command:database", "disposition": "declared", "manifestReference": "io.github.omdsh-dev.dsh-data-agent.database" },
+    { "id": "tools:model", "disposition": "upstream-gap", "restrictionId": "tool-extension-not-in-tui-profile" },
+    { "id": "preset:data-agent", "disposition": "upstream-gap", "restrictionId": "agent-preset-not-in-tui-profile" },
+    { "id": "service:dataAgentConnections", "disposition": "upstream-gap", "restrictionId": "cordis-service-not-in-tui-profile" },
+    { "id": "routes:data-agent", "disposition": "restriction", "restrictionId": "http-routes-native-only" },
+    { "id": "ui:web-slots", "disposition": "restriction", "restrictionId": "web-slots-native-only" },
+    { "id": "storage:data_agent_connections", "disposition": "restriction", "restrictionId": "storage-domain-native-only" },
+    { "id": "credentials:resolve", "disposition": "restriction", "restrictionId": "credential-resolution-native-only" },
+    { "id": "subprocess:database-clients", "disposition": "restriction", "restrictionId": "database-execution-native-only" },
+    { "id": "presentation:local-tty", "disposition": "restriction", "restrictionId": "legacy-local-tty" }
+  ]
+}

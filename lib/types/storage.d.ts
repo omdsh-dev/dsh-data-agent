@@ -10,7 +10,7 @@
  */
 import { type Domain } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
-import type { ConnectionPersistence, PersistedConnectionFormDraft, PersistedConnectionProfile, SessionConnectionBinding } from './connections.ts';
+import type { ConnectionPersistence, PersistedConnectionFormDraft, PersistedConnectionProfile, PersistedConnectionProfileEntry, SessionConnectionBinding } from './connections.ts';
 /** Storage-domain identity. Bump the version only with an explicit migration. */
 export declare const CONNECTION_STORAGE_DOMAIN = "data_agent_connections";
 export declare const CONNECTION_STORAGE_VERSION = 1;
@@ -24,12 +24,16 @@ export declare const persistedConnectionProfileSchema: z.ZodObject<{
         oracle: "oracle";
         hive: "hive";
         impala: "impala";
+        clickhouse: "clickhouse";
+        doris: "doris";
+        sqlserver: "sqlserver";
     }>;
     host: z.ZodOptional<z.ZodString>;
     port: z.ZodOptional<z.ZodNumber>;
     user: z.ZodOptional<z.ZodString>;
     database: z.ZodString;
     readonly: z.ZodOptional<z.ZodBoolean>;
+    secure: z.ZodOptional<z.ZodBoolean>;
     passwordRef: z.ZodOptional<z.ZodString>;
     credentialMode: z.ZodOptional<z.ZodEnum<{
         none: "none";
@@ -52,12 +56,16 @@ export declare const persistedConnectionFormDraftSchema: z.ZodObject<{
         oracle: "oracle";
         hive: "hive";
         impala: "impala";
+        clickhouse: "clickhouse";
+        doris: "doris";
+        sqlserver: "sqlserver";
     }>;
     host: z.ZodString;
     port: z.ZodString;
     user: z.ZodString;
     database: z.ZodString;
     readonly: z.ZodBoolean;
+    secure: z.ZodOptional<z.ZodBoolean>;
     updatedAt: z.ZodString;
 }, z.core.$strict>;
 /** Single source of truth for the storage layout and durable validation. */
@@ -71,5 +79,7 @@ export declare const connectionStorageSpec: {
     };
 };
 export type ConnectionStorageDomain = Domain<typeof connectionStorageSpec>;
+/** Select the newest successful profile with a deterministic id tie-break. */
+export declare function latestConnectionProfile(entries: Iterable<readonly [string, PersistedConnectionProfile]>): PersistedConnectionProfileEntry | undefined;
 /** Project a typed DSH domain handle onto the service's persistence seam. */
 export declare function createDomainConnectionPersistence(domain: ConnectionStorageDomain): ConnectionPersistence;

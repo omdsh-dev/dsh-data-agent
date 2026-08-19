@@ -1,10 +1,10 @@
 /**
- * The shared client-process runner used by both halves: the /connect
- * connectivity check (server half) and the database tools (tool half). All
- * execution goes through `ctx.subprocess` — no shell layer, argv arrays only,
- * SQL on stdin, credentials in env entries — with a caller-owned timeout
- * (AbortController → process-tree terminate escalation) and bounded captured
- * output.
+ * The shared database runner used by both halves: the /connect connectivity
+ * check (server half) and the database tools (tool half). CLI-backed adapters
+ * go through `ctx.subprocess` with argv arrays, SQL on stdin, and credentials
+ * in their dedicated environment/stdin channel. ClickHouse uses the official
+ * Node HTTP client with explicit transport/authentication fields. Both paths
+ * share caller-owned cancellation, deadlines, and bounded captured output.
  * @module @yejiming/dsh-data-agent/query
  */
 import type { Context } from '@deepseek-ai/cordis';
@@ -26,11 +26,11 @@ export interface QueryResult {
     /** True when either stream hit the maxResultChars cap. */
     truncated: boolean;
 }
-/** Which CLI flag set to use for one run. */
+/** Which deterministic raw/introspection/structured output mode to use. */
 export type QueryTemplateMode = 'query' | 'introspect' | 'structured';
 /** Runner options: client overrides, deadlines, output caps. */
 export interface QueryOptions {
-    /** Deployment client overrides keyed by database type. */
+    /** Deployment CLI overrides keyed by CLI-backed database type. */
     clients: Readonly<Partial<Record<DatabaseType, ClientConfig>>>;
     /** End-to-end deadline in milliseconds (timeout → terminate the tree). */
     timeoutMs: number;
@@ -41,10 +41,12 @@ export interface QueryOptions {
     /** CLI flag set; overrides the legacy `introspect` parameter when set. */
     mode?: QueryTemplateMode;
 }
+/** ClickHouse endpoint construction never embeds username or password. */
+export declare function clickHouseConnectionUrl(connection: DatabaseConnection): string;
 /**
- * Run one SQL text through the type's CLI client. The SQL is written to the
- * child's stdin (`{ data }` batch disposition) so it never appears in argv;
- * passwords travel in the env entries built by the template.
+ * Run one SQL text through the type's shared adapter. CLI SQL is written to
+ * child stdin (`{ data }` batch disposition), while ClickHouse SQL is an HTTP
+ * request body; neither path puts SQL or credentials in argv.
  *
  * Failure classification:
  * - the caller's external signal (e.g. the tool exec signal) aborts → the

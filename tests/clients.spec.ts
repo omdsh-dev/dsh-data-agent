@@ -10,6 +10,8 @@ import {
   parseListing,
   parseTableListing,
   sanitizeIdentifier,
+  SQLSERVER_COLUMN_SEPARATOR,
+  stripSqlServerRowCountFooter,
   tableListingSql,
 } from '../src/clients.ts'
 
@@ -33,12 +35,30 @@ const postgresConnection = {
 
 const sqliteConnection = { type: 'sqlite' as const, database: '/tmp/orders.db' }
 
+const dorisConnection = {
+  type: 'doris' as const,
+  host: 'doris.internal',
+  port: 9030,
+  user: 'root',
+  database: 'analytics',
+  password: 'doris-secret',
+}
+
+const sqlServerConnection = {
+  type: 'sqlserver' as const,
+  host: 'sql.internal',
+  port: 1433,
+  user: 'sa',
+  database: 'warehouse',
+  password: 'sql-secret',
+}
+
 describe('buildClientTemplate', () => {
   it('builds the mysql argv with connection flags and the password only in env', () => {
     const template = buildClientTemplate('mysql', mysqlConnection)
     expect(template.command).toBe('mysql')
     expect(template.args).toEqual([
-      '--batch', '--raw',
+      '--default-character-set=utf8mb4', '--batch', '--raw',
       '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
     ])
     expect(template.env).toEqual({ MYSQL_PWD: 'hunter2' })
@@ -65,7 +85,10 @@ describe('buildClientTemplate', () => {
 
   it('applies defaults for missing host/port/user', () => {
     const template = buildClientTemplate('mysql', { type: 'mysql', database: 'd' })
-    expect(template.args).toEqual(['--batch', '--raw', '-h', '127.0.0.1', '-P', '3306', '-u', 'root', '-D', 'd'])
+    expect(template.args).toEqual([
+      '--default-character-set=utf8mb4', '--batch', '--raw',
+      '-h', '127.0.0.1', '-P', '3306', '-u', 'root', '-D', 'd',
+    ])
   })
 
   it('honors deployment overrides for command and extra args', () => {
@@ -74,19 +97,53 @@ describe('buildClientTemplate', () => {
       args: ['--protocol=tcp'],
     })
     expect(template.command).toBe('/usr/local/bin/mysql-client')
-    expect(template.args[0]).toBe('--protocol=tcp')
+    expect(template.args).toEqual([
+      '--protocol=tcp', '--default-character-set=utf8mb4', '--batch', '--raw',
+      '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
+    ])
   })
 
   it('never puts SQL into argv (the runner owns stdin)', () => {
     const template = buildClientTemplate('mysql', mysqlConnection)
     expect(template.args.join(' ')).not.toMatch(/SELECT|SHOW|DROP|DELETE/i)
   })
+
+  it('keeps Doris first-class while reusing the MySQL protocol adapter', () => {
+    const template = buildClientTemplate('doris', dorisConnection)
+    expect(template.command).toBe('mysql')
+    expect(template.args).toEqual([
+      '--default-character-set=utf8mb4', '--batch', '--raw',
+      '-h', 'doris.internal', '-P', '9030', '-u', 'root', '-D', 'analytics',
+    ])
+    expect(template.env).toEqual({ MYSQL_PWD: 'doris-secret' })
+    expect(template.args.join(' ')).not.toContain('doris-secret')
+  })
+
+  it('builds the Microsoft ODBC sqlcmd invocation without weakening certificate trust', () => {
+    const template = buildClientTemplate('sqlserver', sqlServerConnection)
+    expect(template.command).toBe('sqlcmd')
+    expect(template.args).toEqual([
+      '-b', '-V', '11', '-r', '1', '-x', '-W', '-w', '65535', '-s', SQLSERVER_COLUMN_SEPARATOR,
+      '-S', 'sql.internal,1433', '-U', 'sa', '-d', 'warehouse',
+    ])
+    expect(template.env).toEqual({ SQLCMDPASSWORD: 'sql-secret' })
+    expect(template.stdinPrefix).toBe('SET NOCOUNT ON;\n')
+    expect(template.args).not.toContain('-C')
+    expect(template.args.join(' ')).not.toContain('sql-secret')
+  })
+
+  it('never builds a CLI template for the ClickHouse HTTP adapter', () => {
+    expect(() => buildClientTemplate('clickhouse', {
+      type: 'clickhouse', database: 'default', password: 'click-secret',
+    })).toThrow(/HTTP/)
+  })
 })
 
 describe('buildIntrospectTemplate', () => {
   it('uses machine-readable flags for each type', () => {
     expect(buildIntrospectTemplate('mysql', mysqlConnection).args).toEqual([
-      '--batch', '--raw', '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
+      '--default-character-set=utf8mb4', '--batch', '--raw',
+      '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
     ])
     expect(buildIntrospectTemplate('postgres', postgresConnection).args).toEqual([
       '-t', '-A', '-h', 'pg.internal', '-p', '5433', '-U', 'owner', '-d', 'analytics',
@@ -96,6 +153,10 @@ describe('buildIntrospectTemplate', () => {
     ])
     // Credentials still travel in env only.
     expect(buildIntrospectTemplate('mysql', mysqlConnection).env).toEqual({ MYSQL_PWD: 'hunter2' })
+    expect(buildIntrospectTemplate('sqlserver', sqlServerConnection).args).toContain('-h')
+    const structured = buildStructuredQueryTemplate('sqlserver', sqlServerConnection).args
+    expect(structured).toEqual(expect.arrayContaining(['-s', SQLSERVER_COLUMN_SEPARATOR, '-x']))
+    expect(structured).not.toContain('-h')
   })
 })
 
@@ -104,6 +165,9 @@ describe('tableListingSql', () => {
     expect(tableListingSql('mysql', mysqlConnection)).toBe('SHOW TABLES FROM `orders`;')
     expect(tableListingSql('postgres')).toContain('pg_tables')
     expect(tableListingSql('sqlite')).toContain('sqlite_master')
+    expect(tableListingSql('clickhouse')).toContain('system.tables')
+    expect(tableListingSql('doris', dorisConnection)).toBe('SHOW TABLES FROM `analytics`;')
+    expect(tableListingSql('sqlserver')).toContain('INFORMATION_SCHEMA.TABLES')
   })
 })
 
@@ -226,6 +290,9 @@ describe('metadataQuery', () => {
     expect(metadataQuery('schemas', 'oracle')).toContain('all_users')
     expect(metadataQuery('schemas', 'hive')).toBe('SHOW DATABASES;')
     expect(metadataQuery('schemas', 'impala')).toBe('SHOW DATABASES;')
+    expect(metadataQuery('schemas', 'clickhouse')).toContain('system.databases')
+    expect(metadataQuery('schemas', 'doris')).toBe('SHOW DATABASES;')
+    expect(metadataQuery('schemas', 'sqlserver')).toContain('INFORMATION_SCHEMA.SCHEMATA')
   })
 
   it('builds the tables query per type with the schema identifier', () => {
@@ -234,6 +301,9 @@ describe('metadataQuery', () => {
     expect(metadataQuery('tables', 'sqlite')).toContain('sqlite_master')
     expect(metadataQuery('tables', 'oracle', 'SCOTT')).toContain("owner='SCOTT'")
     expect(metadataQuery('tables', 'hive', 'default')).toBe('SHOW TABLES IN `default`;')
+    expect(metadataQuery('tables', 'clickhouse', 'analytics')).toContain("database='analytics'")
+    expect(metadataQuery('tables', 'doris', 'analytics')).toBe('SHOW TABLES FROM `analytics`;')
+    expect(metadataQuery('tables', 'sqlserver', 'dbo')).toContain("TABLE_SCHEMA='dbo'")
   })
 
   it('builds the describe query per type', () => {
@@ -242,6 +312,9 @@ describe('metadataQuery', () => {
     expect(metadataQuery('describe', 'sqlite', undefined, 'orders')).toBe('PRAGMA table_info("orders");')
     expect(metadataQuery('describe', 'oracle', 'SCOTT', 'EMP')).toContain("owner='SCOTT' AND table_name='EMP'")
     expect(metadataQuery('describe', 'impala', 'analytics', 'orders')).toBe('DESCRIBE `analytics`.`orders`;')
+    expect(metadataQuery('describe', 'clickhouse', 'analytics', 'orders')).toContain('system.columns')
+    expect(metadataQuery('describe', 'doris', 'analytics', 'orders')).toBe('DESCRIBE `analytics`.`orders`;')
+    expect(metadataQuery('describe', 'sqlserver', 'dbo', 'orders')).toContain("TABLE_NAME='orders'")
   })
 })
 
@@ -283,6 +356,24 @@ describe('parseColumns', () => {
     expect(parseColumns('hive', out)).toEqual([
       { name: 'id', type: 'int' },
       { name: 'name', type: 'string' },
+    ])
+  })
+
+  it('parses ClickHouse, Doris, and SQL Server describe output', () => {
+    expect(parseColumns('clickhouse', 'id\tUInt64\tNO\nnote\tNullable(String)\tYES\n')).toEqual([
+      { name: 'id', type: 'UInt64', nullable: false },
+      { name: 'note', type: 'Nullable(String)', nullable: true },
+    ])
+    expect(parseColumns('doris', 'Field\tType\tNull\tKey\tDefault\tExtra\nid\tBIGINT\tNO\t\tNULL\t\n')).toEqual([
+      { name: 'id', type: 'BIGINT', nullable: false },
+    ])
+    expect(parseColumns('sqlserver', [
+      ['id', 'bigint', 'NO'].join(SQLSERVER_COLUMN_SEPARATOR),
+      ['名称', 'nvarchar', 'YES'].join(SQLSERVER_COLUMN_SEPARATOR),
+      '',
+    ].join('\n'))).toEqual([
+      { name: 'id', type: 'bigint', nullable: false },
+      { name: '名称', type: 'nvarchar', nullable: true },
     ])
   })
 })
@@ -341,6 +432,15 @@ describe('classifyStatement', () => {
     expect(classifyStatement('   ', 'postgres')).toBe('write')
     expect(classifyStatement('-- only a comment', 'mysql')).toBe('write')
   })
+
+  it('classifies dialect-specific SELECT write forms without string/comment false positives', () => {
+    expect(classifyStatement('SELECT * INTO archive FROM orders', 'sqlserver')).toBe('write')
+    expect(classifyStatement("SELECT 'INTO archive' AS note FROM orders", 'sqlserver')).toBe('read')
+    expect(classifyStatement('SELECT * FROM orders -- INTO archive', 'sqlserver')).toBe('read')
+    expect(classifyStatement("SELECT * FROM orders INTO OUTFILE '/tmp/x'", 'mysql')).toBe('write')
+    expect(classifyStatement("SELECT 'INTO OUTFILE' AS note", 'doris')).toBe('read')
+    expect(classifyStatement('SELECT * FROM orders INTO DUMPFILE \'x\'', 'clickhouse')).toBe('write')
+  })
 })
 
 describe('sanitizeIdentifier', () => {
@@ -359,6 +459,12 @@ describe('sanitizeIdentifier', () => {
     expect(sanitizeIdentifier('sqlite', 'orders')).toBe('"orders"')
   })
 
+  it('uses product-specific quoting for the new types', () => {
+    expect(sanitizeIdentifier('clickhouse', 'events')).toBe('`events`')
+    expect(sanitizeIdentifier('doris', 'events')).toBe('`events`')
+    expect(sanitizeIdentifier('sqlserver', 'events')).toBe('[events]')
+  })
+
   it('allows $ and _ but rejects injection-shaped characters', () => {
     expect(sanitizeIdentifier('postgres', 'a$b_c')).toBe('"a$b_c"')
     for (const bad of ['a#b', 'a--b', 'a;b', "a'b", 'a`b', 'a"b', 'a.b', 'a-b', '']) {
@@ -370,7 +476,8 @@ describe('sanitizeIdentifier', () => {
 describe('structured query template and read row limit', () => {
   it('builds the structured template with headers for the structured parser', () => {
     expect(buildStructuredQueryTemplate('mysql', mysqlConnection).args).toEqual([
-      '--batch', '--raw', '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
+      '--default-character-set=utf8mb4', '--batch', '--raw',
+      '-h', 'db.internal', '-P', '3307', '-u', 'app', '-D', 'orders',
     ])
     expect(buildStructuredQueryTemplate('sqlite', sqliteConnection).args).toEqual([
       '-header', '-csv', '/tmp/orders.db',
@@ -411,5 +518,43 @@ describe('structured query template and read row limit', () => {
   it('wraps Oracle read queries with ROWNUM instead of LIMIT', () => {
     expect(enforceReadRowLimit('SELECT * FROM orders ORDER BY id;', 'oracle', 10))
       .toBe('SELECT * FROM (SELECT * FROM orders ORDER BY id) dsh_limit WHERE ROWNUM <= 10;')
+  })
+
+  it('uses LIMIT for ClickHouse and Doris', () => {
+    expect(enforceReadRowLimit('SELECT * FROM events', 'clickhouse', 20)).toBe('SELECT * FROM events LIMIT 20')
+    expect(enforceReadRowLimit('SELECT * FROM events LIMIT 50', 'doris', 20)).toBe('SELECT * FROM events LIMIT 20')
+  })
+
+  it('adds or tightens SQL Server TOP without ever emitting LIMIT', () => {
+    expect(enforceReadRowLimit('SELECT * FROM orders', 'sqlserver', 25)).toBe('SELECT TOP (25) * FROM orders')
+    expect(enforceReadRowLimit('SELECT DISTINCT customer_id FROM orders;', 'sqlserver', 10))
+      .toBe('SELECT DISTINCT TOP (10) customer_id FROM orders;')
+    expect(enforceReadRowLimit('WITH x AS (SELECT * FROM orders) SELECT * FROM x', 'sqlserver', 5))
+      .toBe('WITH x AS (SELECT * FROM orders) SELECT TOP (5) * FROM x')
+    expect(enforceReadRowLimit('SELECT TOP (3) * FROM orders', 'sqlserver', 10))
+      .toBe('SELECT TOP (3) * FROM orders')
+    expect(enforceReadRowLimit('SELECT TOP 300 * FROM orders', 'sqlserver', 10))
+      .toBe('SELECT TOP (10) * FROM orders')
+  })
+
+  it('tightens SQL Server FETCH and fails closed for unsafe compound shapes', () => {
+    expect(enforceReadRowLimit(
+      'SELECT * FROM orders ORDER BY id OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY;',
+      'sqlserver',
+      10,
+    )).toBe('SELECT * FROM orders ORDER BY id OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY;')
+    expect(enforceReadRowLimit(
+      'SELECT * FROM orders ORDER BY id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY',
+      'sqlserver',
+      10,
+    )).toContain('FETCH NEXT 5 ROWS ONLY')
+    expect(() => enforceReadRowLimit('SELECT 1 UNION SELECT 2', 'sqlserver', 10)).toThrow(/compound query/)
+    expect(() => enforceReadRowLimit('SELECT TOP 10 PERCENT * FROM orders', 'sqlserver', 5)).toThrow(/PERCENT/)
+  })
+
+  it('removes only terminal English and localized SQL Server row-count footers', () => {
+    expect(stripSqlServerRowCountFooter('value\n(2 rows affected)\n')).toBe('value')
+    expect(stripSqlServerRowCountFooter('value\n(2 行受影响)\n')).toBe('value')
+    expect(stripSqlServerRowCountFooter('(2 rows affected)\nvalue\n')).toBe('(2 rows affected)\nvalue')
   })
 })

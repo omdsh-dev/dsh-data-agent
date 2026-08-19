@@ -12,8 +12,7 @@
 import { readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { posix, win32 } from 'node:path'
-import type { ClientConfig } from './clients.ts'
-import type { DatabaseType } from './connections.ts'
+import type { CliDatabaseType, ClientConfig } from './clients.ts'
 
 /** Maximum child names consumed from one known version/formula directory. */
 const MAX_DYNAMIC_ENTRIES = 64
@@ -43,7 +42,7 @@ export interface ClientExecutableResolution {
 
 /** Input for one database client resolution attempt. */
 export interface ResolveClientExecutableOptions {
-  type: DatabaseType
+  type: CliDatabaseType
   command: string
   config?: ClientConfig
   env: Readonly<Record<string, string>>
@@ -63,13 +62,15 @@ const DEFAULT_SYSTEM: ClientDiscoverySystem = {
   },
 }
 
-const HOME_ENV_BY_TYPE: Readonly<Record<DatabaseType, readonly string[]>> = {
+const HOME_ENV_BY_TYPE: Readonly<Record<CliDatabaseType, readonly string[]>> = {
   mysql: ['MYSQL_HOME'],
   postgres: ['PGHOME', 'PGROOT'],
   sqlite: ['SQLITE_HOME'],
   oracle: ['ORACLE_HOME'],
   hive: ['HIVE_HOME'],
   impala: ['IMPALA_HOME'],
+  doris: ['MYSQL_HOME'],
+  sqlserver: ['SQLCMD_HOME', 'MSSQL_TOOLS_HOME'],
 }
 
 interface DynamicDirectory {
@@ -122,7 +123,7 @@ function normalizeDirectories(
 }
 
 function clientHomeDirectories(
-  type: DatabaseType,
+  type: CliDatabaseType,
   system: ClientDiscoverySystem,
   paths: PathApi,
 ): string[] {
@@ -135,8 +136,8 @@ function clientHomeDirectories(
   return result
 }
 
-function macFixedDirectories(type: DatabaseType): string[] {
-  const formulaDirectories: Readonly<Record<DatabaseType, readonly string[]>> = {
+function macFixedDirectories(type: CliDatabaseType): string[] {
+  const formulaDirectories: Readonly<Record<CliDatabaseType, readonly string[]>> = {
     mysql: [
       '/opt/homebrew/opt/mysql-client/bin', '/opt/homebrew/opt/mysql/bin',
       '/usr/local/opt/mysql-client/bin', '/usr/local/opt/mysql/bin', '/usr/local/mysql/bin',
@@ -149,6 +150,14 @@ function macFixedDirectories(type: DatabaseType): string[] {
     oracle: [],
     hive: ['/opt/homebrew/opt/hive/bin', '/usr/local/opt/hive/bin'],
     impala: ['/opt/homebrew/opt/impala/bin', '/usr/local/opt/impala/bin'],
+    doris: [
+      '/opt/homebrew/opt/mysql-client/bin', '/opt/homebrew/opt/mysql/bin',
+      '/usr/local/opt/mysql-client/bin', '/usr/local/opt/mysql/bin', '/usr/local/mysql/bin',
+    ],
+    sqlserver: [
+      '/opt/homebrew/opt/mssql-tools18/bin', '/usr/local/opt/mssql-tools18/bin',
+      '/opt/mssql-tools18/bin', '/opt/mssql-tools/bin',
+    ],
   }
   return [
     '/opt/homebrew/bin',
@@ -173,7 +182,7 @@ function linuxFixedDirectories(system: ClientDiscoverySystem, paths: PathApi): s
 }
 
 function windowsFixedDirectories(
-  type: DatabaseType,
+  type: CliDatabaseType,
   system: ClientDiscoverySystem,
   paths: PathApi,
 ): string[] {
@@ -182,13 +191,18 @@ function windowsFixedDirectories(
   const chocolatey = environmentValue(system.env, 'ChocolateyInstall', system.platform)
   const programData = environmentValue(system.env, 'ProgramData', system.platform) ?? 'C:\\ProgramData'
   const programFiles = environmentValue(system.env, 'ProgramFiles', system.platform) ?? 'C:\\Program Files'
-  const typeSpecific: Readonly<Record<DatabaseType, readonly string[]>> = {
+  const typeSpecific: Readonly<Record<CliDatabaseType, readonly string[]>> = {
     mysql: [],
     postgres: [],
     sqlite: [paths.join('C:\\', 'sqlite'), paths.join(programFiles, 'SQLite')],
     oracle: [],
     hive: [],
     impala: [],
+    doris: [],
+    sqlserver: [
+      paths.join(programFiles, 'Microsoft SQL Server', 'Client SDK', 'ODBC', '180', 'Tools', 'Binn'),
+      paths.join(programFiles, 'Microsoft SQL Server', 'Client SDK', 'ODBC', '170', 'Tools', 'Binn'),
+    ],
   }
   return [
     ...(localAppData === undefined ? [] : [paths.join(localAppData, 'Microsoft', 'WinGet', 'Links')]),
@@ -199,7 +213,7 @@ function windowsFixedDirectories(
   ]
 }
 
-function formulaPattern(type: DatabaseType): RegExp {
+function formulaPattern(type: CliDatabaseType): RegExp {
   switch (type) {
     case 'mysql': return /^(?:mysql|mysql-client)(?:@.+)?$/i
     case 'postgres': return /^(?:postgresql(?:@.+)?|libpq)$/i
@@ -207,11 +221,13 @@ function formulaPattern(type: DatabaseType): RegExp {
     case 'oracle': return /^(?:oracle|instantclient)(?:@.+)?$/i
     case 'hive': return /^hive(?:@.+)?$/i
     case 'impala': return /^impala(?:@.+)?$/i
+    case 'doris': return /^(?:mysql|mysql-client)(?:@.+)?$/i
+    case 'sqlserver': return /^(?:mssql-tools|mssql-tools18)(?:@.+)?$/i
   }
 }
 
 function dynamicDirectories(
-  type: DatabaseType,
+  type: CliDatabaseType,
   system: ClientDiscoverySystem,
   paths: PathApi,
 ): DynamicDirectory[] {
@@ -243,7 +259,7 @@ function dynamicDirectories(
       environmentValue(system.env, 'ProgramFiles(x86)', system.platform) ?? 'C:\\Program Files (x86)',
     ]
     for (const root of roots) {
-      if (type === 'mysql') {
+      if (type === 'mysql' || type === 'doris') {
         result.push(
           { root: paths.join(root, 'MySQL'), accepts: () => true, suffix: ['bin'] },
           { root, accepts: name => /^MariaDB/i.test(name), suffix: ['bin'] },
@@ -252,6 +268,12 @@ function dynamicDirectories(
         result.push({ root: paths.join(root, 'PostgreSQL'), accepts: () => true, suffix: ['bin'] })
       } else if (type === 'oracle') {
         result.push({ root: paths.join(root, 'Oracle'), accepts: () => true, suffix: ['bin'] })
+      } else if (type === 'sqlserver') {
+        result.push({
+          root: paths.join(root, 'Microsoft SQL Server', 'Client SDK', 'ODBC'),
+          accepts: () => true,
+          suffix: ['Tools', 'Binn'],
+        })
       }
     }
   }
@@ -284,7 +306,7 @@ async function expandDynamicDirectories(
 
 /** Build ordered fallback directories without recursively scanning the host. */
 export async function buildClientSearchDirectories(
-  type: DatabaseType,
+  type: CliDatabaseType,
   config: ClientConfig | undefined,
   signal: AbortSignal,
   system: ClientDiscoverySystem = DEFAULT_SYSTEM,

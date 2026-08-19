@@ -1,0 +1,20 @@
+{
+  "restrictionVersion": "1",
+  "claimCeilingWithoutRealHost": "Parsed",
+  "items": [
+    { "id": "tool-extension-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "The pinned TUI profile does not import the complete model Tool/Preset declaration used by the native data-agent scope." },
+    { "id": "agent-preset-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "Agent preset standing-scope composition remains a native DSH contract." },
+    { "id": "cordis-service-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "The dataAgentConnections Cordis service has no admitted Community v0.15 service definition." },
+    { "id": "http-routes-native-only", "kind": "restriction", "requirementId": "NATIVE-NO-REGRESSION-001", "summary": "HTTP routes remain owned by the native Web bundle row." },
+    { "id": "web-slots-native-only", "kind": "restriction", "requirementId": "NATIVE-NO-REGRESSION-001", "summary": "Web slots remain owned by the native browser client." },
+    { "id": "storage-domain-native-only", "kind": "restriction", "requirementId": "DECL-CLOSURE-001", "summary": "The durable data_agent_connections domain remains owned by native Cordis storage-domain." },
+    { "id": "credential-resolution-native-only", "kind": "restriction", "requirementId": "TRUST-001", "summary": "Credential references resolve only inside the existing native runtime and are excluded from evidence." },
+    { "id": "database-execution-native-only", "kind": "restriction", "requirementId": "DEPENDENCY-CLOSURE-001", "summary": "Database execution remains native and depends on packaged or external database clients." },
+    { "id": "legacy-local-tty", "kind": "restriction", "requirementId": "PRESENTATION-001", "summary": "The masked local TTY form is preserved but is not standard Presentation evidence." },
+    { "id": "user-interaction-negotiation-spec-gap", "kind": "upstream-gap", "requirementId": "PRESENTATION-001", "summary": "UserInteraction is intentionally not declared: Community v0.15 contract rows cannot carry the requirement spec required by the pinned dsh-std protocol definition, and declaring it prevents actual adapter activation." },
+    { "id": "no-standard-effect-ownership", "kind": "restriction", "requirementId": "LIFECYCLE-001", "summary": "Native Cordis effects are implementation evidence, not standard activation-owned ledger effects." },
+    { "id": "real-host-descriptor-unavailable", "kind": "restriction", "requirementId": "CLAIM-CEILING-001", "summary": "Repository Host Descriptors are fixtures and cannot establish real-host compatibility." },
+    { "id": "remote-presentation-unverified", "kind": "restriction", "requirementId": "PRESENTATION-001", "summary": "Local, remote, attach/detach, and multiple-Presentation parity has not been observed on a real Host." },
+    { "id": "external-attestation-unavailable", "kind": "restriction", "requirementId": "CLAIM-CEILING-001", "summary": "No external signer or governance attestation is present." }
+  ]
+}

@@ -23,6 +23,12 @@ export const DEFAULT_MAX_RESULT_CHARS = 20_000
 /** Maximum structured rows returned by one database read tool call. */
 export const DEFAULT_MAX_ROWS = 100
 
+/** Hard row cap for one structured Web workbench result/export. */
+export const WORKBENCH_MAX_EXPORT_ROWS = 50_000
+
+/** Bounded capture size for the larger structured Web workbench result. */
+export const WORKBENCH_MAX_RESULT_CHARS = 32 * 1024 * 1024
+
 /** Cap on one /query SQL text length (abuse guard; the wire body stays small). */
 export const DEFAULT_MAX_QUERY_CHARS = 65_536
 

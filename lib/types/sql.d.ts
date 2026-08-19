@@ -6,7 +6,7 @@
  * docs/optimization-opportunities.md:
  *
  * - a single tool call carries at most ONE SQL statement;
- * - `maxRows` can be enforced with a real top-level LIMIT, not just a prompt.
+ * - `maxRows` can be enforced with a real dialect-level row bound, not just a prompt.
  *
  * @module @yejiming/dsh-data-agent/sql
  */
@@ -18,6 +18,14 @@
 export declare function assertSingleStatement(sql: string, label?: string): void;
 /** Whether `keyword` appears at top level as a whole word in `sql`. */
 export declare function hasTopLevelKeyword(sql: string, keyword: string): boolean;
+/**
+ * Preserve executable SQL text while replacing strings, quoted identifiers,
+ * dollar/Oracle quoted bodies, and comments with spaces. Newlines are kept so
+ * line-oriented client directives can be checked without false positives.
+ */
+export declare function maskSqlLiteralsAndComments(sql: string): string;
+/** Reject commands interpreted by sqlcmd itself rather than by SQL Server. */
+export declare function assertSqlServerSafeInput(sql: string, label?: string): void;
 /**
  * Strip trailing whitespace, statement terminators and trailing comments so a
  * limit clause can be appended to the actual statement text. Only comments

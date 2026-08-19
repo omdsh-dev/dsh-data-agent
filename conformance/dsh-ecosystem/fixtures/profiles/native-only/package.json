@@ -1,0 +1,8 @@
+{
+  "name": "dsh-data-agent-native-only-fixture",
+  "private": true,
+  "fixture": true,
+  "dependencies": {
+    "@yejiming/dsh-data-agent": "file:../../../../.."
+  }
+}

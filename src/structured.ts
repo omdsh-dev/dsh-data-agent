@@ -4,7 +4,7 @@
  * {@link buildStructuredQueryTemplate} in `src/clients.ts`); this module turns
  * that captured stdout into the canonical `{ columns, rows }` shape and
  * enforces the row cap a second time (first line of defense is the SQL-level
- * LIMIT injection, second is truncation while parsing).
+ * dialect-aware SQL rewriting, second is truncation while parsing).
  *
  * The parsers are deliberately output-shape based, not grammar based. Values
  * stay as strings because every client renders SQL values as text (NULL
@@ -14,6 +14,7 @@
  */
 
 import type { DatabaseType } from './connections.ts'
+import { SQLSERVER_COLUMN_SEPARATOR, stripSqlServerRowCountFooter } from './clients.ts'
 
 /** Canonical parsed query output before elapsed/affected metadata is added. */
 export interface ParsedQueryOutput {
@@ -47,7 +48,7 @@ function uniqueColumns(columns: string[]): string[] {
   })
 }
 
-function rowObject(columns: string[], fields: string[]): Record<string, string | null> {
+function rowObject(columns: string[], fields: (string | null)[]): Record<string, string | null> {
   const row: Record<string, string | null> = {}
   for (let index = 0; index < columns.length; index += 1) {
     row[columns[index]!] = fields[index] ?? null
@@ -173,6 +174,54 @@ function parseCsvOutput(stdout: string, maxRows: number): ParsedQueryOutput {
   return { columns, rows, rowLimitExceeded }
 }
 
+function parseClickHouseOutput(stdout: string, maxRows: number): ParsedQueryOutput {
+  const lines = normalizeNewlines(stdout).split('\n').filter(line => line.trim() !== '')
+  if (lines.length === 0) return emptyOutput()
+  const parsed = lines.map((line) => JSON.parse(line) as unknown)
+  if (!Array.isArray(parsed[0])) throw new Error('ClickHouse结构化输出缺少列名行')
+  const columns = uniqueColumns(parsed[0].map(value => String(value)))
+  const firstDataIndex = parsed.length > 1 && Array.isArray(parsed[1]) ? 2 : 1
+  const rows: Record<string, string | null>[] = []
+  let rowLimitExceeded = false
+  for (let index = firstDataIndex; index < parsed.length; index += 1) {
+    if (rows.length >= maxRows) { rowLimitExceeded = true; break }
+    const record = parsed[index]
+    if (!Array.isArray(record)) throw new Error('ClickHouse结构化输出包含非数组数据行')
+    rows.push(rowObject(columns, record.map((value): string | null => {
+      if (value === null || value === undefined) return null
+      return typeof value === 'object' ? JSON.stringify(value) : String(value)
+    })))
+  }
+  return { columns, rows, rowLimitExceeded }
+}
+
+function parseSqlServerOutput(stdout: string, maxRows: number): ParsedQueryOutput {
+  const text = normalizeNewlines(stripSqlServerRowCountFooter(stdout))
+  const lines = text.split('\n')
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  const headerIndex = skipLeadingBlank(lines)
+  if (headerIndex >= lines.length) return emptyOutput()
+  const columns = uniqueColumns(lines[headerIndex]!.split(SQLSERVER_COLUMN_SEPARATOR))
+  let dataIndex = headerIndex + 1
+  const divider = lines[dataIndex]?.split(SQLSERVER_COLUMN_SEPARATOR)
+  if (divider !== undefined && divider.length === columns.length
+    && divider.every(field => /^-+$/.test(field.trim()))) dataIndex += 1
+  const rows: Record<string, string | null>[] = []
+  let rowLimitExceeded = false
+  for (let index = dataIndex; index < lines.length; index += 1) {
+    if (lines[index]!.trim() === '') continue
+    if (rows.length >= maxRows) { rowLimitExceeded = true; break }
+    const fields = lines[index]!.split(SQLSERVER_COLUMN_SEPARATOR)
+    const row: Record<string, string | null> = {}
+    for (let column = 0; column < columns.length; column += 1) {
+      const value = fields[column]
+      row[columns[column]!] = value === undefined || value === 'NULL' ? null : value
+    }
+    rows.push(row)
+  }
+  return { columns, rows, rowLimitExceeded }
+}
+
 /**
  * Parse one database type's structured-query stdout. The matching template is
  * `buildStructuredQueryTemplate`: mysql tab-separated with a header, postgres
@@ -187,6 +236,10 @@ export function parseStructuredQueryOutput(
   switch (type) {
     case 'mysql':
       return parseDelimited(stdout, '\t', maxRows)
+    case 'doris':
+      return parseDelimited(stdout, '\t', maxRows)
+    case 'clickhouse':
+      return parseClickHouseOutput(stdout, maxRows)
     case 'postgres':
       return parseDelimited(stdout, '|', maxRows, true)
     case 'sqlite':
@@ -196,5 +249,7 @@ export function parseStructuredQueryOutput(
     case 'hive':
     case 'impala':
       return parseDelimited(stdout, '\t', maxRows)
+    case 'sqlserver':
+      return parseSqlServerOutput(stdout, maxRows)
   }
 }

@@ -1,0 +1,59 @@
+{
+  "baselineVersion": "1",
+  "specification": {
+    "repository": "https://github.com/T-Auto/dsh-ecosystem-spec",
+    "revision": "ec80a4be5d92bbb971655afd0f097bb5586a1a28",
+    "specVersion": "community-v0.15",
+    "profileVersion": "tui-admission/0.15",
+    "manifestVersion": "0.15",
+    "suiteVersion": "dsh-data-agent-ecosystem/1"
+  },
+  "dshStd": {
+    "repository": "https://github.com/Yan-Zero/dsh-std",
+    "revision": "614dfa1ac168db79fcf4577cf0ebb34e2e3b944b",
+    "packages": {
+      "@dsh-std/sdk": {
+        "version": "0.1.0-rc1",
+        "integrity": "sha512-qWGGoJ5TZC8uckbpnFcg6mhXV3/YohPOoxCWVkoZPG/vRmmRUfAdG0l5Ci/XPljekHR9dko2747fhk81l6CBaw=="
+      },
+      "@dsh-std/manifest": {
+        "version": "0.1.0-rc1",
+        "integrity": "sha512-u4iaXOg8N03tPZYgwPwtrzvy7zODdjriQYolS6SyfYFCo5ojZCsACCPK0NZxQgHTVnQVZr8XMBHt/+GvQ++xmg=="
+      },
+      "@dsh-std/adapter-dsh": {
+        "version": "0.1.0-rc3",
+        "integrity": "sha512-FF7h4yXx7hdA5kPegfbTBtpYaQsshzVtMHRXLLKPkgbxqWb8jC9JXVGPsg76TGwIssHydAdZg2Yw3iIWdTHVcQ=="
+      },
+      "@dsh-std/command": {
+        "version": "0.1.0-rc2",
+        "integrity": "sha512-4kvnTxalYz+osXOh6EuPiJU7wCSV8CrXFeHCwfxaPqse0sWcQVQufXmxIhYdPq02KZzlppuwB9ZJmxhFF5eaKw=="
+      },
+      "@dsh-std/storage": {
+        "version": "0.1.0-rc1",
+        "integrity": "sha512-WXIb3v6Gc+6OIsVJS8Bg1PsjRTV5gsWautQRzAAbHh+E2l+ceIVlAH9Ujrvc7n5fQB1emXRHJmylsh2Mjt7PAw=="
+      },
+      "@dsh-std/presentation": {
+        "version": "0.1.0-rc1",
+        "integrity": "sha512-5yqXp+QJa/uSQm2IrfriqYGvf6EvmUCluWIRkH6hTJNNhYMcTUb3aFhLJCA8SlCt96912zy4LHinUbiYZqfH8A=="
+      }
+    }
+  },
+  "sourceDigests": {
+    "manifestSchema": "sha256:78392a63585c202ca1fbd262aa17145a320ee99ba72f0a257f99daa752603b33",
+    "tuiRegistry": "sha256:c3090dd129aadb06f87b56ad148dfbcec2ce4eed2404dda5eed9cf1dbae51f54",
+    "permissionRegistry": "sha256:1e2cfeaa860936f1608cb8a8bffdf6343de6f513645eb98f6765d72157d5a1a7",
+    "requirements": "sha256:88afac254990f7278382b6d352d6a9b8c49df9172ca3f2eceea5a5c604c572e6",
+    "hostDescriptorSchema": "sha256:4b76c43de2d7f8d0b8e171dd96a7a5c9c7732775e0f552e7345074bf95f5755e",
+    "claimSchema": "sha256:447940843bd9324a8864a9cb0018a9a6bc1fd1834865d15419f1e6f85631834f",
+    "effectLedgerSchema": "sha256:bfa0ea159daa1ab801053a946eb4c8f902cb96f83851502f7c3ae314d1ee75aa"
+  },
+  "acceptedFacetApiVersions": ["v1alpha1"],
+  "acceptedContracts": [
+    "commands.dsh/v1alpha1#Command",
+    "storage.dsh/v1alpha1#LocalStorage",
+    "presentation.dsh/v1alpha1#UserInteraction"
+  ],
+  "acceptedPermissions": {
+    "commands.invoke": "allow"
+  }
+}

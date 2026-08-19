@@ -6,7 +6,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands';
-import { type ConnectionFormDraft, type ConnectionSummary, type DatabaseConnectionInput } from './connections.ts';
+import { type ConnectionFormDraft, type ConnectionFormInitial, type ConnectionSummary, type DatabaseConnectionInput } from './connections.ts';
 export declare const name = "data-agent-database-command";
 export declare const inject: string[];
 export declare const DATABASE_COMMAND_USAGE: string;
@@ -24,7 +24,7 @@ export declare const DATA_AGENT_TOOL_NAMES: readonly ["str_replace_editor", "sql
 export interface DatabaseCommandInteraction {
     isTuiFormAvailable(): boolean;
     collectTuiConnection(signal: AbortSignal, options: {
-        initialDraft?: ConnectionFormDraft;
+        initialDraft?: ConnectionFormInitial;
         persistDraft(draft: ConnectionFormDraft): Promise<void>;
     }): Promise<DatabaseConnectionInput | undefined>;
 }

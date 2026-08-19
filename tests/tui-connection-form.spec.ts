@@ -55,7 +55,7 @@ describe('dsh-tui connection form', () => {
 
   it('shows all network fields together and uses Tab/Shift+Tab for focus', () => {
     expect(tuiConnectionFields('mysql')).toEqual([
-      'type', 'host', 'port', 'user', 'database', 'password', 'readonly', 'confirm', 'cancel',
+      'type', 'host', 'port', 'user', 'database', 'password', 'passwordRef', 'readonly', 'confirm', 'cancel',
     ])
     let transition = updateTuiConnectionForm(createTuiConnectionFormState(), { name: 'tab' })
     expect(transition.state.focus).toBe('host')
@@ -67,7 +67,7 @@ describe('dsh-tui connection form', () => {
     let transition = updateTuiConnectionForm(createTuiConnectionFormState(), { name: 'enter' })
     expect(transition.state.selector).toEqual({ field: 'type', index: 0 })
     const typeFrame = renderTuiConnectionForm(transition.state)
-    for (const label of ['MySQL', 'PostgreSQL', 'SQLite', 'Oracle', 'Hive', 'Impala']) {
+    for (const label of ['MySQL', 'PostgreSQL', 'SQLite', 'Oracle', 'Hive', 'Impala', 'ClickHouse', 'Apache Doris', 'SQL Server']) {
       expect(typeFrame).toContain(label)
     }
 
@@ -105,6 +105,43 @@ describe('dsh-tui connection form', () => {
     })
   })
 
+  it('uses the new defaults and updates an untouched ClickHouse port with HTTPS', () => {
+    let transition = updateTuiConnectionForm(createTuiConnectionFormState(), { name: 'enter' })
+    for (let index = 0; index < 6; index += 1) {
+      transition = updateTuiConnectionForm(transition.state, { name: 'down' })
+    }
+    transition = updateTuiConnectionForm(transition.state, { name: 'enter' })
+    expect(transition.state.type).toBe('clickhouse')
+    expect(transition.state.port).toBe('8123')
+    expect(tuiConnectionFields('clickhouse')).toContain('secure')
+
+    transition = updateTuiConnectionForm({ ...transition.state, focus: 'secure' }, { name: 'enter' })
+    transition = updateTuiConnectionForm(transition.state, { name: 'down' })
+    transition = updateTuiConnectionForm(transition.state, { name: 'enter' })
+    expect(transition.state.secure).toBe(true)
+    expect(transition.state.port).toBe('8443')
+
+    const clickhouse = submit({ ...transition.state, database: 'analytics' })
+    expect(clickhouse.kind).toBe('submitted')
+    if (clickhouse.kind !== 'submitted') throw new Error('expected submitted form')
+    expect(clickhouse.input).toMatchObject({ type: 'clickhouse', port: 8443, secure: true })
+    expect(submit({ ...createTuiConnectionFormState(), type: 'doris', database: 'analytics' })).toMatchObject({
+      kind: 'submitted', input: { type: 'doris', port: 9030 },
+    })
+    expect(submit({ ...createTuiConnectionFormState(), type: 'sqlserver', database: 'warehouse' })).toMatchObject({
+      kind: 'submitted', input: { type: 'sqlserver', port: 1433 },
+    })
+  })
+
+  it('preserves a custom ClickHouse port when HTTPS changes', () => {
+    let transition = updateTuiConnectionForm({
+      ...createTuiConnectionFormState(), type: 'clickhouse', port: '9440', focus: 'secure',
+    }, { name: 'enter' })
+    transition = updateTuiConnectionForm(transition.state, { name: 'down' })
+    transition = updateTuiConnectionForm(transition.state, { name: 'enter' })
+    expect(transition.state).toMatchObject({ secure: true, port: '9440' })
+  })
+
   it('masks direct passwords and only returns them in the process-local input', () => {
     const secret = 's3cret!'
     const state = {
@@ -125,10 +162,46 @@ describe('dsh-tui connection form', () => {
     expect(transition.state.password).toBe('')
   })
 
+  it('restores and submits a persistent credential reference without resolving it', () => {
+    const state = createTuiConnectionFormState({
+      type: 'mysql', host: 'db', port: '3306', user: 'app', database: 'orders', readonly: false,
+      passwordRef: 'ORDERS_PASSWORD',
+    })
+    expect(state.password).toBe('')
+    expect(state.passwordRef).toBe('ORDERS_PASSWORD')
+    expect(renderTuiConnectionForm(state)).toContain('ORDERS_PASSWORD')
+    expect(submit(state)).toMatchObject({
+      kind: 'submitted',
+      input: { type: 'mysql', database: 'orders', passwordRef: 'ORDERS_PASSWORD' },
+    })
+    expect(connectionFormDraft(state)).not.toHaveProperty('passwordRef')
+  })
+
+  it('rejects simultaneous temporary password and credential reference', () => {
+    const transition = submit({
+      ...createTuiConnectionFormState(),
+      database: 'orders',
+      password: 'temporary-secret',
+      passwordRef: 'ORDERS_PASSWORD',
+    })
+    expect(transition.kind).toBe('editing')
+    expect(transition.state.error).toContain('不能同时填写')
+    expect(JSON.stringify(connectionFormDraft(transition.state))).not.toContain('temporary-secret')
+  })
+
+  it('keeps invalid credential references inside the form', () => {
+    const transition = submit({
+      ...createTuiConnectionFormState(), database: 'orders', passwordRef: 'not-a-valid-reference',
+    })
+    expect(transition.kind).toBe('editing')
+    expect(transition.state.error).toContain('passwordRef')
+  })
+
   it('reduces sqlite to path, readonly, and actions', () => {
     const state = { ...createTuiConnectionFormState(), type: 'sqlite' as const }
     expect(tuiConnectionFields('sqlite')).toEqual(['type', 'database', 'readonly', 'confirm', 'cancel'])
     expect(renderTuiConnectionForm(state)).not.toContain('数据库主机')
+    expect(renderTuiConnectionForm(state)).not.toContain('凭据引用')
     const transition = submit({ ...state, database: './data.db', readonly: true })
     expect(transition.kind).toBe('submitted')
     if (transition.kind !== 'submitted') throw new Error('expected submitted form')
@@ -199,8 +272,8 @@ describe('dsh-tui connection form', () => {
     const output = new FakeOutput()
     const result = runTuiConnectionForm({ input, output })
 
-    // type → host(blank) → port(blank) → user → database → password → readonly → confirm
-    input.send('\t\t\troot\torders\ttui-secret\t\r\u001B[B\r\t\r')
+    // type → host(blank) → port(blank) → user → database → password → passwordRef(blank) → readonly → confirm
+    input.send('\t\t\troot\torders\ttui-secret\t\t\r\u001B[B\r\t\r')
 
     await expect(result).resolves.toEqual({
       type: 'mysql',

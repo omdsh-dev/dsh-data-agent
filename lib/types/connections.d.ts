@@ -9,11 +9,11 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import { type ClientConfig, type ColumnInfo } from './clients.ts';
+import { type DatabaseType } from './database-types.ts';
 import { type QueryResult } from './query.ts';
+export type { DatabaseType } from './database-types.ts';
 /** Key of the wildcard connection applied to sessions without an exact entry. */
 export declare const WILDCARD_SESSION = "*";
-/** Supported database client kinds. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala';
 /** How a non-SQLite profile authenticates without ever persisting a secret. */
 export type CredentialMode = 'none' | 'password' | 'reference';
 /** Safe credential facts returned to UI/command surfaces. */
@@ -33,6 +33,8 @@ export interface DatabaseConnectionInput {
     /** Non-secret DSH credential reference, mutually exclusive with password. */
     passwordRef?: string;
     readonly?: boolean;
+    /** ClickHouse HTTP transport uses HTTPS with normal certificate verification. */
+    secure?: boolean;
     /** Optional stable durable profile id. */
     profileId?: string;
     /** Optional human-readable profile label. */
@@ -53,6 +55,7 @@ export interface ConnectionSummary {
     database: string;
     passwordRef?: string;
     readonly?: boolean;
+    secure?: boolean;
     profileId?: string;
     name?: string;
     tables?: string[];
@@ -72,6 +75,7 @@ export interface PersistedConnectionProfile {
     user?: string;
     database: string;
     readonly?: boolean;
+    secure?: boolean;
     passwordRef?: string;
     credentialMode?: CredentialMode;
     updatedAt: string;
@@ -89,14 +93,25 @@ export interface ConnectionFormDraft {
     user: string;
     database: string;
     readonly: boolean;
+    secure?: boolean;
+}
+/** Form initial values may also restore one non-secret credential reference. */
+export interface ConnectionFormInitial extends ConnectionFormDraft {
+    passwordRef?: string;
 }
 /** Durable draft record. Passwords and credential references are forbidden. */
 export interface PersistedConnectionFormDraft extends ConnectionFormDraft {
     updatedAt: string;
 }
+/** Deterministic latest-profile lookup result supplied by durable adapters. */
+export interface PersistedConnectionProfileEntry {
+    profileId: string;
+    profile: PersistedConnectionProfile;
+}
 /** Minimal durable seam; backed by a DSH storage domain in production. */
 export interface ConnectionPersistence {
     getProfile(profileId: string): PersistedConnectionProfile | undefined;
+    getLatestProfile?(): PersistedConnectionProfileEntry | undefined;
     putProfile(profileId: string, profile: PersistedConnectionProfile): Promise<void>;
     deleteProfile(profileId: string): Promise<boolean>;
     getBinding(sessionId: string): SessionConnectionBinding | undefined;
@@ -104,6 +119,7 @@ export interface ConnectionPersistence {
     deleteBinding(sessionId: string): Promise<boolean>;
     getDraft?(sessionId: string): PersistedConnectionFormDraft | undefined;
     putDraft?(sessionId: string, draft: PersistedConnectionFormDraft): Promise<void>;
+    deleteDraft?(sessionId: string): Promise<boolean>;
 }
 /** Shared service configuration supplied by the host plugin. */
 export interface ConnectionServiceOptions {
@@ -120,6 +136,17 @@ export interface ConnectResult {
     tables: string[];
     summary: ConnectionSummary;
 }
+/** Structured read result or raw command message returned to interactive surfaces. */
+export type InteractiveQueryResult = {
+    kind: 'table';
+    columns: string[];
+    rows: Record<string, string | null>[];
+    elapsedMs: number;
+    truncated: boolean;
+    maxRows: number;
+} | ({
+    kind: 'message';
+} & QueryResult);
 /** Host-plane service (`ctx.dataAgentConnections`). */
 export interface DataAgentConnections {
     /** Compatibility setter for config seeds/tests; does not persist. */
@@ -131,8 +158,8 @@ export interface DataAgentConnections {
     has(sessionId: string): boolean;
     /** Compatibility runtime-only clear. Use disconnect() for durable bindings. */
     clear(sessionId: string): void;
-    /** Restore the latest non-secret interactive form values for this session. */
-    getFormDraft(sessionId: string): ConnectionFormDraft | undefined;
+    /** Restore exact or latest-profile non-secret interactive form values. */
+    getFormDraft(sessionId: string): ConnectionFormInitial | undefined;
     /** Save non-secret form values; the implementation never accepts a password. */
     saveFormDraft(sessionId: string, draft: ConnectionFormDraft): Promise<void>;
     status(sessionId: string): Promise<ConnectionSummary | undefined>;
@@ -144,6 +171,7 @@ export interface DataAgentConnections {
     listTables(sessionId: string, schema: string | undefined, signal: AbortSignal): Promise<string[]>;
     describe(sessionId: string, schema: string | undefined, table: string, signal: AbortSignal): Promise<ColumnInfo[]>;
     query(sessionId: string, sql: string, signal: AbortSignal): Promise<QueryResult>;
+    executeInteractive(sessionId: string, sql: string, signal: AbortSignal): Promise<InteractiveQueryResult>;
 }
 /** Build a password-stripped copy of one connection. */
 export declare function summarize(connection: DatabaseConnection): ConnectionSummary;
@@ -157,3 +185,4 @@ export declare function normalizeConnectionInput(input: DatabaseConnectionInput,
 export declare function createConnectionService(ctx?: Context, options?: ConnectionServiceOptions, persistence?: ConnectionPersistence): DataAgentConnections;
 /** Backward-compatible in-memory store factory used by embedders/tests. */
 export declare function createConnectionStore(): DataAgentConnections;
+export declare function validatePasswordRef(value: string): void;

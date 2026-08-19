@@ -26,7 +26,7 @@
 
 <p align="center">
 
-[Project Overview](#project-overview) · [Features](#features) · [Quick Install](#quick-install) · [Web UI](#using-data-agent-in-the-web-ui) · [dsh-tui](#using-data-agent-in-dsh-tui) · [Security](#security)
+[Project Overview](#project-overview) · [Ecosystem Status](#ecosystem-specification-status) · [Features](#features) · [Quick Install](#quick-install) · [Web UI](#using-data-agent-in-the-web-ui) · [dsh-tui](#using-data-agent-in-dsh-tui) · [Security](#security)
 
 </p>
 
@@ -36,18 +36,39 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 
 ![Data analysis charts](assets/charts.webp)
 
+## Ecosystem Specification Status
+
+This package includes an experimental declaration for the [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15. It does not replace or double-register the existing Cordis behavior. The native bundle, preset, commands, tools, routes, Web UI, TUI form, and connection storage remain the sole functional implementation.
+
+| Item | Current status |
+| --- | --- |
+| Specification and stage | Community v0.15, Draft / Experimental |
+| Pinned baseline | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
+| Manifest | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.0.13` |
+| Admission decision | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host |
+| Evidence level | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence |
+| Exercised environment | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3` |
+| Artifact | The release identity is package name and version; a tarball SHA-256 is written only to an external sidecar after a real `npm pack`, never into the source manifest |
+| Unverified | Real Host Descriptor, real Web/Desktop/dsh-tui, real TTY, database, remote, attach/detach, multiple Presentation, `Observed`, and `Attested` evidence |
+
+Active restrictions include intentionally leaving `UserInteraction` undeclared because the pinned Community manifest cannot carry the requirement spec required by its dsh-std definition. Model tools, the agent preset, Cordis service, HTTP routes, Web slots, persistence domain, and local TTY remain native DSH behavior. During `@dsh-std/adapter-dsh` discovery, the ecosystem facet publishes only a degraded snapshot and no second Command, Tool, or UI handler.
+
+The plugin remains **trusted in-process** and is not sandboxed. Manifest permissions are Host admission contracts; they do not provide OS, process, or realm isolation. These results are not official DSH certification, security approval, a vulnerability-free guarantee, or a universal Host compatibility claim.
+
 ## Features
 
 - **Analyze data through conversation**: Describe your goal in natural language. DSH understands the question, breaks it into analysis steps, queries real data, and organizes the conclusions. You can keep asking follow-up questions to explore the same context in greater depth.
 - **Discover business insights automatically**: Data Agent goes beyond returning query results. It helps compare trends, locate anomalies, identify valuable customers or products, and turn the data into explanations that support decisions.
 - **Cross-surface HTML reports (render-analysis)**: In an ordinary tool call, the agent can choose to produce a single chart or a Dashboard-style report (metric/line/bar/pie/scatter/table views). Every successful call saves an offline HTML file under `analysis-reports/` in the current workspace. Web also shows an inline preview and a “View analysis” Modal; dsh-tui returns the file path. Whether to chart remains the agent's decision — schema exploration, single scalars, and queries without visual value are never forced into charts.
-- **Works with both Web UI and dsh-tui**: For a visual workflow, we recommend [zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui), where you can connect databases, browse schemas, and inspect results in the browser. For a keyboard-first workflow, we recommend [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), where you can use the same Data Mode, connect through `/database`, and move directly into conversational analysis. Both interfaces provide the core Data Agent experience.
-- **Connect common business databases**: Supports MySQL, PostgreSQL, SQLite, Oracle, Hive, and Impala across application databases, analytics systems, local data files, and data warehouses.
+- **Shares the core path across Web UI and dsh-tui**: For a visual workflow, we recommend [zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui), where you can connect databases, browse schemas, and inspect results in the browser. For a keyboard-first workflow, we recommend [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), where you can use the same Data Mode, connect through `/database`, and move directly into conversational analysis. Both interfaces share the database service and tool protocol; validate the exact version and deployment separately.
+- **Connect common business databases**: Supports MySQL, PostgreSQL, SQLite, Oracle, Hive, Impala, ClickHouse, Apache Doris, and SQL Server across application databases, analytics systems, local data files, and data warehouses.
 - **Let DSH complete the analysis loop**: DSH inspects table structures, writes SQL, runs the query, and adjusts its approach based on errors or returned data instead of stopping at an unverified SQL draft.
 - **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, `sql-cmd`, and `render-analysis`; Web, Desktop, dsh-tui, and headless profiles use the same tool protocol. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
 - **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
-The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
+The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. MySQL browsing verifies each schema with the current account and hides only schemas that explicitly deny database access; authorized system and application schemas remain visible. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
+
+The SQL tab renders read-query results as a structured table with a sticky header, 100-row pages, and local horizontal scrolling for wide datasets. The complete loaded result can be exported as Excel (`.xlsx`), UTF-8 CSV, or copied to the clipboard, with a hard limit of 50,000 rows per query. Write/administrative commands and errors remain text messages instead of being misparsed as tables.
 
 ![Database workbench](assets/tables.webp)
 
@@ -122,7 +143,7 @@ In a blank session, switch to Data Mode and connect a database:
 /database connect
 ```
 
-The connection form displays all relevant fields together. Use Tab or Shift+Tab to move between fields. Press Enter on database type or read-only mode to show every option, use the arrow keys to select one, and press Enter again to confirm.
+The connection form displays all relevant fields together. Use Tab or Shift+Tab to move between fields. Press Enter on database type, ClickHouse HTTPS, or read-only mode to show every option, use the arrow keys to select one, and press Enter again to confirm. For a network database, enter either a temporary password or a DSH credential reference, never both.
 
 After connecting, return to the chat input and ask a business question. Other useful database commands include:
 
@@ -134,7 +155,7 @@ After connecting, return to the chat input and ask a business question. Other us
 
 After the agent generates a report, the tool card shows dataset, view, empty-data facts, and the absolute HTML path. TUI does not print a character Dashboard and does not register `/analysis`; open the HTML in a local browser to inspect all six view types and raw data. The file belongs to that tool call, and `/resume` does not re-query the database.
 
-When you reopen the connection form in the same session, it restores the latest database type, host, port, user, database, and read-only mode. The password always remains masked and is never restored.
+When you reopen the form in the same session, it first restores that session's latest database type, host, port, user, database, ClickHouse HTTPS, and read-only mode, and restores the credential-reference name from its connected profile. A new session with no configuration uses the most recently connected non-secret profile as editable defaults, but remains disconnected until you confirm the connection. A temporary password always remains masked and is never restored.
 
 ## How to Ask Better Analysis Questions
 
@@ -161,10 +182,17 @@ DSH must be able to reach the target database from your machine, and the corresp
 - MySQL requires the `mysql` client.
 - PostgreSQL requires the `psql` client.
 - Oracle, Hive, and Impala require their respective command-line clients.
+- Apache Doris uses the MySQL protocol on port 9030 by default and requires a `mysql` client with `utf8mb4` support. The first release browses databases and tables in the current/internal catalog only.
+- SQL Server uses port 1433 by default and requires Microsoft ODBC `sqlcmd` 18.x. The first release supports SQL Login only—not integrated/Windows/Entra authentication, DSNs, or named instances.
+- ClickHouse does not require `clickhouse-client`. The plugin uses the bundled official `@clickhouse/client` 1.23.x HTTP adapter: HTTP defaults to 8123; selecting HTTPS defaults to 8443 and retains normal certificate verification. Validate the actual ClickHouse Server/Cloud combination with deployment smoke tests rather than inferring universal Cloud/TLS compatibility.
 
 The plugin tries the active profile process PATH first. If that fails, it also checks client HOME environment variables and common Windows, macOS, and Linux installation locations, including Homebrew, MacPorts, Linuxbrew, Snap, Nix, WinGet Links, Scoop, Chocolatey, and versioned Program Files directories. The supplemental PATH used for discovery is also passed to the actual client process, so DSH Desktop launched from Finder normally needs no manual path override for Homebrew clients.
 
-If a client lives in a company toolchain or another custom directory, add search directories to the current profile's `data-agent` config. Use an absolute command path when you need to pin one exact version. The current profile PATH always wins, and `searchPaths` is checked before platform defaults:
+MySQL and Doris invocations include `--default-character-set=utf8mb4` by default, preventing Windows code pages from corrupting Chinese database, table, column, or query-result text before it reaches DSH. You do not need to repeat this argument in the profile.
+
+SQL Server reads use T-SQL `TOP` or an existing `OFFSET ... FETCH` clause and never append `LIMIT`. To prevent `sqlcmd` scripting from crossing the SQL boundary, `GO`, `!!`, colon commands, and `$(...)` substitutions are rejected before the client starts. The plugin does not add `-C` or another trust-server-certificate option by default.
+
+If a client lives in a company toolchain or another custom directory, add search directories to the current profile's `data-agent` config. Use an absolute command path when you need to pin one exact version, or use `args` for other CLI arguments. The current profile PATH always wins, and `searchPaths` is checked before platform defaults:
 
 ```yaml
 - id: data-agent
@@ -174,6 +202,14 @@ If a client lives in a company toolchain or another custom directory, add search
         searchPaths:
           - /opt/company/mysql/bin
         # command: /opt/company/mysql/bin/mysql
+        # args:
+        #   - --protocol=tcp
+      # Doris can override the shared mysql client location:
+      # doris:
+      #   searchPaths: [/opt/company/mysql/bin]
+      # SQL Server can override the Microsoft ODBC sqlcmd location:
+      # sqlserver:
+      #   searchPaths: [/opt/mssql-tools18/bin]
 ```
 
 On Windows, a search path can be written as `C:\Program Files\MySQL\MySQL Server 9.0\bin`. The plugin does not download database clients, run a login shell, or scan the whole disk. A client in an unusual directory that is not on PATH still requires `searchPaths` or `command`.
@@ -186,9 +222,11 @@ If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package err
 
 - Prefer a read-only database account and enable read-only mode in the connection form.
 - Temporary passwords entered in the Web UI or dsh-tui are used only for the current connection. The TUI displays only `*` and never restores the password when the form is reopened.
-- If authentication must be restored across processes, use a DSH credential reference instead of putting a plaintext password in command arguments.
+- If authentication must be restored across processes, enter a DSH credential reference in the TUI form or pass it with `--password-ref`. The form restores the reference name, but never reads, displays, or persists its resolved password.
+- MySQL/Doris and SQL Server passwords enter only `MYSQL_PWD` and `SQLCMDPASSWORD`, respectively. A ClickHouse password enters only the official HTTP client's authentication field—not the URL, argv, or persisted configuration.
 - When read-only mode is disabled, Data Agent can run update or administrative statements at your request. Before connecting to a production database, review the account permissions and backup policy.
 - Database connections are isolated by session, making it easier to keep different projects, customers, and analysis environments separate.
+- The plugin and ecosystem adapter run inside the DSH process; neither is an OS, process, or realm sandbox. Ecosystem permissions support admission negotiation and do not replace database-account controls, network isolation, or runtime security policy.
 
 ## Uninstall and Rollback
 
@@ -196,10 +234,15 @@ If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package err
 dsh plugin --profile web remove @yejiming/dsh-data-agent
 dsh plugin --profile desktop remove @yejiming/dsh-data-agent
 dsh plugin --profile dsh-tui remove @yejiming/dsh-data-agent
-rm -rf $DSH_HOME/.agent-presets/data-agent
 ```
 
-Uninstalling the plugin does not automatically delete saved non-secret connection information. If you need to remove it completely, back it up first and then delete the corresponding Data Agent storage records in DSH.
+A normal uninstall removes the plugin from the selected profile and disposes runtime effects. It does not automatically delete the installed Data Mode preset or saved non-secret connection information. To remove the preset explicitly, first verify that `DSH_HOME` points to the intended profile data directory, then run:
+
+```sh
+rm -rf "$DSH_HOME/.agent-presets/data-agent"
+```
+
+Purging connection storage is a separate destructive operation. Back it up first, then use the target DSH profile's storage-management path to remove the `data_agent_connections@1` records. Removing the ecosystem manifest or rolling back the adapter layer requires no data migration; any previously published ecosystem claim must be explicitly expired or revoked.
 
 ## Local Development
 
@@ -207,9 +250,12 @@ Uninstalling the plugin does not automatically delete saved non-secret connectio
 pnpm install
 pnpm build
 pnpm test
+pnpm conformance
 ```
 
 The prebuilt `lib/` directory is committed to the repository, so npm and GitHub installations do not require a local build.
+
+Upgrading the specification baseline requires an explicit update to both revisions and pinned digests in `conformance/dsh-ecosystem/baseline.json`, offline conformance against the matching local checkouts, review of inventory/restriction drift, and a complete build and test run. Generate release evidence with `pnpm conformance:artifact --output-dir <outside-worktree-directory>` so a real `npm pack` tarball produces an external sidecar. Documentation and claims must stay within the weakest verified evidence level in that sidecar.
 
 ## License
 

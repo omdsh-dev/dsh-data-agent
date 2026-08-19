@@ -6,7 +6,7 @@
  * docs/optimization-opportunities.md:
  *
  * - a single tool call carries at most ONE SQL statement;
- * - `maxRows` can be enforced with a real top-level LIMIT, not just a prompt.
+ * - `maxRows` can be enforced with a real dialect-level row bound, not just a prompt.
  *
  * @module @yejiming/dsh-data-agent/sql
  */
@@ -179,6 +179,88 @@ export function hasTopLevelKeyword(sql: string, keyword: string): boolean {
     index += 1
   }
   return false
+}
+
+/**
+ * Preserve executable SQL text while replacing strings, quoted identifiers,
+ * dollar/Oracle quoted bodies, and comments with spaces. Newlines are kept so
+ * line-oriented client directives can be checked without false positives.
+ */
+export function maskSqlLiteralsAndComments(sql: string): string {
+  // Preserve the UTF-16 indices used by the scanner. `[...sql]` would
+  // collapse astral characters and shift every following mask range.
+  const chars = sql.split('')
+  const mask = (start: number, end: number): void => {
+    for (let index = start; index < end; index += 1) {
+      if (chars[index] !== '\n' && chars[index] !== '\r') chars[index] = ' '
+    }
+  }
+  let index = 0
+  while (index < sql.length) {
+    const char = sql[index]!
+    if (sql.startsWith('--', index)) {
+      const end = skipLineComment(sql, index + 2)
+      mask(index, end)
+      index = end
+      continue
+    }
+    if (sql.startsWith('/*', index)) {
+      const end = skipBlockComment(sql, index)
+      mask(index, end)
+      index = end
+      continue
+    }
+    if (char === "'" || char === '"' || char === '`') {
+      const end = skipQuoted(sql, index)
+      mask(index, end)
+      index = end
+      continue
+    }
+    if (char === '[') {
+      let end = index + 1
+      while (end < sql.length) {
+        if (sql[end] === ']' && sql[end + 1] === ']') { end += 2; continue }
+        if (sql[end] === ']') { end += 1; break }
+        end += 1
+      }
+      mask(index, end)
+      index = end
+      continue
+    }
+    if (char === '$') {
+      const end = skipDollarQuoted(sql, index)
+      if (end !== -1) {
+        mask(index, end)
+        index = end
+        continue
+      }
+    }
+    const oracleEnd = skipOracleQuoted(sql, index)
+    if (oracleEnd !== -1) {
+      mask(index, oracleEnd)
+      index = oracleEnd
+      continue
+    }
+    index += 1
+  }
+  return chars.join('')
+}
+
+/** Reject commands interpreted by sqlcmd itself rather than by SQL Server. */
+export function assertSqlServerSafeInput(sql: string, label = 'SQL Server SQL'): void {
+  const executable = maskSqlLiteralsAndComments(sql)
+  if (/\$\([^\r\n)]*\)/.test(executable)) {
+    throw new Error(`${label}: 禁止 sqlcmd 变量替换 $(...)`)
+  }
+  for (const line of executable.split(/\r?\n/)) {
+    const command = line.trimStart()
+    if (command === '') continue
+    if (/^!!/.test(command) || /^:/.test(command)
+      || /^(?:reset|ed|exit|quit)\b/i.test(command)
+      || /^go(?:\s+\d+)?\s*;?\s*$/i.test(command)) {
+      throw new Error(`${label}: 禁止 sqlcmd 元命令、GO 批次分隔符与客户端脚本指令`)
+    }
+  }
 }
 
 function trailingLineCommentStart(sql: string, end: number): number {

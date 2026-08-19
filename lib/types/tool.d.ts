@@ -30,7 +30,7 @@ export interface Config {
     queryTimeoutMs: number;
     /** In-memory cap on captured output. */
     maxResultChars: number;
-    /** Enforced read-query row cap (LIMIT injection + structured truncation). */
+    /** Enforced read-query row cap (dialect rewrite + structured truncation). */
     maxRows: number;
     /** Maximum SQL text length accepted per dataset statement. */
     maxQueryChars: number;
@@ -50,11 +50,11 @@ export declare const Config: z<Schemastery.ObjectS<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
         searchPaths?: string[] | null | undefined;
-    } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
+    } & import("@deepseek-ai/cosmokit").Dict, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
-    }>, string>>;
+    }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
 }>, Schemastery.ObjectT<{
     queryTimeoutMs: z<number, number>;
     maxResultChars: z<number, number>;
@@ -65,11 +65,11 @@ export declare const Config: z<Schemastery.ObjectS<{
         command?: string | null | undefined;
         args?: string[] | null | undefined;
         searchPaths?: string[] | null | undefined;
-    } & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
+    } & import("@deepseek-ai/cosmokit").Dict, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">, import("cosmokit").Dict<Schemastery.ObjectT<{
         command: z<string, string>;
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
-    }>, string>>;
+    }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
 }>>;
 /**
  * Mount the data-agent database tools: `sql-query` (structured read-only),

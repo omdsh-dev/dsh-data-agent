@@ -1,11 +1,12 @@
 /**
  * Pure CLI-client template construction for the supported database types.
  * Everything here is a function of (type, connection, optional overrides) —
- * no process, no I/O — so the injection-safety surface is unit-testable:
+ * no process, no I/O — so the CLI injection-safety surface is unit-testable:
  * argv stays an array (never shell-interpreted), the SQL itself always
  * travels on stdin, and passwords only ever appear in the environment
- * entries (`MYSQL_PWD` / `PGPASSWORD`) or in a stdin connect prefix
- * (Oracle `connect`, Hive `!connect`) — never in argv, logs, or returns.
+ * entries (`MYSQL_PWD` / `PGPASSWORD` / `SQLCMDPASSWORD`) or in a stdin
+ * connect prefix (Oracle `connect`, Hive `!connect`) — never in argv, logs,
+ * or returns. ClickHouse HTTP authentication lives in the shared runner.
  *
  * Metadata (schemas / tables / describe) queries and their per-type output
  * parsers live here too, so the /schemas /tables /describe routes stay thin.
@@ -13,8 +14,8 @@
  */
 import type { DatabaseConnection, DatabaseType } from './connections.ts';
 import z from 'schemastery';
-import { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator } from './sql.ts';
-export { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator };
+import { assertSingleStatement, assertSqlServerSafeInput, hasTopLevelKeyword, stripTrailingTerminator } from './sql.ts';
+export { assertSingleStatement, assertSqlServerSafeInput, hasTopLevelKeyword, stripTrailingTerminator };
 /**
  * Classify a SQL text as a read or write statement by its FIRST effective
  * token (a conservative read whitelist, not a parser). `with` is read only
@@ -33,6 +34,8 @@ export declare function classifyStatement(sql: string, type: DatabaseType): 'rea
  * unparseable LIMIT is left for the client (structured tools still truncate).
  */
 export declare function enforceReadRowLimit(sql: string, type: DatabaseType, maxRows: number): string;
+/** Rare control separator keeps ordinary tabs/pipes inside sqlcmd values intact. */
+export declare const SQLSERVER_COLUMN_SEPARATOR = "\u001F";
 /**
  * Validate and quote one schema/table identifier for a safe metadata query.
  * Identifiers are restricted to `[A-Za-z0-9_$]+` and then wrapped per type:
@@ -51,6 +54,8 @@ export interface ClientConfig {
     /** Absolute directories searched after the current subprocess PATH. */
     searchPaths?: readonly string[];
 }
+/** Database types backed by a locally resolved CLI executable. */
+export type CliDatabaseType = Exclude<DatabaseType, 'clickhouse'>;
 /** Loader schema for one client override (all fields optional at input). */
 export declare const clientConfigSchema: z<Schemastery.ObjectS<{
     command: z<string, string>;
@@ -61,16 +66,15 @@ export declare const clientConfigSchema: z<Schemastery.ObjectS<{
     args: z<string[], string[]>;
     searchPaths: z<string[], string[]>;
 }>>;
-/** Loader schema for the whole `clients` config object (any type key). */
 export declare const clientsSchema: z<import("cosmokit").Dict<{
     command?: string | null | undefined;
     args?: string[] | null | undefined;
     searchPaths?: string[] | null | undefined;
-} & import("@deepseek-ai/cosmokit").Dict, string>, import("cosmokit").Dict<Schemastery.ObjectT<{
+} & import("@deepseek-ai/cosmokit").Dict, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">, import("cosmokit").Dict<Schemastery.ObjectT<{
     command: z<string, string>;
     args: z<string[], string[]>;
     searchPaths: z<string[], string[]>;
-}>, string>>;
+}>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
 /**
  * A fully constructed client invocation: argv (command + flags, no SQL),
  * the credential env entries, and the stdin prefix (Oracle/Hive connect
@@ -127,6 +131,8 @@ export interface ColumnInfo {
     type: string;
     nullable?: boolean;
 }
+/** Remove only terminal sqlcmd row-count footer lines, never matching data in the middle. */
+export declare function stripSqlServerRowCountFooter(stdout: string): string;
 /**
  * Parse one type's describe output into columns. Formats:
  * - mysql `--batch`: `Field\tType\tNull\tKey\t...` (skip header);

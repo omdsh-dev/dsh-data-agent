@@ -1,0 +1,9 @@
+{
+  "name": "dsh-data-agent-native-plus-adapter-fixture",
+  "private": true,
+  "fixture": true,
+  "dependencies": {
+    "@dsh-std/adapter-dsh": "0.1.0-rc3",
+    "@yejiming/dsh-data-agent": "file:../../../../.."
+  }
+}

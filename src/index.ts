@@ -43,7 +43,7 @@ import {
   type DatabaseConnection,
   type DatabaseType,
 } from './connections.ts'
-import { clientsSchema, type ClientConfig } from './clients.ts'
+import { clientsSchema, type CliDatabaseType, type ClientConfig } from './clients.ts'
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_INTROSPECT_MAX_TABLES,
@@ -64,7 +64,7 @@ export const name = 'data-agent'
 export const inject = ['agentPresets', 'commands', 'credentials', 'subprocess', 'tools']
 
 /** Deployment overrides for one database type's CLI client. */
-export type ClientsConfig = Partial<Record<DatabaseType, ClientConfig>>
+export type ClientsConfig = Partial<Record<CliDatabaseType, ClientConfig>>
 
 /**
  * One config-seeded connection. Deliberately password-free: passwords are a
@@ -80,6 +80,8 @@ export interface SeededConnectionConfig {
   database: string
   /** Optional per-seed read-only guard. */
   readonly?: boolean
+  /** ClickHouse only: use HTTPS with certificate verification. */
+  secure?: boolean
   /** Safe credential reference. Real passwords are rejected by the schema. */
   passwordRef?: string
   password?: never
@@ -127,12 +129,16 @@ export const Config = z.object({
   persistConnections: z.boolean().default(true),
   clients: clientsSchema,
   connections: z.dict(z.object({
-    type: z.union([z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'), z.const('impala')]),
+    type: z.union([
+      z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'),
+      z.const('impala'), z.const('clickhouse'), z.const('doris'), z.const('sqlserver'),
+    ]),
     host: z.string(),
     port: z.natural(),
     user: z.string(),
     database: z.string(),
     readonly: z.boolean(),
+    secure: z.boolean(),
     passwordRef: z.string().pattern(/^[A-Za-z_][A-Za-z0-9_]*$/),
     password: z.never().hidden(),
   })).default({}),
@@ -348,6 +354,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         ...spec.user !== undefined ? { user: spec.user } : {},
         ...spec.passwordRef !== undefined ? { passwordRef: spec.passwordRef } : {},
         ...spec.readonly !== undefined ? { readonly: spec.readonly } : {},
+        ...spec.secure !== undefined ? { secure: spec.secure } : {},
       }
       store.set(sessionId, connection)
     }

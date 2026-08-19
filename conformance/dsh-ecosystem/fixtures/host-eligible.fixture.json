@@ -1,0 +1,13 @@
+{
+  "$schema": "urn:dsh-tui:host-descriptor:0.15",
+  "hostId": "fixture.data-agent.eligible",
+  "hostVersion": "0.15-fixture",
+  "facetApiVersions": ["v1alpha1"],
+  "contracts": [
+    { "apiVersion": "commands.dsh/v1alpha1", "kind": "Command", "definition": { "source": "dsh-std", "package": "@dsh-std/command" }, "permissions": ["commands.invoke"] },
+    { "apiVersion": "storage.dsh/v1alpha1", "kind": "LocalStorage", "definition": { "source": "dsh-std", "package": "@dsh-std/storage" }, "permissions": ["storage.local.read", "storage.local.write"] }
+  ],
+  "runtime": { "location": "local", "generationId": "fixture-eligible-1", "headless": false, "remoteAttach": false },
+  "trustLevel": "trusted-in-process",
+  "platform": { "os": "fixture", "arch": "fixture", "node": ">=22.19" }
+}

@@ -13,6 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import {
   classifyStatement,
+  enforceReadRowLimit,
   metadataQuery,
   parseColumns,
   parseListing,
@@ -22,15 +23,28 @@ import {
   type ClientConfig,
   type ColumnInfo,
 } from './clients.ts'
-import { DEFAULT_MAX_QUERY_CHARS } from './defaults.ts'
+import {
+  defaultDatabasePort,
+  defaultDatabaseUser,
+  isDatabaseType,
+  type DatabaseType,
+} from './database-types.ts'
+import {
+  DEFAULT_MAX_QUERY_CHARS,
+  WORKBENCH_MAX_EXPORT_ROWS,
+  WORKBENCH_MAX_RESULT_CHARS,
+} from './defaults.ts'
 import { runClientQuery, type QueryOptions, type QueryResult } from './query.ts'
 import { assertSingleStatement } from './sql.ts'
+import { parseStructuredQueryOutput } from './structured.ts'
+
+export type { DatabaseType } from './database-types.ts'
 
 /** Key of the wildcard connection applied to sessions without an exact entry. */
 export const WILDCARD_SESSION = '*'
 
-/** Supported database client kinds. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
+const MYSQL_SCHEMA_PROBE_CONCURRENCY = 4
+const MYSQL_DATABASE_ACCESS_DENIED = /\bERROR\s+1044\s+\(42000\)/i
 
 /** How a non-SQLite profile authenticates without ever persisting a secret. */
 export type CredentialMode = 'none' | 'password' | 'reference'
@@ -53,6 +67,8 @@ export interface DatabaseConnectionInput {
   /** Non-secret DSH credential reference, mutually exclusive with password. */
   passwordRef?: string
   readonly?: boolean
+  /** ClickHouse HTTP transport uses HTTPS with normal certificate verification. */
+  secure?: boolean
   /** Optional stable durable profile id. */
   profileId?: string
   /** Optional human-readable profile label. */
@@ -75,6 +91,7 @@ export interface ConnectionSummary {
   database: string
   passwordRef?: string
   readonly?: boolean
+  secure?: boolean
   profileId?: string
   name?: string
   tables?: string[]
@@ -95,6 +112,7 @@ export interface PersistedConnectionProfile {
   user?: string
   database: string
   readonly?: boolean
+  secure?: boolean
   passwordRef?: string
   credentialMode?: CredentialMode
   updatedAt: string
@@ -114,6 +132,12 @@ export interface ConnectionFormDraft {
   user: string
   database: string
   readonly: boolean
+  secure?: boolean
+}
+
+/** Form initial values may also restore one non-secret credential reference. */
+export interface ConnectionFormInitial extends ConnectionFormDraft {
+  passwordRef?: string
 }
 
 /** Durable draft record. Passwords and credential references are forbidden. */
@@ -121,9 +145,16 @@ export interface PersistedConnectionFormDraft extends ConnectionFormDraft {
   updatedAt: string
 }
 
+/** Deterministic latest-profile lookup result supplied by durable adapters. */
+export interface PersistedConnectionProfileEntry {
+  profileId: string
+  profile: PersistedConnectionProfile
+}
+
 /** Minimal durable seam; backed by a DSH storage domain in production. */
 export interface ConnectionPersistence {
   getProfile(profileId: string): PersistedConnectionProfile | undefined
+  getLatestProfile?(): PersistedConnectionProfileEntry | undefined
   putProfile(profileId: string, profile: PersistedConnectionProfile): Promise<void>
   deleteProfile(profileId: string): Promise<boolean>
   getBinding(sessionId: string): SessionConnectionBinding | undefined
@@ -131,6 +162,7 @@ export interface ConnectionPersistence {
   deleteBinding(sessionId: string): Promise<boolean>
   getDraft?(sessionId: string): PersistedConnectionFormDraft | undefined
   putDraft?(sessionId: string, draft: PersistedConnectionFormDraft): Promise<void>
+  deleteDraft?(sessionId: string): Promise<boolean>
 }
 
 /** Shared service configuration supplied by the host plugin. */
@@ -150,6 +182,16 @@ export interface ConnectResult {
   summary: ConnectionSummary
 }
 
+/** Structured read result or raw command message returned to interactive surfaces. */
+export type InteractiveQueryResult = {
+  kind: 'table'
+  columns: string[]
+  rows: Record<string, string | null>[]
+  elapsedMs: number
+  truncated: boolean
+  maxRows: number
+} | ({ kind: 'message' } & QueryResult)
+
 /** Host-plane service (`ctx.dataAgentConnections`). */
 export interface DataAgentConnections {
   /** Compatibility setter for config seeds/tests; does not persist. */
@@ -161,8 +203,8 @@ export interface DataAgentConnections {
   has(sessionId: string): boolean
   /** Compatibility runtime-only clear. Use disconnect() for durable bindings. */
   clear(sessionId: string): void
-  /** Restore the latest non-secret interactive form values for this session. */
-  getFormDraft(sessionId: string): ConnectionFormDraft | undefined
+  /** Restore exact or latest-profile non-secret interactive form values. */
+  getFormDraft(sessionId: string): ConnectionFormInitial | undefined
   /** Save non-secret form values; the implementation never accepts a password. */
   saveFormDraft(sessionId: string, draft: ConnectionFormDraft): Promise<void>
   status(sessionId: string): Promise<ConnectionSummary | undefined>
@@ -174,6 +216,7 @@ export interface DataAgentConnections {
   listTables(sessionId: string, schema: string | undefined, signal: AbortSignal): Promise<string[]>
   describe(sessionId: string, schema: string | undefined, table: string, signal: AbortSignal): Promise<ColumnInfo[]>
   query(sessionId: string, sql: string, signal: AbortSignal): Promise<QueryResult>
+  executeInteractive(sessionId: string, sql: string, signal: AbortSignal): Promise<InteractiveQueryResult>
 }
 
 /** Build a password-stripped copy of one connection. */
@@ -184,6 +227,7 @@ export function summarize(connection: DatabaseConnection): ConnectionSummary {
   if (connection.user !== undefined) summary.user = connection.user
   if (connection.passwordRef !== undefined) summary.passwordRef = connection.passwordRef
   if (connection.readonly !== undefined) summary.readonly = connection.readonly
+  if (connection.secure !== undefined) summary.secure = connection.secure
   if (connection.profileId !== undefined) summary.profileId = connection.profileId
   if (connection.name !== undefined) summary.name = connection.name
   if (connection.tables !== undefined) summary.tables = [...connection.tables]
@@ -227,6 +271,7 @@ export function normalizeConnectionInput(
   }
   if (input.profileId !== undefined && input.profileId.trim().length === 0) throw new Error('profileId 不能为空')
   if (input.name !== undefined && input.name.trim().length === 0) throw new Error('name 不能为空')
+  if (input.secure !== undefined && typeof input.secure !== 'boolean') throw new Error('secure 必须是布尔值')
 
   const connection: DatabaseConnection = {
     type: input.type,
@@ -240,13 +285,15 @@ export function normalizeConnectionInput(
           : 'none',
   }
   if (input.type !== 'sqlite') {
-    if (input.host !== undefined && input.host.length > 0) connection.host = input.host
-    if (input.port !== undefined) connection.port = input.port
-    if (input.user !== undefined && input.user.length > 0) connection.user = input.user
+    connection.host = input.host !== undefined && input.host.length > 0 ? input.host : '127.0.0.1'
+    connection.port = input.port ?? defaultDatabasePort(input.type, input.type === 'clickhouse' && input.secure === true)
+    const user = input.user !== undefined && input.user.length > 0 ? input.user : defaultDatabaseUser(input.type)
+    if (user !== '') connection.user = user
     if (input.password !== undefined && input.password.length > 0) connection.password = input.password
     if (input.passwordRef !== undefined) connection.passwordRef = input.passwordRef
   }
   if (input.readonly !== undefined) connection.readonly = input.readonly
+  if (input.type === 'clickhouse' && input.secure !== undefined) connection.secure = input.secure
   if (input.profileId !== undefined) connection.profileId = input.profileId
   if (input.name !== undefined) connection.name = input.name
   return connection
@@ -270,6 +317,7 @@ export function createConnectionService(
   }
   const runtime = new Map<string, DatabaseConnection>()
   const formDrafts = new Map<string, ConnectionFormDraft>()
+  let latestFormInitial: ConnectionFormInitial | undefined
 
   const profileConnection = (sessionId: string): DatabaseConnection | undefined => {
     if (persistence === undefined) return undefined
@@ -308,10 +356,14 @@ export function createConnectionService(
     return { ...connection, tables: copyTables(connection.tables) }
   }
 
-  const queryOptions = (mode?: QueryOptions['mode'], connect = false): QueryOptions => ({
+  const queryOptions = (
+    mode?: QueryOptions['mode'],
+    connect = false,
+    maxResultChars = resolvedOptions.maxResultChars,
+  ): QueryOptions => ({
     clients: resolvedOptions.clients,
     timeoutMs: connect ? resolvedOptions.connectTimeoutMs : resolvedOptions.queryTimeoutMs,
-    maxResultChars: resolvedOptions.maxResultChars,
+    maxResultChars,
     ...mode !== undefined ? { mode } : {},
   })
 
@@ -321,13 +373,15 @@ export function createConnectionService(
     signal: AbortSignal,
     introspection = false,
     connect = false,
+    mode?: QueryOptions['mode'],
+    maxResultChars?: number,
   ): Promise<QueryResult> => {
     try {
       const result = await runClientQuery(
         requireContext(),
         connection,
         sql,
-        queryOptions(undefined, connect),
+        queryOptions(mode, connect, maxResultChars),
         signal,
         introspection,
       )
@@ -347,19 +401,57 @@ export function createConnectionService(
     return parseTableListing(connection.type, result.stdout).slice(0, resolvedOptions.introspectMaxTables)
   }
 
+  const canAccessMySqlSchema = async (
+    connection: DatabaseConnection,
+    schema: string,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    if (schema === connection.database) return true
+    const result = await run({ ...connection, database: schema }, 'SHOW TABLES;', signal, true)
+    if (result.exitCode === 0) return true
+    const detail = result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim()
+    if (MYSQL_DATABASE_ACCESS_DENIED.test(detail)) return false
+    throw new Error(`元数据查询失败（exit ${result.exitCode}）：${detail}`)
+  }
+
+  const listAccessibleMySqlSchemas = async (
+    connection: DatabaseConnection,
+    schemas: readonly string[],
+    signal: AbortSignal,
+  ): Promise<string[]> => {
+    const visible: string[] = []
+    for (let offset = 0;
+      offset < schemas.length && visible.length < resolvedOptions.introspectMaxTables;
+      offset += MYSQL_SCHEMA_PROBE_CONCURRENCY) {
+      signal.throwIfAborted()
+      const batch = schemas.slice(offset, offset + MYSQL_SCHEMA_PROBE_CONCURRENCY)
+      const accessible = await Promise.all(batch.map(schema => canAccessMySqlSchema(connection, schema, signal)))
+      for (let index = 0; index < batch.length; index += 1) {
+        if (accessible[index]) visible.push(batch[index]!)
+        if (visible.length === resolvedOptions.introspectMaxTables) return visible
+      }
+    }
+    return visible
+  }
+
   const persistAtomically = async (
     sessionId: string,
     profileId: string,
     profile: PersistedConnectionProfile,
+    draft: ConnectionFormDraft,
   ): Promise<void> => {
     if (persistence === undefined) return
     const previousProfile = persistence.getProfile(profileId)
     const previousBinding = persistence.getBinding(sessionId)
+    const previousDraft = persistence.getDraft?.(sessionId)
     await persistence.putProfile(profileId, profile)
     try {
       await persistence.putBinding(sessionId, { profileId, updatedAt: profile.updatedAt })
+      await persistence.putDraft?.(sessionId, { ...draft, updatedAt: profile.updatedAt })
     } catch (error) {
       // Best-effort rollback keeps a failed connect from replacing durable state.
+      if (previousDraft === undefined) await persistence.deleteDraft?.(sessionId)
+      else await persistence.putDraft?.(sessionId, previousDraft)
       if (previousProfile === undefined) await persistence.deleteProfile(profileId)
       else await persistence.putProfile(profileId, previousProfile)
       if (previousBinding === undefined) await persistence.deleteBinding(sessionId)
@@ -420,7 +512,19 @@ export function createConnectionService(
     getFormDraft(sessionId) {
       const persisted = persistence?.getDraft?.(sessionId)
       const draft = persisted ?? formDrafts.get(sessionId)
-      return draft === undefined ? undefined : copyFormDraft(draft)
+      const exactProfile = profileConnection(sessionId)
+      if (draft !== undefined) {
+        return {
+          ...copyFormDraft(draft),
+          ...exactProfile?.passwordRef !== undefined ? { passwordRef: exactProfile.passwordRef } : {},
+        }
+      }
+      if (exactProfile !== undefined) return formInitialFromConnection(exactProfile)
+      const latestProfile = persistence?.getLatestProfile?.()
+      if (latestProfile !== undefined) {
+        return formInitialFromConnection(connectionFromProfile(latestProfile.profileId, latestProfile.profile))
+      }
+      return latestFormInitial === undefined ? undefined : copyFormInitial(latestFormInitial)
     },
     async saveFormDraft(sessionId, draft) {
       if (sessionId.length === 0) throw new Error('sessionId 必须是非空字符串')
@@ -443,7 +547,10 @@ export function createConnectionService(
       const tables = await verify(execution, signal, true)
       const profileId = normalized.profileId ?? `session:${sessionId}`
       const updatedAt = new Date().toISOString()
-      await persistAtomically(sessionId, profileId, profileFromConnection(normalized, updatedAt))
+      const draft = formDraftFromConnection(normalized)
+      await persistAtomically(sessionId, profileId, profileFromConnection(normalized, updatedAt), draft)
+      if (persistence === undefined) formDrafts.set(sessionId, draft)
+      latestFormInitial = formInitialFromConnection(normalized)
       const published: DatabaseConnection = { ...normalized, profileId, tables }
       runtime.set(sessionId, published)
       const summary = await statusSummary(published)
@@ -472,7 +579,11 @@ export function createConnectionService(
     async listSchemas(sessionId, signal) {
       const connection = await service.resolveForExecution(sessionId)
       const stdout = await runMetadata(connection, 'schemas', signal)
-      return parseListing(connection.type, stdout).slice(0, resolvedOptions.introspectMaxTables)
+      const schemas = parseListing(connection.type, stdout)
+      if (connection.type === 'mysql' || connection.type === 'doris') {
+        return listAccessibleMySqlSchemas(connection, schemas, signal)
+      }
+      return schemas.slice(0, resolvedOptions.introspectMaxTables)
     },
     async listTables(sessionId, schema, signal) {
       const connection = await service.resolveForExecution(sessionId)
@@ -497,6 +608,48 @@ export function createConnectionService(
         throw new Error('当前连接为只读模式，拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等）')
       }
       return run(connection, sql, signal)
+    },
+    async executeInteractive(sessionId, sql, signal) {
+      if (sql.trim().length === 0) throw new Error('sql 必须是非空字符串')
+      const maxQueryChars = resolvedOptions.maxQueryChars ?? DEFAULT_MAX_QUERY_CHARS
+      if (sql.length > maxQueryChars) throw new Error(`sql 超过长度上限（${maxQueryChars} 字符）`)
+      assertSingleStatement(sql, '/query')
+      const connection = await service.resolveForExecution(sessionId)
+      const statementKind = classifyStatement(sql, connection.type)
+      if ((connection.readonly ?? resolvedOptions.readonly) && statementKind === 'write') {
+        throw new Error('当前连接为只读模式，拒绝执行非读语句（仅放行 SELECT/SHOW/DESCRIBE/EXPLAIN/PRAGMA 等）')
+      }
+      if (statementKind === 'write') {
+        const result = await run(connection, sql, signal)
+        return { kind: 'message', ...result }
+      }
+
+      // Ask for one extra row so the parser can distinguish a complete result
+      // from a result capped at the 50,000-row export boundary.
+      const limitedSql = enforceReadRowLimit(sql, connection.type, WORKBENCH_MAX_EXPORT_ROWS + 1)
+      const startedAt = Date.now()
+      const result = await run(
+        connection,
+        limitedSql,
+        signal,
+        false,
+        false,
+        'structured',
+        WORKBENCH_MAX_RESULT_CHARS,
+      )
+      if (result.exitCode !== 0) return { kind: 'message', ...result }
+      if (result.truncated) {
+        throw new Error('查询结果超过 Web 工作台大小上限，请减少返回列或缩小字段后重试')
+      }
+      const parsed = parseStructuredQueryOutput(connection.type, result.stdout, WORKBENCH_MAX_EXPORT_ROWS)
+      return {
+        kind: 'table',
+        columns: parsed.columns,
+        rows: parsed.rows,
+        elapsedMs: Date.now() - startedAt,
+        truncated: parsed.rowLimitExceeded,
+        maxRows: WORKBENCH_MAX_EXPORT_ROWS,
+      }
     },
   }
 
@@ -531,7 +684,8 @@ function normalizeFormDraft(draft: ConnectionFormDraft): ConnectionFormDraft {
   if (!isDatabaseType(draft.type)) throw new Error('数据库类型无效')
   if (typeof draft.host !== 'string' || typeof draft.port !== 'string'
     || typeof draft.user !== 'string' || typeof draft.database !== 'string'
-    || typeof draft.readonly !== 'boolean') {
+    || typeof draft.readonly !== 'boolean'
+    || (draft.secure !== undefined && typeof draft.secure !== 'boolean')) {
     throw new Error('数据库表单草稿无效')
   }
   return copyFormDraft(draft)
@@ -545,15 +699,37 @@ function copyFormDraft(draft: ConnectionFormDraft): ConnectionFormDraft {
     user: draft.user,
     database: draft.database,
     readonly: draft.readonly,
+    ...draft.type === 'clickhouse' ? { secure: draft.secure ?? false } : {},
   }
 }
 
-function isDatabaseType(value: unknown): value is DatabaseType {
-  return value === 'mysql' || value === 'postgres' || value === 'sqlite'
-    || value === 'oracle' || value === 'hive' || value === 'impala'
+function copyFormInitial(initial: ConnectionFormInitial): ConnectionFormInitial {
+  return {
+    ...copyFormDraft(initial),
+    ...initial.passwordRef !== undefined ? { passwordRef: initial.passwordRef } : {},
+  }
 }
 
-function validatePasswordRef(value: string): void {
+function formDraftFromConnection(connection: DatabaseConnection): ConnectionFormDraft {
+  return {
+    type: connection.type,
+    host: connection.type === 'sqlite' ? '' : connection.host ?? '',
+    port: connection.type === 'sqlite' || connection.port === undefined ? '' : String(connection.port),
+    user: connection.type === 'sqlite' ? '' : connection.user ?? '',
+    database: connection.database,
+    readonly: connection.readonly ?? false,
+    ...connection.type === 'clickhouse' ? { secure: connection.secure ?? false } : {},
+  }
+}
+
+function formInitialFromConnection(connection: DatabaseConnection): ConnectionFormInitial {
+  return {
+    ...formDraftFromConnection(connection),
+    ...connection.passwordRef !== undefined ? { passwordRef: connection.passwordRef } : {},
+  }
+}
+
+export function validatePasswordRef(value: string): void {
   try {
     credentialRef(value)
   } catch {
@@ -576,6 +752,7 @@ function connectionFromProfile(profileId: string, profile: PersistedConnectionPr
     ...profile.port !== undefined ? { port: profile.port } : {},
     ...profile.user !== undefined ? { user: profile.user } : {},
     ...profile.readonly !== undefined ? { readonly: profile.readonly } : {},
+    ...profile.secure !== undefined ? { secure: profile.secure } : {},
     ...profile.passwordRef !== undefined ? { passwordRef: profile.passwordRef } : {},
     credentialMode: profile.credentialMode
       ?? (profile.type === 'sqlite' ? 'none' : profile.passwordRef !== undefined ? 'reference' : 'password'),
@@ -592,6 +769,7 @@ function profileFromConnection(connection: DatabaseConnection, updatedAt: string
     ...connection.port !== undefined ? { port: connection.port } : {},
     ...connection.user !== undefined ? { user: connection.user } : {},
     ...connection.readonly !== undefined ? { readonly: connection.readonly } : {},
+    ...connection.secure !== undefined ? { secure: connection.secure } : {},
     ...connection.passwordRef !== undefined ? { passwordRef: connection.passwordRef } : {},
     ...connection.credentialMode !== undefined ? { credentialMode: connection.credentialMode } : {},
   }

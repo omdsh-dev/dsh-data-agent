@@ -10,7 +10,7 @@
  * @module @yejiming/dsh-data-agent/persistence
  */
 
-import type { DatabaseType } from './DataAgentWorkbench.tsx'
+import { isDatabaseType, type DatabaseType } from '../database-types.ts'
 
 /** localStorage key holding the most recent connection configuration. */
 export const CONNECTION_STORAGE_KEY = 'dsh-data-agent.connection.v1'
@@ -31,6 +31,8 @@ export interface SavedConnection {
   /** Opt-in flag; when true, {@link saveConnection} may write `password`. */
   persistPassword?: boolean
   readonly?: boolean
+  /** ClickHouse only: HTTPS with normal certificate verification. */
+  secure?: boolean
   /** Diagnostic timestamp of the save. */
   savedAt: string
 }
@@ -62,10 +64,7 @@ function parseSaved(value: unknown): SavedConnection | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
   const type = candidate.type
-  if (type !== 'mysql' && type !== 'postgres' && type !== 'sqlite'
-    && type !== 'oracle' && type !== 'hive' && type !== 'impala') {
-    return null
-  }
+  if (!isDatabaseType(type)) return null
   const database = candidate.database
   // 草稿语义：database 允许为空串（用户可能只填了部分字段就切换会话）。
   if (typeof database !== 'string') return null
@@ -74,6 +73,7 @@ function parseSaved(value: unknown): SavedConnection | null {
   if (typeof candidate.port === 'number' && Number.isInteger(candidate.port)) saved.port = candidate.port
   if (typeof candidate.user === 'string') saved.user = candidate.user
   if (typeof candidate.readonly === 'boolean') saved.readonly = candidate.readonly
+  if (type === 'clickhouse' && typeof candidate.secure === 'boolean') saved.secure = candidate.secure
   if (typeof candidate.passwordRef === 'string' && candidate.passwordRef.length > 0) {
     saved.passwordRef = candidate.passwordRef
     saved.credentialMode = 'reference'

@@ -15,8 +15,10 @@ import type {
   ConnectionPersistence,
   PersistedConnectionFormDraft,
   PersistedConnectionProfile,
+  PersistedConnectionProfileEntry,
   SessionConnectionBinding,
 } from './connections.ts'
+import { DATABASE_TYPES } from './database-types.ts'
 
 /** Storage-domain identity. Bump the version only with an explicit migration. */
 export const CONNECTION_STORAGE_DOMAIN = 'data_agent_connections'
@@ -25,12 +27,13 @@ export const CONNECTION_STORAGE_VERSION = 1
 /** Durable profile schema. There is deliberately no `password` field. */
 export const persistedConnectionProfileSchema = z.object({
   name: z.string().min(1).optional(),
-  type: z.enum(['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala']),
+  type: z.enum(DATABASE_TYPES),
   host: z.string().optional(),
   port: z.number().int().min(1).max(65535).optional(),
   user: z.string().optional(),
   database: z.string().min(1),
   readonly: z.boolean().optional(),
+  secure: z.boolean().optional(),
   passwordRef: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
   credentialMode: z.enum(['none', 'password', 'reference']).optional(),
   updatedAt: z.string().min(1),
@@ -44,12 +47,13 @@ export const sessionConnectionBindingSchema = z.object({
 
 /** Session form draft schema. Secret-shaped fields are rejected by strict mode. */
 export const persistedConnectionFormDraftSchema = z.object({
-  type: z.enum(['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala']),
+  type: z.enum(DATABASE_TYPES),
   host: z.string(),
   port: z.string(),
   user: z.string(),
   database: z.string(),
   readonly: z.boolean(),
+  secure: z.boolean().optional(),
   updatedAt: z.string().min(1),
 }).strict()
 
@@ -66,6 +70,21 @@ export const connectionStorageSpec = defineDomain({
 
 export type ConnectionStorageDomain = Domain<typeof connectionStorageSpec>
 
+/** Select the newest successful profile with a deterministic id tie-break. */
+export function latestConnectionProfile(
+  entries: Iterable<readonly [string, PersistedConnectionProfile]>,
+): PersistedConnectionProfileEntry | undefined {
+  let latest: PersistedConnectionProfileEntry | undefined
+  for (const [profileId, profile] of entries) {
+    if (latest === undefined
+      || profile.updatedAt > latest.profile.updatedAt
+      || (profile.updatedAt === latest.profile.updatedAt && profileId > latest.profileId)) {
+      latest = { profileId, profile }
+    }
+  }
+  return latest
+}
+
 /** Project a typed DSH domain handle onto the service's persistence seam. */
 export function createDomainConnectionPersistence(domain: ConnectionStorageDomain): ConnectionPersistence {
   const profiles = domain.table('profiles')
@@ -74,6 +93,9 @@ export function createDomainConnectionPersistence(domain: ConnectionStorageDomai
   return {
     getProfile(profileId) {
       return profiles.get(profileId)
+    },
+    getLatestProfile() {
+      return latestConnectionProfile(profiles.entries())
     },
     putProfile(profileId, profile) {
       return profiles.put(profileId, profile)
@@ -95,6 +117,9 @@ export function createDomainConnectionPersistence(domain: ConnectionStorageDomai
     },
     putDraft(sessionId, draft) {
       return drafts.put(sessionId, draft)
+    },
+    deleteDraft(sessionId) {
+      return drafts.delete(sessionId)
     },
   }
 }

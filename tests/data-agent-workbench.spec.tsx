@@ -45,12 +45,19 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  delete (window.navigator as { clipboard?: unknown }).clipboard
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 const dictionary = zh as Record<string, string>
-const t = (key: string): string => dictionary[key] ?? key
+const t = (key: string, values?: Record<string, string | number>): string => {
+  let output = dictionary[key] ?? key
+  for (const [name, value] of Object.entries(values ?? {})) {
+    output = output.replaceAll(`{{${name}}}`, String(value))
+  }
+  return output
+}
 
 function response(body: unknown): Response {
   return { ok: true, status: 200, json: async () => body } as Response
@@ -114,6 +121,39 @@ describe('DataAgentWorkbench composer entry', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(document.documentElement.className).not.toContain('da-split')
+  })
+
+  it('shows all database types and submits ClickHouse HTTPS with shared default ports', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/status')) return response({ connected: false })
+      if (url.endsWith('/connect') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>
+        expect(body).toMatchObject({
+          type: 'clickhouse', port: 8443, secure: true, database: 'analytics',
+        })
+        return response({ ok: true, summary: { type: 'clickhouse', database: 'analytics', secure: true } })
+      }
+      if (url.includes('/schemas')) return response({ ok: true, schemas: [] })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：未连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const typeSelect = within(dialog).getByLabelText('数据库类型') as HTMLSelectElement
+    expect(Array.from(typeSelect.options, option => option.text)).toEqual([
+      'MySQL', 'PostgreSQL', 'SQLite', 'Oracle', 'Hive', 'Impala', 'ClickHouse', 'Apache Doris', 'SQL Server',
+    ])
+    fireEvent.change(typeSelect, { target: { value: 'clickhouse' } })
+    expect((within(dialog).getByLabelText('端口') as HTMLInputElement).value).toBe('8123')
+    const secure = within(dialog).getByLabelText(/使用HTTPS/) as HTMLInputElement
+    fireEvent.click(secure)
+    expect((within(dialog).getByLabelText('端口') as HTMLInputElement).value).toBe('8443')
+    fireEvent.change(within(dialog).getByLabelText('数据库名'), { target: { value: 'analytics' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '连接' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
   })
 
   it('sets the disconnected composer placeholder and restores the host copy outside data-agent', async () => {
@@ -240,7 +280,13 @@ describe('DataAgentWorkbench composer entry', () => {
       }
       if (url.includes('/schemas')) return response({ ok: true, schemas: ['orders'] })
       if (url.endsWith('/query') && init?.method === 'POST') {
-        return response({ ok: true, result: { exitCode: 0, stdout: '42', stderr: '', truncated: false } })
+        return response({
+          ok: true,
+          result: {
+            kind: 'table', columns: ['answer'], rows: [{ answer: '42' }], elapsedMs: 2,
+            truncated: false, maxRows: 50_000,
+          },
+        })
       }
       throw new Error(`unexpected fetch ${url}`)
     })
@@ -270,5 +316,45 @@ describe('DataAgentWorkbench composer entry', () => {
     const reopened = screen.getByRole('dialog', { name: '数据库工作台' })
     expect(within(reopened).getByDisplayValue('SELECT 42;')).toBeTruthy()
     expect(within(reopened).getByText('42')).toBeTruthy()
+  })
+
+  it('renders a paginated result table and copies every loaded row', async () => {
+    const rows = Array.from({ length: 101 }, (_, index) => ({ id: String(index), note: index === 0 ? null : `row-${index}` }))
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/status')) return response({ connected: true, summary: { type: 'mysql', database: 'orders' } })
+      if (url.endsWith('/query') && init?.method === 'POST') {
+        return response({
+          ok: true,
+          result: { kind: 'table', columns: ['id', 'note'], rows, elapsedMs: 12, truncated: false, maxRows: 50_000 },
+        })
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    fireEvent.click(within(dialog).getByRole('tab', { name: 'SQL 命令' }))
+    fireEvent.change(within(dialog).getByPlaceholderText(/在此输入 SQL/), { target: { value: 'SELECT id, note FROM events;' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '运行' }))
+
+    const table = await within(dialog).findByRole('table', { name: 'SQL 查询结果' })
+    expect(within(table).getByRole('columnheader', { name: 'id' })).toBeTruthy()
+    expect(within(table).getByText('NULL')).toBeTruthy()
+    expect(within(dialog).getByText('101 行 · 2 列 · 12 ms')).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: 'Excel' })).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: 'CSV' })).toBeTruthy()
+    expect(within(table).queryByText('100')).toBeNull()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '下一页' }))
+    expect(within(table).getByText('100')).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '复制' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    expect(String(writeText.mock.calls[0]![0]).split('\r\n')).toHaveLength(102)
+    expect(await within(dialog).findByText('已复制 101 行')).toBeTruthy()
   })
 })

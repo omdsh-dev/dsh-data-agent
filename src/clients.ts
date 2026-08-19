@@ -1,11 +1,12 @@
 /**
  * Pure CLI-client template construction for the supported database types.
  * Everything here is a function of (type, connection, optional overrides) —
- * no process, no I/O — so the injection-safety surface is unit-testable:
+ * no process, no I/O — so the CLI injection-safety surface is unit-testable:
  * argv stays an array (never shell-interpreted), the SQL itself always
  * travels on stdin, and passwords only ever appear in the environment
- * entries (`MYSQL_PWD` / `PGPASSWORD`) or in a stdin connect prefix
- * (Oracle `connect`, Hive `!connect`) — never in argv, logs, or returns.
+ * entries (`MYSQL_PWD` / `PGPASSWORD` / `SQLCMDPASSWORD`) or in a stdin
+ * connect prefix (Oracle `connect`, Hive `!connect`) — never in argv, logs,
+ * or returns. ClickHouse HTTP authentication lives in the shared runner.
  *
  * Metadata (schemas / tables / describe) queries and their per-type output
  * parsers live here too, so the /schemas /tables /describe routes stay thin.
@@ -13,9 +14,16 @@
  */
 
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
+import { defaultDatabasePort, defaultDatabaseUser } from './database-types.ts'
 import z from 'schemastery'
-import { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator } from './sql.ts'
-export { assertSingleStatement, hasTopLevelKeyword, stripTrailingTerminator }
+import {
+  assertSingleStatement,
+  assertSqlServerSafeInput,
+  hasTopLevelKeyword,
+  maskSqlLiteralsAndComments,
+  stripTrailingTerminator,
+} from './sql.ts'
+export { assertSingleStatement, assertSqlServerSafeInput, hasTopLevelKeyword, stripTrailingTerminator }
 
 /**
  * Whitespace / comment stripping for {@link classifyStatement}: remove
@@ -136,6 +144,10 @@ export function classifyStatement(sql: string, type: DatabaseType): 'read' | 'wr
   const tokenMatch = rest.match(/^[A-Za-z_]+/)
   if (tokenMatch === null) return 'write'
   const token = tokenMatch[0].toLowerCase()
+  const executable = maskSqlLiteralsAndComments(rest)
+  if (type === 'sqlserver' && /\binto\b/i.test(executable)) return 'write'
+  if ((type === 'mysql' || type === 'doris' || type === 'clickhouse')
+    && /\binto\s+(?:out|dump)file\b/i.test(executable)) return 'write'
   switch (token) {
     case 'select':
     case 'show':
@@ -178,6 +190,7 @@ export function enforceReadRowLimit(sql: string, type: DatabaseType, maxRows: nu
   if (classifyStatement(sql, type) !== 'read') return sql
   const first = stripLeadingComments(sql).match(/^[A-Za-z_]+/)?.[0]?.toLowerCase()
   if (first !== 'select' && first !== 'with') return sql
+  if (type === 'sqlserver') return enforceSqlServerRowLimit(sql, maxRows)
   const hadTrailingSemicolon = /;\s*$/.test(sql)
   if (!hasTopLevelKeyword(sql, 'limit') && type !== 'oracle') {
     const body = stripTrailingTerminator(sql)
@@ -188,6 +201,73 @@ export function enforceReadRowLimit(sql: string, type: DatabaseType, maxRows: nu
   }
   if (!hasTopLevelKeyword(sql, 'limit')) return sql
   return rewriteTopLevelLimit(sql, maxRows)
+}
+
+/** Rare control separator keeps ordinary tabs/pipes inside sqlcmd values intact. */
+export const SQLSERVER_COLUMN_SEPARATOR = '\u001f'
+
+function findTopLevelKeywordIndex(sql: string, keyword: string): number {
+  const masked = maskSqlLiteralsAndComments(sql)
+  const needle = keyword.toLowerCase()
+  let depth = 0
+  for (let index = 0; index < masked.length; index += 1) {
+    const char = masked[index]!
+    if (char === '(') { depth += 1; continue }
+    if (char === ')') { depth = Math.max(0, depth - 1); continue }
+    if (depth !== 0) continue
+    if (masked.slice(index, index + needle.length).toLowerCase() !== needle) continue
+    const before = index === 0 ? '' : masked[index - 1]!
+    const after = masked[index + needle.length] ?? ''
+    if ((before === '' || !/[A-Za-z0-9_$]/.test(before))
+      && (after === '' || !/[A-Za-z0-9_$]/.test(after))) return index
+  }
+  return -1
+}
+
+/** Add or tighten a T-SQL row limit without ever emitting MySQL LIMIT. */
+function enforceSqlServerRowLimit(sql: string, maxRows: number): string {
+  const hadTrailingSemicolon = /;\s*$/.test(sql)
+  const body = stripTrailingTerminator(sql)
+  for (const keyword of ['union', 'intersect', 'except']) {
+    if (hasTopLevelKeyword(body, keyword)) {
+      throw new Error('SQL Server compound query 无法安全自动限行，请显式包装查询并使用 TOP')
+    }
+  }
+
+  const selectIndex = findTopLevelKeywordIndex(body, 'select')
+  if (selectIndex === -1) throw new Error('SQL Server 查询无法定位顶层 SELECT，无法安全自动限行')
+  const offsetIndex = findTopLevelKeywordIndex(body, 'offset')
+  const fetchIndex = findTopLevelKeywordIndex(body, 'fetch')
+  if (offsetIndex !== -1 || fetchIndex !== -1) {
+    if (offsetIndex === -1 || fetchIndex === -1 || fetchIndex < offsetIndex) {
+      throw new Error('SQL Server OFFSET/FETCH 查询无法安全自动改写，请使用完整的 OFFSET ... FETCH NEXT n ROWS ONLY')
+    }
+    const fetch = body.slice(fetchIndex).match(/^fetch\s+next\s+(\d+)\s+rows?\s+only\b/i)
+    if (fetch === null) {
+      throw new Error('SQL Server OFFSET/FETCH 查询无法安全自动改写，请显式设置数字 FETCH NEXT')
+    }
+    const current = Number(fetch[1])
+    if (current <= maxRows) return sql
+    const replacement = fetch[0].replace(fetch[1]!, String(maxRows))
+    return `${body.slice(0, fetchIndex)}${replacement}${body.slice(fetchIndex + fetch[0].length)}${hadTrailingSemicolon ? ';' : ''}`
+  }
+  const tail = body.slice(selectIndex + 'select'.length)
+  const prefixMatch = tail.match(/^(\s+(?:all\s+|distinct\s+)?)(?:top\s*(?:\(\s*(\d+)\s*\)|(\d+))(\s+percent)?(\s+with\s+ties)?\s*)?/i)
+  if (prefixMatch === null) throw new Error('SQL Server SELECT 形态无法安全自动限行')
+  const existing = prefixMatch[2] ?? prefixMatch[3]
+  if (prefixMatch[4] !== undefined || prefixMatch[5] !== undefined) {
+    throw new Error('SQL Server TOP PERCENT/WITH TIES 无法安全自动限行，请改用显式 TOP (n)')
+  }
+  if (existing !== undefined) {
+    const current = Number(existing)
+    if (current <= maxRows) return sql
+    const topStart = selectIndex + 'select'.length + prefixMatch[1]!.length
+    const topLength = prefixMatch[0].length - prefixMatch[1]!.length
+    return `${body.slice(0, topStart)}TOP (${maxRows}) ${body.slice(topStart + topLength)}${hadTrailingSemicolon ? ';' : ''}`
+  }
+
+  const insertAt = selectIndex + 'select'.length + prefixMatch[1]!.length
+  return `${body.slice(0, insertAt)}TOP (${maxRows}) ${body.slice(insertAt)}${hadTrailingSemicolon ? ';' : ''}`
 }
 
 /** Rewrite the first top-level `LIMIT n` / `LIMIT n, m` with a capped row count. */
@@ -272,6 +352,8 @@ export function sanitizeIdentifier(type: DatabaseType, identifier: string): stri
   }
   switch (type) {
     case 'mysql':
+    case 'doris':
+    case 'clickhouse':
     case 'hive':
     case 'impala':
       return '`' + identifier.replace(/`/g, '``') + '`'
@@ -279,6 +361,8 @@ export function sanitizeIdentifier(type: DatabaseType, identifier: string): stri
     case 'oracle':
     case 'sqlite':
       return '"' + identifier.replace(/"/g, '""') + '"'
+    case 'sqlserver':
+      return '[' + identifier.replace(/]/g, ']]') + ']'
   }
 }
 
@@ -304,6 +388,9 @@ export interface ClientConfig {
   searchPaths?: readonly string[]
 }
 
+/** Database types backed by a locally resolved CLI executable. */
+export type CliDatabaseType = Exclude<DatabaseType, 'clickhouse'>
+
 /** Loader schema for one client override (all fields optional at input). */
 export const clientConfigSchema = z.object({
   command: z.string(),
@@ -311,8 +398,15 @@ export const clientConfigSchema = z.object({
   searchPaths: z.array(z.string()),
 })
 
-/** Loader schema for the whole `clients` config object (any type key). */
-export const clientsSchema = z.dict(clientConfigSchema).default({})
+/** Loader schema for CLI overrides; ClickHouse has connection-level HTTP transport instead. */
+const cliDatabaseTypeSchema = z.union([
+  z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'),
+  z.const('hive'), z.const('impala'), z.const('doris'), z.const('sqlserver'),
+])
+export const clientsSchema = z.dict(clientConfigSchema, cliDatabaseTypeSchema)
+  // Schemastery's Dict type models a finite key union as required at the type
+  // level even though the runtime validator accepts a sparse dictionary.
+  .default({} as never)
 
 /**
  * A fully constructed client invocation: argv (command + flags, no SQL),
@@ -330,44 +424,49 @@ export interface ClientTemplate {
   stdinPrefix: string
 }
 
+/**
+ * MySQL output must match the subprocess collector's UTF-8 decoder instead of
+ * inheriting a platform locale such as a legacy Windows code page.
+ */
+const MYSQL_COMMON_ARGS = ['--default-character-set=utf8mb4', '--batch', '--raw'] as const
+
 /** Query-mode flag arguments per type (plain/human output). */
 const QUERY_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
-  mysql: ['--batch', '--raw'],
+  mysql: MYSQL_COMMON_ARGS,
+  doris: MYSQL_COMMON_ARGS,
   postgres: ['-A'],
   sqlite: ['-header', '-column'],
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B'],
+  sqlserver: ['-b', '-V', '11', '-r', '1', '-x', '-W', '-w', '65535', '-s', SQLSERVER_COLUMN_SEPARATOR],
+  clickhouse: [],
 }
 
 /** Introspection-mode flag arguments per type (machine-readable listing). */
 const INTROSPECT_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
-  mysql: ['--batch', '--raw'],
+  mysql: MYSQL_COMMON_ARGS,
+  doris: MYSQL_COMMON_ARGS,
   postgres: ['-t', '-A'],
   sqlite: ['-noheader', '-list'],
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B'],
+  sqlserver: ['-b', '-V', '11', '-r', '1', '-x', '-W', '-w', '65535', '-s', SQLSERVER_COLUMN_SEPARATOR, '-h', '-1'],
+  clickhouse: [],
 }
 
 /** Structured `sql-query` flag arguments: header + one row per line. */
 const STRUCTURED_QUERY_ARGS: Readonly<Record<DatabaseType, readonly string[]>> = {
-  mysql: ['--batch', '--raw'],
+  mysql: MYSQL_COMMON_ARGS,
+  doris: MYSQL_COMMON_ARGS,
   postgres: ['-A'],
   sqlite: ['-header', '-csv'],
   oracle: ['-S', '/nolog'],
   hive: ['--silent=true', '--outputformat=tsv2'],
   impala: ['-B', '--print_header'],
-}
-
-/** Default ports when the connection does not carry one. */
-const DEFAULT_PORTS: Readonly<Record<DatabaseType, number>> = {
-  mysql: 3306,
-  postgres: 5432,
-  sqlite: 0,
-  oracle: 1521,
-  hive: 10000,
-  impala: 21050,
+  sqlserver: ['-b', '-V', '11', '-r', '1', '-x', '-W', '-w', '65535', '-s', SQLSERVER_COLUMN_SEPARATOR],
+  clickhouse: [],
 }
 
 /** Built-in commands per type (also the loader defaults; see `src/defaults.ts`). */
@@ -378,6 +477,9 @@ const DEFAULT_CLIENTS_COMMAND: Readonly<Record<DatabaseType, string>> = {
   oracle: 'sqlplus',
   hive: 'beeline',
   impala: 'impala-shell',
+  doris: 'mysql',
+  sqlserver: 'sqlcmd',
+  clickhouse: '',
 }
 
 /**
@@ -389,16 +491,17 @@ const DEFAULT_CLIENTS_COMMAND: Readonly<Record<DatabaseType, string>> = {
 function connectionArgs(type: DatabaseType, connection: DatabaseConnection): readonly string[] {
   switch (type) {
     case 'mysql':
+    case 'doris':
       return [
         '-h', connection.host ?? '127.0.0.1',
-        '-P', String(connection.port ?? DEFAULT_PORTS.mysql),
-        '-u', connection.user ?? 'root',
+        '-P', String(connection.port ?? defaultDatabasePort(type)),
+        '-u', connection.user ?? defaultDatabaseUser(type),
         '-D', connection.database,
       ]
     case 'postgres':
       return [
         '-h', connection.host ?? '127.0.0.1',
-        '-p', String(connection.port ?? DEFAULT_PORTS.postgres),
+        '-p', String(connection.port ?? defaultDatabasePort('postgres')),
         '-U', connection.user ?? 'postgres',
         '-d', connection.database,
       ]
@@ -406,12 +509,20 @@ function connectionArgs(type: DatabaseType, connection: DatabaseConnection): rea
       return [connection.database]
     case 'impala':
       return [
-        '-i', `${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.impala}`,
+        '-i', `${connection.host ?? '127.0.0.1'}:${connection.port ?? defaultDatabasePort('impala')}`,
+        '-d', connection.database,
+      ]
+    case 'sqlserver':
+      return [
+        '-S', `${connection.host ?? '127.0.0.1'},${connection.port ?? defaultDatabasePort('sqlserver')}`,
+        '-U', connection.user ?? defaultDatabaseUser(type),
         '-d', connection.database,
       ]
     case 'oracle':
     case 'hive':
       return []
+    case 'clickhouse':
+      throw new Error('ClickHouse 使用官方 HTTP 客户端，不构造 CLI argv')
   }
 }
 
@@ -421,9 +532,13 @@ function credentialEnv(type: DatabaseType, connection: DatabaseConnection): Read
   if (password === undefined) return {}
   switch (type) {
     case 'mysql':
+    case 'doris':
       return { MYSQL_PWD: password }
     case 'postgres':
       return { PGPASSWORD: password }
+    case 'sqlserver':
+      return { SQLCMDPASSWORD: password }
+    case 'clickhouse':
     case 'sqlite':
     case 'oracle':
     case 'hive':
@@ -448,20 +563,24 @@ function stdinPrefix(type: DatabaseType, connection: DatabaseConnection): string
         "SET COLSEP '|'",
         'SET TRIMSPOOL ON',
         connection.user !== undefined
-          ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.oracle}/${connection.database}`
+          ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? defaultDatabasePort('oracle')}/${connection.database}`
           : '',
       ].filter(line => line !== '')
       return `${lines.join('\n')}\n`
     }
     case 'hive':
       return connection.user !== undefined
-        ? `!connect jdbc:hive2://${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.hive}/${connection.database} ${connection.user} ${connection.password ?? ''}\n`
+        ? `!connect jdbc:hive2://${connection.host ?? '127.0.0.1'}:${connection.port ?? defaultDatabasePort('hive')}/${connection.database} ${connection.user} ${connection.password ?? ''}\n`
         : ''
     case 'mysql':
+    case 'doris':
     case 'postgres':
     case 'sqlite':
     case 'impala':
+    case 'clickhouse':
       return ''
+    case 'sqlserver':
+      return 'SET NOCOUNT ON;\n'
   }
 }
 
@@ -480,7 +599,7 @@ function structuredStdinPrefix(type: DatabaseType, connection: DatabaseConnectio
     "SET COLSEP '|'",
     'SET TRIMSPOOL ON',
     connection.user !== undefined
-      ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? DEFAULT_PORTS.oracle}/${connection.database}`
+      ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? defaultDatabasePort('oracle')}/${connection.database}`
       : '',
   ].filter(line => line !== '')
   return `${lines.join('\n')}\n`
@@ -502,6 +621,7 @@ export function buildClientTemplate(
   connection: DatabaseConnection,
   override?: ClientConfig,
 ): ClientTemplate {
+  if (type === 'clickhouse') throw new Error('ClickHouse 使用官方 HTTP 客户端，不构造 CLI 模板')
   return {
     command: override?.command ?? DEFAULT_CLIENTS_COMMAND[type],
     args: [...withOverrides(QUERY_ARGS[type], override), ...connectionArgs(type, connection)],
@@ -516,6 +636,7 @@ export function buildIntrospectTemplate(
   connection: DatabaseConnection,
   override?: ClientConfig,
 ): ClientTemplate {
+  if (type === 'clickhouse') throw new Error('ClickHouse 使用官方 HTTP 客户端，不构造 CLI 模板')
   return {
     command: override?.command ?? DEFAULT_CLIENTS_COMMAND[type],
     args: [...withOverrides(INTROSPECT_ARGS[type], override), ...connectionArgs(type, connection)],
@@ -534,6 +655,7 @@ export function buildStructuredQueryTemplate(
   connection: DatabaseConnection,
   override?: ClientConfig,
 ): ClientTemplate {
+  if (type === 'clickhouse') throw new Error('ClickHouse 使用官方 HTTP 客户端，不构造 CLI 模板')
   return {
     command: override?.command ?? DEFAULT_CLIENTS_COMMAND[type],
     args: [...withOverrides(STRUCTURED_QUERY_ARGS[type], override), ...connectionArgs(type, connection)],
@@ -550,12 +672,15 @@ export function buildStructuredQueryTemplate(
  */
 export function tableListingSql(type: DatabaseType, connection?: DatabaseConnection): string {
   switch (type) {
-    case 'mysql': return `SHOW TABLES FROM \`${connection?.database ?? ''}\`;`
+    case 'mysql':
+    case 'doris': return `SHOW TABLES FROM \`${connection?.database ?? ''}\`;`
+    case 'clickhouse': return 'SELECT name FROM system.tables WHERE database = currentDatabase() ORDER BY name;'
     case 'postgres': return "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1;"
     case 'sqlite': return "SELECT name FROM sqlite_master WHERE type='table' ORDER BY 1;"
     case 'oracle': return 'SELECT table_name FROM user_tables ORDER BY 1;'
     case 'hive':
     case 'impala': return 'SHOW TABLES;'
+    case 'sqlserver': return "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE' ORDER BY TABLE_SCHEMA, TABLE_NAME;"
   }
 }
 
@@ -572,30 +697,39 @@ export function metadataQuery(
   switch (kind) {
     case 'schemas':
       switch (type) {
-        case 'mysql': return 'SHOW DATABASES;'
+        case 'mysql':
+        case 'doris': return 'SHOW DATABASES;'
+        case 'clickhouse': return 'SELECT name FROM system.databases ORDER BY name;'
         case 'postgres': return 'SELECT schema_name FROM information_schema.schemata ORDER BY 1;'
         case 'sqlite': return "SELECT 'main';"
         case 'oracle': return 'SELECT username FROM all_users ORDER BY 1;'
         case 'hive':
         case 'impala': return 'SHOW DATABASES;'
+        case 'sqlserver': return 'SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME;'
       }
     case 'tables':
       switch (type) {
-        case 'mysql': return `SHOW TABLES FROM ${sanitizeIdentifier(type, schema!)};`
+        case 'mysql':
+        case 'doris': return `SHOW TABLES FROM ${sanitizeIdentifier(type, schema!)};`
+        case 'clickhouse': return `SELECT name FROM system.tables WHERE database=${quoteStringLiteral(schema!)} ORDER BY name;`
         case 'postgres': return `SELECT tablename FROM pg_tables WHERE schemaname=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'sqlite': return "SELECT name FROM sqlite_master WHERE type='table' ORDER BY 1;"
         case 'oracle': return `SELECT table_name FROM all_tables WHERE owner=${quoteStringLiteral(schema!)} ORDER BY 1;`
         case 'hive':
         case 'impala': return `SHOW TABLES IN ${sanitizeIdentifier(type, schema!)};`
+        case 'sqlserver': return `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=${quoteStringLiteral(schema!)} AND TABLE_TYPE='BASE TABLE' ORDER BY TABLE_NAME;`
       }
     case 'describe':
       switch (type) {
-        case 'mysql': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'mysql':
+        case 'doris': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'clickhouse': return `SELECT name, type, if(startsWith(type, 'Nullable('), 'YES', 'NO') FROM system.columns WHERE database=${quoteStringLiteral(schema!)} AND table=${quoteStringLiteral(table!)} ORDER BY position;`
         case 'postgres': return `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY ordinal_position;`
         case 'sqlite': return `PRAGMA table_info(${sanitizeIdentifier(type, table!)});`
         case 'oracle': return `SELECT column_name, data_type, nullable FROM all_tab_columns WHERE owner=${quoteStringLiteral(schema!)} AND table_name=${quoteStringLiteral(table!)} ORDER BY column_id;`
         case 'hive':
         case 'impala': return `DESCRIBE ${sanitizeIdentifier(type, schema!)}.${sanitizeIdentifier(type, table!)};`
+        case 'sqlserver': return `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=${quoteStringLiteral(schema!)} AND TABLE_NAME=${quoteStringLiteral(table!)} ORDER BY ORDINAL_POSITION;`
       }
   }
 }
@@ -607,8 +741,8 @@ export function metadataQuery(
  * hive/impala batch modes print none (skip 0).
  */
 export function parseListing(type: DatabaseType, stdout: string): string[] {
-  const lines = stdout.split('\n')
-  const start = type === 'mysql' ? 1 : 0
+  const lines = (type === 'sqlserver' ? stripSqlServerRowCountFooter(stdout) : stdout).split('\n')
+  const start = type === 'mysql' || type === 'doris' ? 1 : 0
   const items: string[] = []
   for (let index = start; index < lines.length; index += 1) {
     const name = lines[index]!.trim()
@@ -629,6 +763,20 @@ export interface ColumnInfo {
   nullable?: boolean
 }
 
+const SQLSERVER_ROW_COUNT_FOOTER = /^\((?:\d+\s+rows?\s+affected|(?:共)?影响(?:了)?\s*\d+\s*行|\d+\s*行受(?:到)?影响)\)$/i
+
+/** Remove only terminal sqlcmd row-count footer lines, never matching data in the middle. */
+export function stripSqlServerRowCountFooter(stdout: string): string {
+  const newline = stdout.includes('\r\n') ? '\r\n' : '\n'
+  const lines = stdout.replace(/\r\n?/g, '\n').split('\n')
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  while (lines.length > 0 && SQLSERVER_ROW_COUNT_FOOTER.test(lines[lines.length - 1]!.trim())) {
+    lines.pop()
+    while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  }
+  return lines.join(newline)
+}
+
 /**
  * Parse one type's describe output into columns. Formats:
  * - mysql `--batch`: `Field\tType\tNull\tKey\t...` (skip header);
@@ -638,13 +786,15 @@ export interface ColumnInfo {
  * - hive/impala batch: `name\ttype\tcomment`.
  */
 export function parseColumns(type: DatabaseType, stdout: string): ColumnInfo[] {
-  const lines = stdout.split('\n')
-  const start = type === 'mysql' ? 1 : 0
+  const lines = (type === 'sqlserver' ? stripSqlServerRowCountFooter(stdout) : stdout).split(/\r?\n/)
+  const start = type === 'mysql' || type === 'doris' ? 1 : 0
   const columns: ColumnInfo[] = []
   for (let index = start; index < lines.length; index += 1) {
     const line = lines[index]!.trim()
     if (line.length === 0) continue
-    const parts = line.includes('\t') ? line.split('\t') : line.split('|')
+    const parts = type === 'sqlserver'
+      ? line.split(SQLSERVER_COLUMN_SEPARATOR)
+      : line.includes('\t') ? line.split('\t') : line.split('|')
     // sqlite PRAGMA table_info leads with the column id; every other client
     // reports the name first.
     const nameIndex = type === 'sqlite' ? 1 : 0
@@ -654,10 +804,13 @@ export function parseColumns(type: DatabaseType, stdout: string): ColumnInfo[] {
     const rawNullable = parts[nameIndex + 2]?.trim().toLowerCase()
     let nullable: boolean | undefined
     switch (type) {
-      case 'mysql': nullable = rawNullable === 'yes'; break
+      case 'mysql':
+      case 'doris': nullable = rawNullable === 'yes'; break
+      case 'clickhouse': nullable = rawNullable === 'yes'; break
       case 'postgres': nullable = rawNullable === 'yes'; break
       case 'sqlite': nullable = rawNullable !== '1'; break
       case 'oracle': nullable = rawNullable === 'y'; break
+      case 'sqlserver': nullable = rawNullable === 'yes'; break
       case 'hive':
       case 'impala': nullable = undefined; break
     }

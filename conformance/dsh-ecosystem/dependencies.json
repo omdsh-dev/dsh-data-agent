@@ -1,0 +1,41 @@
+{
+  "dependencyInventoryVersion": "1",
+  "runtime": {
+    "packaged": [
+      "@clickhouse/client",
+      "@dsh-std/sdk",
+      "echarts",
+      "fflate",
+      "schemastery",
+      "zod"
+    ],
+    "peerFamilies": [
+      "@deepseek-ai/cordis",
+      "@deepseek-ai/dsh-*",
+      "react"
+    ],
+    "externalExecutables": {
+      "mysql": "mysql",
+      "postgres": "psql",
+      "sqlite": "sqlite3",
+      "oracle": "sqlplus",
+      "hive": "beeline",
+      "impala": "impala-shell",
+      "doris": "mysql",
+      "sqlserver": "sqlcmd"
+    },
+    "httpClients": {
+      "clickhouse": "@clickhouse/client"
+    }
+  },
+  "build": {
+    "commands": ["tsdown", "tsc -p tsconfig.build.json", "tsc -p tsconfig.client.json"],
+    "generated": ["lib/**"],
+    "patches": ["cordis.patch.yml"],
+    "nativeBuildPolicy": {
+      "@deepseek-ai/dsh-subprocess-local": false,
+      "esbuild": true,
+      "node-pty": false
+    }
+  }
+}

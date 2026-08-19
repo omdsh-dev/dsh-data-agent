@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createConnectionStore, summarize } from '../src/connections.ts'
+import { createConnectionStore, normalizeConnectionInput, summarize } from '../src/connections.ts'
 
 const mysqlConnection = {
   type: 'mysql' as const,
@@ -121,5 +121,31 @@ describe('summarize', () => {
   it('carries readonly only when the connection explicitly set it', () => {
     expect(summarize(mysqlConnection).readonly).toBeUndefined()
     expect(summarize({ ...mysqlConnection, readonly: true }).readonly).toBe(true)
+  })
+
+  it('keeps ClickHouse transport visible but never exposes its password', () => {
+    expect(summarize({
+      type: 'clickhouse', host: 'ch', port: 8443, user: 'default', database: 'analytics', secure: true,
+      password: 'click-secret',
+    })).toEqual({
+      type: 'clickhouse', host: 'ch', port: 8443, user: 'default', database: 'analytics', secure: true,
+    })
+  })
+})
+
+describe('normalizeConnectionInput defaults', () => {
+  it('uses shared defaults for the three new network types', () => {
+    expect(normalizeConnectionInput({ type: 'clickhouse', database: 'default' })).toMatchObject({
+      type: 'clickhouse', host: '127.0.0.1', port: 8123, user: 'default', database: 'default',
+    })
+    expect(normalizeConnectionInput({ type: 'clickhouse', database: 'default', secure: true })).toMatchObject({
+      port: 8443, secure: true,
+    })
+    expect(normalizeConnectionInput({ type: 'doris', database: 'analytics' })).toMatchObject({
+      host: '127.0.0.1', port: 9030, user: 'root',
+    })
+    expect(normalizeConnectionInput({ type: 'sqlserver', database: 'warehouse' })).toMatchObject({
+      host: '127.0.0.1', port: 1433, user: 'sa',
+    })
   })
 })

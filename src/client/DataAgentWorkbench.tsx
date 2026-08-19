@@ -18,10 +18,17 @@ import { IconDataOutline16, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-cl
 // and the framework-standard view props into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
+  DATABASE_TYPES,
+  databaseTypeDescriptor,
+  defaultDatabasePort,
+  type DatabaseType,
+} from '../database-types.ts'
+import {
   loadConnection,
   saveConnection,
   type SavedConnection,
 } from './persistence.ts'
+import { QueryResultTable, type StructuredWorkbenchResult } from './QueryResultTable.tsx'
 import css from './DataAgentWorkbench.module.css'
 
 /** The plugin's preset id, matching the installed agent preset directory. */
@@ -112,8 +119,7 @@ function PlayIcon({ className }: { className?: string }) {
   )
 }
 
-/** Database kinds offered by the connection form. */
-export type DatabaseType = 'mysql' | 'postgres' | 'sqlite' | 'oracle' | 'hive' | 'impala'
+export type { DatabaseType } from '../database-types.ts'
 
 /** The sessions-list slice the workbench needs (structural; avoids a runtime import). */
 export interface SessionListLike {
@@ -136,6 +142,7 @@ interface ConnectionWireSummary {
   database: string
   passwordRef?: string
   readonly?: boolean
+  secure?: boolean
   tables?: string[]
   credential?: { configured: boolean; source?: string }
   credentialMode?: 'none' | 'password' | 'reference'
@@ -147,9 +154,17 @@ interface StatusResponse { connected: boolean; reconnectRequired?: boolean; summ
 interface SchemasResponse { ok: boolean; schemas?: string[]; error?: string }
 interface TablesResponse { ok: boolean; tables?: string[]; error?: string }
 interface DescribeResponse { ok: boolean; columns?: ColumnInfo[]; error?: string }
+type InteractiveQueryWireResult = StructuredWorkbenchResult | {
+  kind: 'message'
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  truncated: boolean
+}
+type SqlResultState = InteractiveQueryWireResult | { kind: 'error'; message: string }
 interface QueryResponse {
   ok: boolean
-  result?: { exitCode: number | null; stdout: string; stderr: string; truncated: boolean }
+  result?: InteractiveQueryWireResult
   error?: string
 }
 interface DisconnectResponse { ok: boolean; error?: string }
@@ -173,15 +188,8 @@ export type DataAgentWorkbenchProps =
 type WorkbenchTab = 'connection' | 'schema' | 'sql'
 
 /** Default port per type (used to fill the form from a saved connection). */
-function defaultPortOf(type: DatabaseType): string {
-  switch (type) {
-    case 'postgres': return '5432'
-    case 'oracle': return '1521'
-    case 'hive': return '10000'
-    case 'impala': return '21050'
-    case 'sqlite': return ''
-    case 'mysql': return '3306'
-  }
+function defaultPortOf(type: DatabaseType, secure = false): string {
+  return type === 'sqlite' ? '' : String(defaultDatabasePort(type, secure))
 }
 
 /** Parse one JSON route response without silently accepting an HTTP failure. */
@@ -225,6 +233,7 @@ function payloadFromSaved(saved: SavedConnection): Record<string, unknown> {
   }
   if (saved.port !== undefined) body.port = saved.port
   if (saved.readonly !== undefined) body.readonly = saved.readonly
+  if (saved.type === 'clickhouse') body.secure = saved.secure === true
   if (saved.passwordRef !== undefined && saved.passwordRef !== '') body.passwordRef = saved.passwordRef
   else if (saved.password !== undefined && saved.password !== '') body.password = saved.password
   return body
@@ -244,6 +253,7 @@ function savedMatchesSummary(saved: SavedConnection, summary: ConnectionWireSumm
   return (saved.host ?? '') === (summary.host ?? '')
     && (saved.port ?? undefined) === (summary.port ?? undefined)
     && (saved.user ?? '') === (summary.user ?? '')
+    && (saved.type !== 'clickhouse' || (saved.secure === true) === (summary.secure === true))
 }
 
 /** The database workbench body. */
@@ -256,8 +266,11 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [initialSaved] = useState(loadConnection)
   const [type, setType] = useState<DatabaseType>(initialSaved?.type ?? 'mysql')
   const [host, setHost] = useState(initialSaved?.host ?? '127.0.0.1')
+  const [secure, setSecure] = useState(initialSaved?.type === 'clickhouse' && initialSaved.secure === true)
   const [port, setPort] = useState(
-    initialSaved?.port !== undefined ? String(initialSaved.port) : defaultPortOf(initialSaved?.type ?? 'mysql'),
+    initialSaved?.port !== undefined
+      ? String(initialSaved.port)
+      : defaultPortOf(initialSaved?.type ?? 'mysql', initialSaved?.secure === true),
   )
   const [user, setUser] = useState(initialSaved?.user ?? '')
   const [password, setPassword] = useState(initialSaved?.password ?? '')
@@ -290,7 +303,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
   const [sql, setSql] = useState('')
   const [sqlBusy, setSqlBusy] = useState(false)
-  const [sqlResult, setSqlResult] = useState<string | null>(null)
+  const [sqlResult, setSqlResult] = useState<SqlResultState | null>(null)
+  const sqlResultId = useRef(0)
   const triggerSlotRef = useRef<HTMLDivElement>(null)
 
   // 草稿持久化：任何表单字段变化立即保存；密码仅在用户勾选后保存，
@@ -308,6 +322,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       database,
       readonly,
       credentialMode,
+      ...type === 'clickhouse' ? { secure } : {},
       ...type !== 'sqlite' ? { host, user } : {},
       ...type !== 'sqlite' && port !== '' ? { port: Number(port) } : {},
       ...type !== 'sqlite' && credentialMode === 'reference' && passwordRef !== '' ? { passwordRef } : {},
@@ -316,7 +331,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       savedAt: new Date().toISOString(),
     }
     saveConnection(draft)
-  }, [isDataAgent, type, host, port, user, database, password, passwordRef, credentialMode, rememberPassword, readonly])
+  }, [isDataAgent, type, host, port, user, database, password, passwordRef, credentialMode, rememberPassword, readonly, secure])
 
   // Mirror the server-side connection on mount; auto-reconnect once when the
   // server store was lost (restart).
@@ -334,6 +349,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         const matchesSaved = saved !== null && summary !== undefined && savedMatchesSummary(saved, summary)
         if (summary !== undefined) {
           setType(summary.type)
+          setSecure(summary.type === 'clickhouse' && summary.secure === true)
           setHost(summary.host ?? '')
           setPort(summary.port !== undefined ? String(summary.port) : '')
           setUser(summary.user ?? '')
@@ -422,6 +438,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       if (port !== '') body.port = Number(port)
       body.user = user
       body.database = database
+      if (type === 'clickhouse') body.secure = secure
       if (credentialMode === 'reference') {
         if (passwordRef !== '') body.passwordRef = passwordRef
       } else if (password !== '') {
@@ -442,6 +459,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             user,
             database,
             readonly,
+            ...type === 'clickhouse' ? { secure } : {},
             credentialMode: 'none',
             savedAt: new Date().toISOString(),
           })
@@ -540,20 +558,29 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       })
       const result = await parseJsonResponse<QueryResponse>(response)
       if (result.ok && result.result !== undefined) {
-        const parts: string[] = []
-        if (result.result.stdout !== '') parts.push(result.result.stdout)
-        if (result.result.stderr !== '') parts.push(`[stderr]\n${result.result.stderr}`)
-        if (result.result.truncated) parts.push('… 输出超过上限，已截断')
-        if (result.result.exitCode !== 0) parts.push(`[exit code: ${result.result.exitCode ?? 'signal'}]`)
-        setSqlResult(parts.join('\n'))
+        sqlResultId.current += 1
+        setSqlResult(result.result)
       } else {
-        setSqlResult(`Error: ${result.error ?? 'unknown error'}`)
+        setSqlResult({ kind: 'error', message: result.error ?? 'unknown error' })
       }
     } catch (cause) {
-      setSqlResult(`Error: ${cause instanceof Error ? cause.message : String(cause)}`)
+      setSqlResult({ kind: 'error', message: cause instanceof Error ? cause.message : String(cause) })
     } finally {
       setSqlBusy(false)
     }
+  }
+
+  const tableResult = sqlResult?.kind === 'table' ? sqlResult : null
+  let messageResult = ''
+  if (sqlResult?.kind === 'message') {
+    const parts: string[] = []
+    if (sqlResult.stdout !== '') parts.push(sqlResult.stdout)
+    if (sqlResult.stderr !== '') parts.push(`[stderr]\n${sqlResult.stderr}`)
+    if (sqlResult.truncated) parts.push(t('wb.sql.result.outputTruncated'))
+    if (sqlResult.exitCode !== 0) parts.push(`[exit code: ${sqlResult.exitCode ?? 'signal'}]`)
+    messageResult = parts.join('\n') || t('wb.sql.command.done')
+  } else if (sqlResult?.kind === 'error') {
+    messageResult = sqlResult.message
   }
 
   const composerPlaceholder = connected
@@ -661,7 +688,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             </span>
             {(connected || reconnectRequired) && (
               <>
-                <span className={css.summaryType}>{t(`type.${type}`)}</span>
+                <span className={css.summaryType}>{t(databaseTypeDescriptor(type).localeKey)}</span>
                 <span className={css.summaryDb} title={database}>{database}</span>
                 {credentialStatus !== undefined && (
                   <span className={css.summaryType} title={credentialStatus.source}>
@@ -713,16 +740,18 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                   disabled={formDisabled}
                   onChange={(event) => {
                     const next = event.target.value as DatabaseType
+                    const previousDefault = defaultPortOf(type, secure)
+                    const nextSecure = next === 'clickhouse' && secure
+                    if (port === '' || port === previousDefault) setPort(defaultPortOf(next, nextSecure))
                     setType(next)
-                    setPort(next === 'postgres' ? '5432' : next === 'mysql' ? '3306' : next === 'oracle' ? '1521' : next === 'hive' ? '10000' : next === 'impala' ? '21050' : '')
+                    if (next !== 'clickhouse') setSecure(false)
                   }}
                 >
-                  <option value="mysql">{t('type.mysql')}</option>
-                  <option value="postgres">{t('type.postgres')}</option>
-                  <option value="sqlite">{t('type.sqlite')}</option>
-                  <option value="oracle">{t('type.oracle')}</option>
-                  <option value="hive">{t('type.hive')}</option>
-                  <option value="impala">{t('type.impala')}</option>
+                  {DATABASE_TYPES.map(databaseType => (
+                    <option key={databaseType} value={databaseType}>
+                      {t(databaseTypeDescriptor(databaseType).localeKey)}
+                    </option>
+                  ))}
                 </select>
               </label>
 
@@ -737,6 +766,24 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                     <input className={css.input} type="number" min={1} max={65535} value={port} disabled={formDisabled} onChange={(event) => setPort(event.target.value)} />
                   </label>
                 </div>
+              )}
+
+              {type === 'clickhouse' && (
+                <label className={css.rememberRow}>
+                  <input
+                    type="checkbox"
+                    checked={secure}
+                    disabled={formDisabled}
+                    onChange={(event) => {
+                      const next = event.target.checked
+                      const previousDefault = defaultPortOf('clickhouse', secure)
+                      if (port === '' || port === previousDefault) setPort(defaultPortOf('clickhouse', next))
+                      setSecure(next)
+                    }}
+                  />
+                  <span>{t('form.secure')}</span>
+                  <span className={css.rememberHint}>{t('form.secure.hint')}</span>
+                </label>
               )}
 
               {!sqlite && (
@@ -948,7 +995,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
               value={sql}
               rows={9}
               spellCheck={false}
-              placeholder={t('wb.sql.placeholder')}
+              placeholder={t(type === 'sqlserver' ? 'wb.sql.placeholder.sqlserver' : 'wb.sql.placeholder')}
               onChange={(event) => setSql(event.target.value)}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
@@ -969,7 +1016,15 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
                 {sqlBusy ? t('wb.sql.running') : t('wb.sql.run')}
               </button>
             </div>
-            <pre className={css.sqlResult}>{sqlResult ?? t('wb.sql.empty')}</pre>
+            {sqlResult === null ? (
+              <div className={css.sqlResultEmpty}>{t('wb.sql.empty')}</div>
+            ) : tableResult !== null ? (
+              <QueryResultTable key={sqlResultId.current} result={tableResult} t={t} />
+            ) : (
+              <pre className={`${css.sqlMessage} ${sqlResult.kind === 'error' ? css.sqlMessageError : ''}`}>
+                {messageResult}
+              </pre>
+            )}
           </section>
           )}
 

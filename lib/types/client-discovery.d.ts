@@ -8,8 +8,7 @@
  * involved, and the exact discovery environment is returned for spawn.
  * @module @yejiming/dsh-data-agent/client-discovery
  */
-import type { ClientConfig } from './clients.ts';
-import type { DatabaseType } from './connections.ts';
+import type { CliDatabaseType, ClientConfig } from './clients.ts';
 /** Host facts are injectable so all supported platforms can be tested on one CI host. */
 export interface ClientDiscoverySystem {
     platform: NodeJS.Platform;
@@ -28,7 +27,7 @@ export interface ClientExecutableResolution {
 }
 /** Input for one database client resolution attempt. */
 export interface ResolveClientExecutableOptions {
-    type: DatabaseType;
+    type: CliDatabaseType;
     command: string;
     config?: ClientConfig;
     env: Readonly<Record<string, string>>;
@@ -37,7 +36,7 @@ export interface ResolveClientExecutableOptions {
     system?: ClientDiscoverySystem;
 }
 /** Build ordered fallback directories without recursively scanning the host. */
-export declare function buildClientSearchDirectories(type: DatabaseType, config: ClientConfig | undefined, signal: AbortSignal, system?: ClientDiscoverySystem): Promise<string[]>;
+export declare function buildClientSearchDirectories(type: CliDatabaseType, config: ClientConfig | undefined, signal: AbortSignal, system?: ClientDiscoverySystem): Promise<string[]>;
 /**
  * Resolve one configured/default client. Current PATH (or an explicit path)
  * always wins. Only a missing bare command activates bounded PATH discovery.

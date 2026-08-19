@@ -67,6 +67,12 @@ describe('Web/TUI package and preset composition', () => {
       `      Web 界面可用时另有 render-analysis：把一次调用渲染成一份版本化分析报告（1-6 个只读
       数据集、1-8 个 metric/line/bar/pie/scatter/table 视图，同一数据集可被多个视图通过
       datasetId 复用）。是否生成分析由你自主判断：先用 sql-query 探查表结构与样例数据并`,
+    ).replace(
+      `      只允许一条 SQL 语句。根据当前连接使用正确方言：SQL Server使用TOP或OFFSET/FETCH，
+      不使用LIMIT，也不输出GO、冒号命令、!!或sqlcmd变量；ClickHouse、Doris等支持LIMIT的
+      数据库才使用LIMIT。Doris首版只按当前/internal catalog浏览，不臆造外部catalog层级；
+      未经真实部署验证，不宣称任意ClickHouse Cloud或TLS组合都可用。`,
+      `      只允许一条 SQL 语句。`,
     )
     expect(isLegacyManagedPreset(webOnlyPreset)).toBe(true)
     expect(isLegacyManagedPreset(preset)).toBe(false)
@@ -112,6 +118,29 @@ describe('Web/TUI package and preset composition', () => {
       clients: { mysql: { searchPaths: ['/opt/company/mysql/bin'] } },
     })
     expect(config.clients.mysql).toEqual({ args: [], searchPaths: ['/opt/company/mysql/bin'] })
+  })
+
+  it('accepts safe seeded connections and CLI overrides for the new database types', () => {
+    const config = Config({
+      clients: {
+        doris: { command: '/opt/mysql/bin/mysql' },
+        sqlserver: { searchPaths: ['/opt/mssql-tools18/bin'] },
+      },
+      connections: {
+        'clickhouse-session': {
+          type: 'clickhouse', database: 'analytics', secure: true, passwordRef: 'CLICKHOUSE_PASSWORD',
+        },
+        'doris-session': { type: 'doris', database: 'analytics', passwordRef: 'DORIS_PASSWORD' },
+        'sqlserver-session': { type: 'sqlserver', database: 'warehouse', passwordRef: 'SQLSERVER_PASSWORD' },
+      },
+    })
+    expect(config.connections['clickhouse-session']).toMatchObject({ type: 'clickhouse', secure: true })
+    expect(config.connections['doris-session']?.type).toBe('doris')
+    expect(config.connections['sqlserver-session']?.type).toBe('sqlserver')
+    expect(config.clients.sqlserver?.searchPaths).toEqual(['/opt/mssql-tools18/bin'])
+    expect(() => Config({
+      clients: { clickhouse: { command: 'clickhouse-client' } },
+    } as never)).toThrow()
   })
 
   it('uses process-local mode immediately when persistence is explicitly disabled', () => {

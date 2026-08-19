@@ -1,21 +1,31 @@
 /**
- * The shared client-process runner used by both halves: the /connect
- * connectivity check (server half) and the database tools (tool half). All
- * execution goes through `ctx.subprocess` — no shell layer, argv arrays only,
- * SQL on stdin, credentials in env entries — with a caller-owned timeout
- * (AbortController → process-tree terminate escalation) and bounded captured
- * output.
+ * The shared database runner used by both halves: the /connect connectivity
+ * check (server half) and the database tools (tool half). CLI-backed adapters
+ * go through `ctx.subprocess` with argv arrays, SQL on stdin, and credentials
+ * in their dedicated environment/stdin channel. ClickHouse uses the official
+ * Node HTTP client with explicit transport/authentication fields. Both paths
+ * share caller-owned cancellation, deadlines, and bounded captured output.
  * @module @yejiming/dsh-data-agent/query
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
+import { createClient } from '@clickhouse/client'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin).
 import type {} from '@deepseek-ai/dsh-subprocess'
 import type { DatabaseConnection, DatabaseType } from './connections.ts'
-import { buildClientTemplate, buildIntrospectTemplate, buildStructuredQueryTemplate, type ClientConfig } from './clients.ts'
+import {
+  buildClientTemplate,
+  buildIntrospectTemplate,
+  buildStructuredQueryTemplate,
+  classifyStatement,
+  stripSqlServerRowCountFooter,
+  type ClientConfig,
+} from './clients.ts'
 import { resolveClientExecutable } from './client-discovery.ts'
+import { defaultDatabasePort, defaultDatabaseUser } from './database-types.ts'
 import { DEFAULT_GRACE_MS } from './defaults.ts'
+import { assertSqlServerSafeInput } from './sql.ts'
 
 /** One bounded captured-output read (the tail when truncated). */
 export interface CapturedOutput {
@@ -35,12 +45,12 @@ export interface QueryResult {
   truncated: boolean
 }
 
-/** Which CLI flag set to use for one run. */
+/** Which deterministic raw/introspection/structured output mode to use. */
 export type QueryTemplateMode = 'query' | 'introspect' | 'structured'
 
 /** Runner options: client overrides, deadlines, output caps. */
 export interface QueryOptions {
-  /** Deployment client overrides keyed by database type. */
+  /** Deployment CLI overrides keyed by CLI-backed database type. */
   clients: Readonly<Partial<Record<DatabaseType, ClientConfig>>>
   /** End-to-end deadline in milliseconds (timeout → terminate the tree). */
   timeoutMs: number
@@ -59,10 +69,88 @@ function readCaptured(reader: { readFrom(fromByte: number): { text: string; loss
   return { text: read.text, truncated: read.lossy }
 }
 
+/** ClickHouse endpoint construction never embeds username or password. */
+export function clickHouseConnectionUrl(connection: DatabaseConnection): string {
+  const secure = connection.secure === true
+  const url = new URL(`${secure ? 'https' : 'http'}://127.0.0.1`)
+  url.hostname = connection.host ?? '127.0.0.1'
+  url.port = String(connection.port ?? defaultDatabasePort('clickhouse', secure))
+  return url.toString()
+}
+
+async function collectClickHouseStream(
+  stream: AsyncIterable<unknown> & { destroy?: (error?: Error) => void },
+  maxBytes: number,
+  signal: AbortSignal,
+): Promise<CapturedOutput> {
+  const chunks: Buffer[] = []
+  let size = 0
+  let truncated = false
+  for await (const chunk of stream) {
+    signal.throwIfAborted()
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
+    const remaining = maxBytes - size
+    if (remaining <= 0) {
+      truncated = true
+      stream.destroy?.()
+      break
+    }
+    if (buffer.byteLength > remaining) {
+      chunks.push(buffer.subarray(0, remaining))
+      size += remaining
+      truncated = true
+      stream.destroy?.()
+      break
+    }
+    chunks.push(buffer)
+    size += buffer.byteLength
+  }
+  return { text: Buffer.concat(chunks, size).toString('utf8'), truncated }
+}
+
+async function runClickHouseQuery(
+  connection: DatabaseConnection,
+  sql: string,
+  options: QueryOptions,
+  signal: AbortSignal,
+): Promise<QueryResult> {
+  const client = createClient({
+    url: clickHouseConnectionUrl(connection),
+    username: connection.user ?? defaultDatabaseUser('clickhouse'),
+    password: connection.password ?? '',
+    database: connection.database,
+    request_timeout: options.timeoutMs,
+  })
+  try {
+    if (classifyStatement(sql, 'clickhouse') !== 'read') {
+      await client.command({
+        query: sql,
+        abort_signal: signal,
+        clickhouse_settings: { wait_end_of_query: 1 },
+      })
+      return { exitCode: 0, stdout: '', stderr: '', truncated: false }
+    }
+    const format = options.mode === 'structured'
+      ? 'JSONCompactEachRowWithNamesAndTypes'
+      : options.mode === 'introspect'
+        ? 'TabSeparated'
+        : 'TabSeparatedWithNames'
+    const { stream } = await client.exec({
+      query: sql,
+      abort_signal: signal,
+      clickhouse_settings: { default_format: format },
+    })
+    const stdout = await collectClickHouseStream(stream, options.maxResultChars, signal)
+    return { exitCode: 0, stdout: stdout.text, stderr: '', truncated: stdout.truncated }
+  } finally {
+    await client.close()
+  }
+}
+
 /**
- * Run one SQL text through the type's CLI client. The SQL is written to the
- * child's stdin (`{ data }` batch disposition) so it never appears in argv;
- * passwords travel in the env entries built by the template.
+ * Run one SQL text through the type's shared adapter. CLI SQL is written to
+ * child stdin (`{ data }` batch disposition), while ClickHouse SQL is an HTTP
+ * request body; neither path puts SQL or credentials in argv.
  *
  * Failure classification:
  * - the caller's external signal (e.g. the tool exec signal) aborts → the
@@ -87,12 +175,6 @@ export async function runClientQuery(
   externalSignal: AbortSignal,
   introspect = false,
 ): Promise<QueryResult> {
-  const template = options.mode === 'structured'
-    ? buildStructuredQueryTemplate(connection.type, connection, options.clients[connection.type])
-    : options.mode === 'introspect' || introspect
-      ? buildIntrospectTemplate(connection.type, connection, options.clients[connection.type])
-      : buildClientTemplate(connection.type, connection, options.clients[connection.type])
-
   // One controller owns the whole attempt: the internal deadline and the
   // caller's cancellation both abort it, and the subprocess terminate
   // escalation reacts to the same signal.
@@ -106,6 +188,20 @@ export async function runClientQuery(
   else externalSignal.addEventListener('abort', onExternalAbort, { once: true })
 
   try {
+    if (connection.type === 'clickhouse') {
+      return await runClickHouseQuery(
+        connection,
+        sql,
+        { ...options, mode: options.mode ?? (introspect ? 'introspect' : 'query') },
+        controller.signal,
+      )
+    }
+    if (connection.type === 'sqlserver') assertSqlServerSafeInput(sql)
+    const template = options.mode === 'structured'
+      ? buildStructuredQueryTemplate(connection.type, connection, options.clients[connection.type])
+      : options.mode === 'introspect' || introspect
+        ? buildIntrospectTemplate(connection.type, connection, options.clients[connection.type])
+        : buildClientTemplate(connection.type, connection, options.clients[connection.type])
     const resolution = await resolveClientExecutable({
       type: connection.type,
       command: template.command,
@@ -146,12 +242,13 @@ export async function runClientQuery(
 
     const stdout = readCaptured(handle.collected.stdout)
     const stderr = readCaptured(handle.collected.stderr)
-    return {
+    const result = {
       exitCode: outcome.exitCode,
-      stdout: stdout.text,
+      stdout: connection.type === 'sqlserver' ? stripSqlServerRowCountFooter(stdout.text) : stdout.text,
       stderr: stderr.text,
       truncated: stdout.truncated || stderr.truncated,
     }
+    return result
   } finally {
     clearTimeout(timer)
     externalSignal.removeEventListener('abort', onExternalAbort)

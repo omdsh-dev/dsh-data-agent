@@ -112,6 +112,29 @@ describe('persistence', () => {
     expect(loadConnection(storage)).toEqual(sqlite)
   })
 
+  it('round-trips all new type identities and ClickHouse transport without secrets', () => {
+    for (const connection of [
+      { type: 'clickhouse' as const, host: 'ch', port: 8443, user: 'default', database: 'analytics', secure: true, passwordRef: 'CH_PASSWORD', savedAt: 'x' },
+      { type: 'doris' as const, host: 'doris', port: 9030, user: 'root', database: 'analytics', passwordRef: 'DORIS_PASSWORD', savedAt: 'x' },
+      { type: 'sqlserver' as const, host: 'sql', port: 1433, user: 'sa', database: 'warehouse', passwordRef: 'SQL_PASSWORD', savedAt: 'x' },
+    ]) {
+      const storage = memoryStorage()
+      saveConnection(connection, storage)
+      expect(loadConnection(storage)).toMatchObject(connection)
+      expect(storage.map.get(CONNECTION_STORAGE_KEY)).not.toContain('resolved-secret')
+    }
+  })
+
+  it('ignores secure on non-ClickHouse records and still rejects unknown types', () => {
+    const storage = memoryStorage()
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({
+      type: 'doris', database: 'analytics', secure: true, savedAt: 'x',
+    }))
+    expect(loadConnection(storage)).toEqual({ type: 'doris', database: 'analytics', savedAt: 'x' })
+    storage.setItem(CONNECTION_STORAGE_KEY, JSON.stringify({ type: 'future-db', database: 'x', savedAt: 'x' }))
+    expect(loadConnection(storage)).toBeNull()
+  })
+
   it('returns null for absent data', () => {
     expect(loadConnection(memoryStorage())).toBeNull()
   })

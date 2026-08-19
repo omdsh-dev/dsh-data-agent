@@ -6,7 +6,7 @@ import {
   executeDatabaseCommand,
   parseConnectArguments,
 } from '../src/command.ts'
-import type { ConnectionFormDraft } from '../src/connections.ts'
+import type { ConnectionFormDraft, ConnectionFormInitial } from '../src/connections.ts'
 
 function invocation(rawInput: string, id = 'agent-a') {
   return {
@@ -22,7 +22,7 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
   let restriction: Record<string, unknown> | undefined
   const emitted: string[] = []
   const calls: { method: string; sessionId?: string; input?: unknown }[] = []
-  const drafts = new Map<string, ConnectionFormDraft>()
+  const drafts = new Map<string, ConnectionFormInitial>()
   const summary = {
     type: 'mysql' as const, host: 'db', port: 3306, user: 'app', database: 'orders',
     passwordRef: 'DB_PASSWORD', credential: { configured: true, source: 'env' },
@@ -89,11 +89,15 @@ describe('/database command', () => {
     expect(fixture.calls[0]).toEqual({ method: 'status', sessionId: 'agent-a' })
   })
 
-  it('parses all six database types and safe non-interactive arguments', () => {
-    for (const type of ['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala']) {
+  it('parses every database type and safe non-interactive arguments', () => {
+    for (const type of ['mysql', 'postgres', 'sqlite', 'oracle', 'hive', 'impala', 'clickhouse', 'doris', 'sqlserver']) {
       const parsed = parseConnectArguments(['--type', type, '--database', 'db', '--password-ref', 'DB_PASSWORD', '--readonly'])
       expect(parsed).toMatchObject({ type, database: 'db', passwordRef: 'DB_PASSWORD', readonly: true })
     }
+    expect(parseConnectArguments([
+      '--type', 'clickhouse', '--database', 'db', '--secure',
+    ])).toMatchObject({ type: 'clickhouse', secure: true })
+    expect(DATABASE_COMMAND_USAGE).toContain('clickhouse|doris|sqlserver')
   })
 
   it('rejects plaintext password syntax before calling the service', async () => {
@@ -152,11 +156,13 @@ describe('/database command', () => {
     const fixture = commandContext()
     fixture.drafts.set('tui-agent', {
       type: 'mysql', host: 'old-host', port: '', user: '', database: 'old-db', readonly: false,
+      passwordRef: 'OLD_PASSWORD',
     })
     const result = await executeDatabaseCommand(fixture.ctx, invocation(' connect', 'tui-agent'), {
       isTuiFormAvailable: () => true,
       async collectTuiConnection(_signal, options) {
         expect(options.initialDraft?.host).toBe('old-host')
+        expect(options.initialDraft?.passwordRef).toBe('OLD_PASSWORD')
         await options.persistDraft({
           type: 'mysql', host: '127.0.0.1', port: '3306', user: 'root', database: 'orders', readonly: false,
         })

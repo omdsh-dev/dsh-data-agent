@@ -1,0 +1,67 @@
+{
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
+  "manifestVersion": "0.15",
+  "id": "io.github.omdsh-dev.dsh-data-agent",
+  "name": "DSH Data Agent",
+  "version": "0.0.13",
+  "facets": {
+    "host": {
+      "entry": "lib/ecosystem.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "commands.dsh/v1alpha1",
+        "kind": "Command"
+      },
+      {
+        "apiVersion": "storage.dsh/v1alpha1",
+        "kind": "LocalStorage",
+        "optional": true,
+        "fallback": "use the native Cordis storage-domain, or process-local state when native persistence is disabled"
+      }
+    ],
+    "services": []
+  },
+  "permissions": [
+    {
+      "name": "commands.invoke",
+      "scope": "io.github.omdsh-dev.dsh-data-agent.database",
+      "reason": "invoke the declared database connection command"
+    }
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "id": "io.github.omdsh-dev.dsh-data-agent.database",
+        "title": "Database",
+        "description": "Manage the native data-agent database connection"
+      }
+    ],
+    "panels": []
+  },
+  "subscriptions": [],
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/omdsh-dev/dsh-data-agent"
+  },
+  "overrides": [
+    {
+      "target": "package.json#dsh.bundle",
+      "kind": "native",
+      "description": "The existing Cordis bundle remains the sole functional runtime"
+    },
+    {
+      "target": "lib/client.js",
+      "kind": "build",
+      "description": "The Web client is a generated browser closure-factory artifact"
+    },
+    {
+      "target": "database-clients",
+      "kind": "native",
+      "description": "Database execution may require external CLI clients; ClickHouse uses its packaged HTTP client"
+    }
+  ]
+}
