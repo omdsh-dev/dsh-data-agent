@@ -262,6 +262,7 @@ MIT
 
 ## 友情链接
 
-- [dshfind.com](https://dshfind.com)：DeepSeek Harness中文学习与分享社区
-- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui)：DeepSeek Harness Web UI插件与皮肤集合
-- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui)：Claude Code风格的全屏终端界面
+- [dshfind.com](https://dshfind.com)：面向DeepSeek Harness生态的中文技术社区，提供项目发现、实践分享与开发者交流
+- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui)：DeepSeek Harness的可扩展Web UI，支持浏览器端交互以及插件与主题扩展
+- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui)：面向DeepSeek Harness的键盘优先全屏终端界面，适用于高效的对话式开发工作流
+- [platonai/Browser4](https://github.com/platonai/Browser4)：面向自主智能体、智能信息抽取与大规模Web自动化的AI原生浏览器引擎

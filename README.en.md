@@ -263,6 +263,7 @@ MIT
 
 ## Related Links
 
-- [dshfind.com](https://dshfind.com): A Chinese learning and sharing community for DeepSeek Harness
-- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): A collection of plugins and skins for the DeepSeek Harness Web UI
-- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): A Claude Code-style full-screen terminal interface
+- [dshfind.com](https://dshfind.com): A Chinese-language technical community for the DeepSeek Harness ecosystem, featuring project discovery, practical knowledge sharing, and developer collaboration
+- [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): An extensible Web UI for DeepSeek Harness, with browser-based interaction and a plugin and theme ecosystem
+- [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): A keyboard-first, full-screen terminal interface for DeepSeek Harness, designed for efficient conversational development workflows
+- [platonai/Browser4](https://github.com/platonai/Browser4): an AI-native browser engine for autonomous agents, intelligent extraction, and large-scale web automation.
