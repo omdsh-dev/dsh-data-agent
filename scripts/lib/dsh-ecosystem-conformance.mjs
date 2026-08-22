@@ -118,32 +118,58 @@ export function collectCurrentInventory(root) {
   const patch = readFileSync(join(root, 'cordis.patch.yml'), 'utf8')
   const preset = readFileSync(join(root, 'preset', 'data-agent', 'agent.cordis.yml'), 'utf8')
   const tool = readFileSync(join(root, 'src', 'tool.ts'), 'utf8')
+  const catalogTools = readFileSync(join(root, 'src', 'catalog-tools.ts'), 'utf8')
   const command = readFileSync(join(root, 'src', 'command.ts'), 'utf8')
+  const catalogCommand = readFileSync(join(root, 'src', 'catalog-command.ts'), 'utf8')
   const profile = readFileSync(join(root, 'src', 'index.ts'), 'utf8')
   const routes = readFileSync(join(root, 'src', 'routes.ts'), 'utf8')
   const client = readFileSync(join(root, 'src', 'client', 'index.ts'), 'utf8')
   const storage = readFileSync(join(root, 'src', 'storage.ts'), 'utf8')
+  const catalogStorage = readFileSync(join(root, 'src', 'catalog-storage.ts'), 'utf8')
   const databaseTypes = readFileSync(join(root, 'src', 'database-types.ts'), 'utf8')
 
   const ownTools = matches(tool, /name:\s*'(sql-query|sql-write|sql-cmd|render-analysis)'/gu)
+  ownTools.push(...matches(catalogTools, /name:\s*'(catalog-search|catalog-get|metric-get)'/gu))
   if (preset.includes("name: '@deepseek-ai/dsh-tool-str-replace-editor'")) ownTools.push('str_replace_editor')
   const domain = storage.match(/CONNECTION_STORAGE_DOMAIN\s*=\s*'([^']+)'/u)?.[1]
   const domainVersion = storage.match(/CONNECTION_STORAGE_VERSION\s*=\s*(\d+)/u)?.[1]
+  const catalogDomain = catalogStorage.match(/CATALOG_STORAGE_DOMAIN\s*=\s*'([^']+)'/u)?.[1]
+  const catalogDomainVersion = catalogStorage.match(/CATALOG_STORAGE_VERSION\s*=\s*(\d+)/u)?.[1]
   const typeBlock = databaseTypes.match(/DATABASE_TYPES\s*=\s*\[([\s\S]*?)\]\s*as const/u)?.[1] ?? ''
 
   return Object.freeze({
     bundleRows: matches(patch, /name:\s*'([^']+)'/gu),
     presetRows: matches(preset, /name:\s*'([^']+)'/gu),
-    commands: matches(command, /ctx\.commands\.register\(\{[\s\S]*?name:\s*'([^']+)'/gu),
+    commands: sorted([
+      ...matches(command, /ctx\.commands\.register\(\{[\s\S]*?name:\s*'([^']+)'/gu),
+      ...matches(catalogCommand, /ctx\.commands\.register\(\{[\s\S]*?name:\s*'([^']+)'/gu),
+    ]),
     tools: sorted(ownTools),
-    services: profile.includes("provide('dataAgentConnections'") ? ['dataAgentConnections'] : [],
-    routes: matches(
-      routes,
-      /req\.method\s*===\s*'(GET|POST)'\s*&&\s*routeIs\(segments,\s*'([^']+)'\)/gu,
-      match => `${match[1]} ${match[2]}`,
-    ),
+    services: sorted(matches(profile, /provide\('(dataAgent(?:Connections|Catalog|CatalogScanner|CatalogReview))'/gu)),
+    routes: sorted([
+      ...matches(
+        routes,
+        /req\.method\s*===\s*'(GET|POST)'\s*&&\s*routeIs\(segments,\s*'([^']+)'\)/gu,
+        match => `${match[1]} ${match[2]}`,
+      ),
+      ...matches(
+        routes,
+        /req\.method\s*===\s*'(GET|POST)'\s*&&\s*routePathIs\(segments,\s*'catalog',\s*'([^']+)'\)/gu,
+        match => `${match[1]} catalog/${match[2]}`,
+      ),
+      ...(routes.includes("segments[1] === 'assets'") ? ['GET catalog/assets/:assetId'] : []),
+      ...(routes.includes("segments[1] === 'semantics'") ? [
+        'GET catalog/semantics/:semanticId',
+        'POST catalog/semantics/:semanticId/dismiss',
+        'POST catalog/semantics/:semanticId/retire',
+        'POST catalog/semantics/:semanticId/verify',
+      ] : []),
+    ]),
     webSlots: matches(client, /slots\.inject\('([^']+)'/gu),
-    storageDomains: domain === undefined || domainVersion === undefined ? [] : [`${domain}@${domainVersion}`],
+    storageDomains: sorted([
+      ...(domain === undefined || domainVersion === undefined ? [] : [`${domain}@${domainVersion}`]),
+      ...(catalogDomain === undefined || catalogDomainVersion === undefined ? [] : [`${catalogDomain}@${catalogDomainVersion}`]),
+    ]),
     databaseTypes: matches(typeBlock, /'([^']+)'/gu),
     publicExports: sorted(Object.keys(pkg.exports ?? {})),
     packageFiles: sorted(pkg.files ?? []),
@@ -281,9 +307,15 @@ function validateManifestDocument({ source, packageVersion, baseline, entryPrese
   for (const permission of parsed.permissions) {
     assert(Object.hasOwn(baseline.acceptedPermissions, permission.name), `permission is not admitted: ${permission.name}`, REQUIREMENTS.closure)
   }
-  assert(parsed.permissions.length === 1, 'only the scoped commands.invoke permission may be declared', REQUIREMENTS.closure)
-  assert(parsed.permissions[0].scope === 'io.github.omdsh-dev.dsh-data-agent.database', 'command permission scope drifted', REQUIREMENTS.closure)
-  assert(parsed.contributes.commands.length === 1, 'exactly one database command must be declared', REQUIREMENTS.closure)
+  const commandScopes = parsed.contributes.commands.map(command => command.id).sort()
+  assert(parsed.permissions.length === 1, 'only one package-scoped commands.invoke permission may be declared', REQUIREMENTS.closure)
+  assert(parsed.permissions[0].scope === 'io.github.omdsh-dev.dsh-data-agent', 'command permission scope drifted', REQUIREMENTS.closure)
+  assertArrayEqual(
+    commandScopes,
+    ['io.github.omdsh-dev.dsh-data-agent.catalog', 'io.github.omdsh-dev.dsh-data-agent.database'],
+    'declared native commands',
+    REQUIREMENTS.closure,
+  )
   assert(parsed.contributes.panels.length === 0, 'the ecosystem declaration must not publish a panel', REQUIREMENTS.native)
 
   const projected = projectManifest(parsed)
@@ -293,8 +325,8 @@ function validateManifestDocument({ source, packageVersion, baseline, entryPrese
   const errors = validation.issues.filter(issue => issue.severity === 'error')
   assert(errors.length === 0, errors.map(issue => `${issue.path}: ${issue.message}`).join('; ') || 'manifest definition validation failed')
   const facet = projected.spec.facets[0]
-  const command = facet?.extensions?.find(extension => coordinateKey(extension) === 'commands.dsh/v1alpha1#Command')
-  assert(command?.metadata.name === 'database', 'namespaced command must project to the database wire leaf', REQUIREMENTS.closure)
+  const commands = facet?.extensions?.filter(extension => coordinateKey(extension) === 'commands.dsh/v1alpha1#Command') ?? []
+  assertArrayEqual(commands.map(command => command.metadata.name).sort(), ['catalog', 'database'], 'projected command leaves', REQUIREMENTS.closure)
   return Object.freeze({ source, digest: sha256(source), parsed, projected, validation, protocols })
 }
 

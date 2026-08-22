@@ -1,7 +1,7 @@
 {
   "name": "@yejiming/dsh-data-agent",
-  "description": "Data Agent for DSH Web and TUI: shared database connections, a masked TUI form, secure credential references, SQL tools, and the data-agent preset",
-  "version": "0.0.13",
+  "description": "Data Agent for DSH Web and TUI: shared database connections, versioned metadata Catalog governance, secure credentials, SQL and Catalog tools, and the data-agent preset",
+  "version": "0.1.0",
   "publishConfig": {
     "access": "public"
   },
@@ -101,7 +101,9 @@
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-invariants": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-llm": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-scope": "^0.1.0-rc.7",
+    "@deepseek-ai/dsh-session": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-storage": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-storage-domain": "^0.1.0-rc.7",
     "@deepseek-ai/dsh-storage-json": "^0.1.0-rc.7",

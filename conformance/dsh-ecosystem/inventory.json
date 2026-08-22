@@ -10,21 +10,42 @@
       "@deepseek-ai/dsh-persona",
       "@deepseek-ai/dsh-tool-str-replace-editor"
     ],
-    "commands": ["database"],
+    "commands": ["catalog", "database"],
     "tools": [
       "render-analysis",
+      "catalog-get",
+      "catalog-search",
+      "metric-get",
       "sql-cmd",
       "sql-query",
       "sql-write",
       "str_replace_editor"
     ],
-    "services": ["dataAgentConnections"],
+    "services": [
+      "dataAgentCatalog",
+      "dataAgentCatalogReview",
+      "dataAgentCatalogScanner",
+      "dataAgentConnections"
+    ],
     "routes": [
       "GET describe",
+      "GET catalog/assets/:assetId",
+      "GET catalog/diff",
+      "GET catalog/runs",
+      "GET catalog/search",
+      "GET catalog/semantics/:semanticId",
+      "GET catalog/sources",
+      "GET catalog/status",
       "GET schemas",
       "GET status",
       "GET tables",
       "POST connect",
+      "POST catalog/cancel",
+      "POST catalog/scan",
+      "POST catalog/semantics",
+      "POST catalog/semantics/:semanticId/dismiss",
+      "POST catalog/semantics/:semanticId/retire",
+      "POST catalog/semantics/:semanticId/verify",
       "POST disconnect",
       "POST query"
     ],
@@ -32,7 +53,7 @@
       "conversation.input.right",
       "tool.call.toolview"
     ],
-    "storageDomains": ["data_agent_connections@1"],
+    "storageDomains": ["data_agent_catalog@1", "data_agent_connections@1"],
     "surfaces": ["desktop", "headless", "tui", "web"],
     "databaseTypes": [
       "clickhouse",
@@ -63,6 +84,7 @@
     ]
   },
   "abilities": [
+    { "id": "command:catalog", "disposition": "declared", "manifestReference": "io.github.omdsh-dev.dsh-data-agent.catalog" },
     { "id": "command:database", "disposition": "declared", "manifestReference": "io.github.omdsh-dev.dsh-data-agent.database" },
     { "id": "tools:model", "disposition": "upstream-gap", "restrictionId": "tool-extension-not-in-tui-profile" },
     { "id": "preset:data-agent", "disposition": "upstream-gap", "restrictionId": "agent-preset-not-in-tui-profile" },
@@ -70,6 +92,7 @@
     { "id": "routes:data-agent", "disposition": "restriction", "restrictionId": "http-routes-native-only" },
     { "id": "ui:web-slots", "disposition": "restriction", "restrictionId": "web-slots-native-only" },
     { "id": "storage:data_agent_connections", "disposition": "restriction", "restrictionId": "storage-domain-native-only" },
+    { "id": "storage:data_agent_catalog", "disposition": "restriction", "restrictionId": "storage-domain-native-only" },
     { "id": "credentials:resolve", "disposition": "restriction", "restrictionId": "credential-resolution-native-only" },
     { "id": "subprocess:database-clients", "disposition": "restriction", "restrictionId": "database-execution-native-only" },
     { "id": "presentation:local-tty", "disposition": "restriction", "restrictionId": "legacy-local-tty" }

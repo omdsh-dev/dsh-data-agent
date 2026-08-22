@@ -2,9 +2,10 @@
  * Data Agent profile entry. The host row provides the
  * `dataAgentConnections` service (shared non-secret profile/binding storage;
  * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
- * wildcard default), installs the `data-agent` agent preset into
+ * wildcard default), provides a separate versioned governance Catalog, installs the `data-agent` agent preset into
  * `$DSH_HOME/.agent-presets/`, and preloads the preset-scoped database tools
- * and command through this profile bundle entry.
+ * on every surface, while registering `/database` and `/catalog` only while
+ * the current Cordis composition actually loads the dsh-tui plugin.
  *
  * The HTTP routes live in the separate `./routes` entry
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
@@ -21,12 +22,19 @@ import type { ScopeKey } from '@deepseek-ai/dsh-scope';
 declare module '@deepseek-ai/cordis' {
     interface Context {
         dataAgentConnections: DataAgentConnections;
+        dataAgentCatalog: DataAgentCatalog;
+        dataAgentCatalogScanner: DataAgentCatalogScanner;
+        dataAgentCatalogReview: DataAgentCatalogReview;
     }
 }
 import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
 import { type CliDatabaseType, type ClientConfig } from './clients.ts';
+import { type DataAgentCatalog, type DataAgentCatalogReview, type DataAgentCatalogScanner } from './catalog.ts';
+import { type DataAgentCommandAdapterOptions } from './command.ts';
 import { type Config as ToolConfig } from './tool.ts';
+export type { CatalogServiceBundle, CatalogServiceOptions, CatalogStatusSummary, DataAgentCatalog, DataAgentCatalogReview, DataAgentCatalogScanner, StartCatalogScanInput, } from './catalog.ts';
+export type { CatalogAssetDetail, CatalogAssetHead, CatalogAssetKind, CatalogAssetRevision, CatalogAssetStatus, CatalogCapability, CatalogDiffItem, CatalogDiffKind, CatalogDiffPage, CatalogEnrichment, CatalogEnrichmentStatus, CatalogIdentity, CatalogObservation, CatalogProgress, CatalogRelation, CatalogRun, CatalogRunStatus, CatalogScope, CatalogSearchFilters, CatalogSearchItem, CatalogSearchPage, CatalogSearchRequest, CatalogSemanticEntry, CatalogSemanticKind, CatalogSemanticRevision, CatalogSemanticStatus, CatalogSource, CatalogTechnicalPayload, MetricDefinition, MeaningDefinition, SemanticDefinition, TermDefinition, } from './catalog-types.ts';
 /** Cordis plugin name (diagnostics only). */
 export declare const name = "data-agent";
 /** Services required before the profile entry can mount its preset layer. */
@@ -65,6 +73,20 @@ export interface Config {
     introspectMaxTables: number;
     /** Deadline for one database-tool query, milliseconds. */
     queryTimeoutMs: number;
+    /** Deadline for one package-owned system-catalog metadata query. */
+    catalogQueryTimeoutMs: number;
+    /** Per-stream capture budget for one package-owned system-catalog query. */
+    catalogMaxResultChars: number;
+    /** Maximum schemas and table/view details processed concurrently. */
+    catalogSchemaConcurrency: number;
+    catalogAssetConcurrency: number;
+    /** Hard technical asset bound for one scan. */
+    catalogMaxAssetsPerRun: number;
+    /** Maximum normalized database/human text field length. */
+    catalogMaxTextChars: number;
+    /** Default and maximum Catalog list/detail page sizes. */
+    catalogPageSize: number;
+    catalogMaxPageSize: number;
     /** In-memory cap on database-tool captured output. */
     maxResultChars: number;
     /** Maximum structured rows returned by one database read tool call. */
@@ -87,6 +109,14 @@ export declare const Config: z<Schemastery.ObjectS<{
     connectTimeoutMs: z<number, number>;
     introspectMaxTables: z<number, number>;
     queryTimeoutMs: z<number, number>;
+    catalogQueryTimeoutMs: z<number, number>;
+    catalogMaxResultChars: z<number, number>;
+    catalogSchemaConcurrency: z<number, number>;
+    catalogAssetConcurrency: z<number, number>;
+    catalogMaxAssetsPerRun: z<number, number>;
+    catalogMaxTextChars: z<number, number>;
+    catalogPageSize: z<number, number>;
+    catalogMaxPageSize: z<number, number>;
     maxResultChars: z<number, number>;
     maxRows: z<number, number>;
     maxQueryChars: z<number, number>;
@@ -128,6 +158,14 @@ export declare const Config: z<Schemastery.ObjectS<{
     connectTimeoutMs: z<number, number>;
     introspectMaxTables: z<number, number>;
     queryTimeoutMs: z<number, number>;
+    catalogQueryTimeoutMs: z<number, number>;
+    catalogMaxResultChars: z<number, number>;
+    catalogSchemaConcurrency: z<number, number>;
+    catalogAssetConcurrency: z<number, number>;
+    catalogMaxAssetsPerRun: z<number, number>;
+    catalogMaxTextChars: z<number, number>;
+    catalogPageSize: z<number, number>;
+    catalogMaxPageSize: z<number, number>;
     maxResultChars: z<number, number>;
     maxRows: z<number, number>;
     maxQueryChars: z<number, number>;
@@ -188,11 +226,11 @@ export declare function missingProfileDependencyMessage(profile: string): string
 /** Tool configuration inherited by the profile-preloaded preset capabilities. */
 type PresetCapabilitiesConfig = Pick<ToolConfig, 'queryTimeoutMs' | 'maxResultChars' | 'maxRows' | 'maxQueryChars' | 'readonly' | 'clients'>;
 /**
- * Register the statically imported database tools and command under the exact
+ * Register the statically imported database tools and surface adapters under the exact
  * standing key owned by the data-agent preset. Selecting the preset performs
  * no package import and only links the agent scope to this key.
  */
-export declare function mountPresetCapabilities(ctx: Context, key: ScopeKey, scopeTag: symbol, config: PresetCapabilitiesConfig): Promise<void>;
+export declare function mountPresetCapabilities(ctx: Context, key: ScopeKey, scopeTag: symbol, config: PresetCapabilitiesConfig, commandOptions?: DataAgentCommandAdapterOptions): Promise<void>;
 /**
  * Mount the data-agent profile row: connection store, config-seeded
  * connections, preset installation, and profile-preloaded preset capabilities.
@@ -201,4 +239,3 @@ export declare function mountPresetCapabilities(ctx: Context, key: ScopeKey, sco
  * @param config - validated loader configuration.
  */
 export declare function apply(ctx: Context, config: Config): Promise<void>;
-export {};

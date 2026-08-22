@@ -54,7 +54,7 @@ const dictionary = zh as Record<string, string>
 const t = (key: string, values?: Record<string, string | number>): string => {
   let output = dictionary[key] ?? key
   for (const [name, value] of Object.entries(values ?? {})) {
-    output = output.replaceAll(`{{${name}}}`, String(value))
+    output = output.replaceAll(`{${name}}`, String(value))
   }
   return output
 }
@@ -202,7 +202,7 @@ describe('DataAgentWorkbench composer entry', () => {
     expect(within(dialog).getByText('需要重新认证')).toBeTruthy()
     expect((within(dialog).getByLabelText('密码') as HTMLInputElement).disabled).toBe(false)
     expect((within(dialog).getByRole('tab', { name: '库表' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('automatically restores a matching profile when the user opted to remember its password', async () => {
@@ -210,9 +210,21 @@ describe('DataAgentWorkbench composer entry', () => {
       type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
       password: 'remembered-secret', credentialMode: 'password', persistPassword: true, savedAt: 'x',
     }))
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'dsh_data_agent_demo', database: 'dsh_data_agent_demo',
+      credentialConfigured: true, createdAt: '2026-08-22T00:00:00.000Z', updatedAt: '2026-08-22T00:00:00.000Z',
+    }
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
-      if (url.includes('/status')) {
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({
+        ok: true, status: { source, counts: { assets: 1, fields: 1, needsReview: 0 } },
+      })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs: [] })
+      if (url.includes('/catalog/search')) return response({
+        ok: true, page: { sourceId: 'profile-a', query: '*', items: [], truncated: false, warnings: [] },
+      })
+      if (url.includes('/plugins/data-agent/status')) {
         return response({
           connected: false,
           reconnectRequired: true,
@@ -230,6 +242,7 @@ describe('DataAgentWorkbench composer entry', () => {
           summary: {
             type: 'mysql', database: 'dsh_data_agent_demo', credentialMode: 'password',
             credential: { configured: true, source: 'memory' }, ready: true, reconnectRequired: false,
+            profileId: 'profile-a',
           },
         })
       }
@@ -239,9 +252,18 @@ describe('DataAgentWorkbench composer entry', () => {
     render(composerWorkbenchNode('data-agent'))
     const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
 
-    await screen.findByRole('button', { name: '数据库工作台：已连接' })
+    const trigger = await screen.findByRole('button', { name: '数据库工作台：已连接' })
     expect(textarea.placeholder).toBe('数据库连接成功，请描述分析内容')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).endsWith('/connect'))).toHaveLength(1)
+
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    await waitFor(() => expect(catalogTab.disabled).toBe(false))
+    fireEvent.click(catalogTab)
+    const scan = within(dialog).getByRole('button', { name: '扫描' }) as HTMLButtonElement
+    await waitFor(() => expect(scan.disabled).toBe(false))
+    expect(within(dialog).queryByText('请先使用同一个连接 Profile 重新连接后再扫描。')).toBeNull()
   })
 
   it('loads schemas lazily on first schema-tab entry for a restored connection', async () => {
@@ -258,14 +280,14 @@ describe('DataAgentWorkbench composer entry', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     fireEvent.click(within(dialog).getByRole('tab', { name: '库表' }))
     await waitFor(() => expect(within(dialog).getAllByText('orders')).toHaveLength(2))
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
 
     fireEvent.click(within(dialog).getByRole('tab', { name: '连接配置' }))
     fireEvent.click(within(dialog).getByRole('tab', { name: '库表' }))
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('keeps one Modal open, switches to schema after connect, and preserves SQL across close/reopen', async () => {
@@ -356,5 +378,314 @@ describe('DataAgentWorkbench composer entry', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledOnce())
     expect(String(writeText.mock.calls[0]![0]).split('\r\n')).toHaveLength(102)
     expect(await within(dialog).findByText('已复制 101 行')).toBeTruthy()
+  })
+
+  it('browses a persisted Catalog while disconnected and preserves its search across Modal reopen', async () => {
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'Orders', database: 'orders',
+      credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+    }
+    const revision = {
+      id: 'asset-orders:r00000001', assetId: 'asset-orders', sourceId: 'profile-a', runId: 'run-a', revision: 1,
+      status: 'observed', fingerprint: 'a'.repeat(64), observedAt: '2026-08-21T00:00:00.000Z', changeSummary: ['added'],
+      payload: {
+        identity: { sourceId: 'profile-a', database: 'orders', schema: 'sales', kind: 'table', name: 'orders' },
+        name: 'orders', path: 'orders.sales.orders', objectType: 'table', comment: '<script>must stay text</script>',
+        provenance: { source: 'database', dialect: 'mysql', runId: 'run-a' },
+      },
+    }
+    const catalogSearchUrls: string[] = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({
+        ok: true, status: { source, counts: { assets: 1, fields: 0, needsReview: 0 } },
+      })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs: [] })
+      if (url.includes('/catalog/search')) {
+        catalogSearchUrls.push(url)
+        return response({ ok: true, page: {
+          sourceId: 'profile-a', query: '*', nextCursor: undefined, truncated: false, warnings: [],
+          items: [{
+            id: 'asset-orders', sourceId: 'profile-a', resultType: 'asset', kind: 'table', name: 'orders',
+            path: 'orders.sales.orders', summary: 'Orders', matchReasons: ['browse'], status: 'observed',
+            provenance: 'database', untrusted: true,
+          }],
+        } })
+      }
+      if (url.includes('/catalog/assets/asset-orders')) return response({
+        ok: true, detail: { asset: revision, fields: [], relations: [], semantics: [], history: [revision], truncated: false, untrusted: true },
+      })
+      if (url.includes('/status')) return response({ connected: false })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+    const trigger = await screen.findByRole('button', { name: '数据库工作台：未连接' })
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    await waitFor(() => expect(catalogTab.disabled).toBe(false))
+    expect((within(dialog).getByRole('tab', { name: '库表' }) as HTMLButtonElement).disabled).toBe(true)
+    const catalogPanel = document.getElementById(catalogTab.getAttribute('aria-controls')!) as HTMLElement
+    expect(catalogPanel.hidden).toBe(true)
+    expect(within(dialog).queryByRole('listbox', { name: '数据目录' })).toBeNull()
+    fireEvent.click(catalogTab)
+    expect(catalogPanel.hidden).toBe(false)
+    const search = await within(dialog).findByRole('textbox', { name: '搜索表、字段、术语或指标' }) as HTMLInputElement
+    const catalogList = within(dialog).getByRole('listbox', { name: '数据目录' })
+    await waitFor(() => expect(within(catalogList).getByRole('option', { name: /orders/ })).toBeTruthy())
+    const initialSearch = new URL(catalogSearchUrls.at(-1)!, 'http://localhost')
+    expect(initialSearch.searchParams.get('schema')).toBe('orders')
+    expect(initialSearch.searchParams.get('assetKinds')).toBe('table,view')
+    expect(initialSearch.searchParams.get('assetStatuses')).toBe('observed')
+    expect((within(dialog).getByRole('combobox', { name: '全部类型' }) as HTMLSelectElement).value).toBe('relation')
+    expect(dialog.textContent).toContain('1资产')
+    expect(dialog.textContent).not.toContain('{0}')
+    fireEvent.click(within(catalogList).getByRole('option', { name: /orders/ }))
+    await waitFor(() => expect(within(dialog).getByText('<script>must stay text</script>')).toBeTruthy())
+    expect(dialog.querySelector('script')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('tab', { name: '业务定义' }))
+    expect(within(dialog).getByText('尚无 AI 业务含义候选')).toBeTruthy()
+    expect(within(dialog).getByText(/AI 结果只供参考，仍需人工确认/)).toBeTruthy()
+    fireEvent.change(search, { target: { value: '成交金额' } })
+    fireEvent.click(within(dialog).getByRole('tab', { name: '连接配置' }))
+    expect(catalogPanel.hidden).toBe(true)
+    expect(within(dialog).queryByRole('listbox', { name: '数据目录' })).toBeNull()
+    fireEvent.click(catalogTab)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(trigger)
+    const reopened = screen.getByRole('dialog', { name: '数据库工作台' })
+    expect((within(reopened).getByRole('textbox', { name: '搜索表、字段、术语或指标' }) as HTMLInputElement).value).toBe('成交金额')
+  })
+
+  it('reviews AI table and field meanings with per-item confirm and delete actions', async () => {
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'Orders', database: 'orders',
+      credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+    }
+    const table = {
+      id: 'asset-orders:r00000001', assetId: 'asset-orders', sourceId: 'profile-a', runId: 'run-a', revision: 1,
+      status: 'observed', fingerprint: 'a'.repeat(64), observedAt: '2026-08-21T00:00:00.000Z', changeSummary: ['added'],
+      payload: {
+        identity: { sourceId: 'profile-a', database: 'orders', schema: 'orders', kind: 'table', name: 'orders' },
+        name: 'orders', path: 'orders.orders.orders', objectType: 'table',
+        provenance: { source: 'database', dialect: 'mysql', runId: 'run-a' },
+      },
+    }
+    const field = {
+      ...table, id: 'asset-amount:r00000001', assetId: 'asset-amount', fingerprint: 'b'.repeat(64),
+      payload: {
+        identity: { sourceId: 'profile-a', database: 'orders', schema: 'orders', relation: 'orders', kind: 'column', name: 'amount' },
+        name: 'amount', path: 'orders.orders.orders.amount', parentId: 'asset-orders', dataType: 'decimal(12,2)', nullable: false, ordinal: 1,
+        provenance: { source: 'database', dialect: 'mysql', runId: 'run-a' },
+      },
+    }
+    const meaning = (id: string, assetId: string, targetKind: 'table' | 'column', description: string) => ({
+      id: `${id}:v00000001`, semanticId: id, sourceId: 'profile-a', version: 1, createdAt: '2026-08-21T00:01:00.000Z',
+      definition: {
+        kind: 'meaning', name: assetId === 'asset-orders' ? 'orders' : 'amount', aliases: [], description,
+        sourceAssetIds: [assetId], status: 'inferred', targetAssetId: assetId, targetKind,
+        generatedBy: { kind: 'ai', provider: 'deepseek', model: 'deepseek-chat', runId: 'run-a' },
+        triggerRunId: 'run-a', revisionNote: 'AI candidate',
+      },
+    })
+    let semantics = [
+      meaning('meaning-table', 'asset-orders', 'table', '记录客户订单及其交易状态。'),
+      meaning('meaning-field', 'asset-amount', 'column', '订单应付金额。'),
+    ]
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({ ok: true, status: { source, counts: { assets: 2, fields: 1, needsReview: semantics.length } } })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs: [] })
+      if (url.includes('/catalog/search')) return response({ ok: true, page: { sourceId: 'profile-a', query: '*', truncated: false, warnings: [], items: [{
+        id: 'asset-orders', sourceId: 'profile-a', resultType: 'asset', kind: 'table', name: 'orders', path: 'orders.orders.orders', summary: '',
+        matchReasons: ['browse'], status: 'observed', provenance: 'database', untrusted: true,
+      }] } })
+      if (url.includes('/catalog/assets/asset-orders')) return response({ ok: true, detail: {
+        asset: table, fields: [field], relations: [], semantics, history: [table], truncated: false, untrusted: true,
+      } })
+      if (url.includes('/catalog/semantics/meaning-table/verify') && init?.method === 'POST') {
+        const current = semantics[0]!
+        const verified = { ...current, id: 'meaning-table:v00000002', version: 2, definition: { ...current.definition, status: 'verified' } }
+        semantics = [verified, semantics[1]!]
+        return response({ ok: true, semantic: verified })
+      }
+      if (url.includes('/catalog/semantics/meaning-field/dismiss') && init?.method === 'POST') {
+        const dismissed = { ...semantics[1]!, version: 2, definition: { ...semantics[1]!.definition, status: 'retired' } }
+        semantics = semantics.filter(value => value.semanticId !== 'meaning-field')
+        return response({ ok: true, semantic: dismissed })
+      }
+      if (url.includes('/status')) return response({ connected: true, summary: { type: 'mysql', database: 'orders', profileId: 'profile-a' } })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    fireEvent.click(await within(dialog).findByRole('tab', { name: '数据目录' }))
+    const list = await within(dialog).findByRole('listbox', { name: '数据目录' })
+    fireEvent.click(await within(list).findByRole('option', { name: /orders/ }))
+    fireEvent.click(await within(dialog).findByRole('tab', { name: '业务定义' }))
+    expect(await within(dialog).findByText('记录客户订单及其交易状态。')).toBeTruthy()
+    expect(within(dialog).getByText('订单应付金额。')).toBeTruthy()
+    fireEvent.click(within(dialog).getAllByRole('button', { name: '确认' })[0]!)
+    await waitFor(() => expect(within(dialog).getAllByText('已确认').length).toBeGreaterThan(0))
+    const fieldRow = within(dialog).getByText('amount').closest('article')!
+    fireEvent.click(within(fieldRow).getByRole('button', { name: '删除' }))
+    await waitFor(() => expect(within(dialog).queryByText('订单应付金额。')).toBeNull())
+  })
+
+  it('requires inline confirmation before starting a full-source Catalog scan', async () => {
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'Orders', database: 'orders',
+      credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+    }
+    const run = {
+      id: 'run-a', sourceId: 'profile-a', sessionId: 'session-1', scope: { kind: 'source' }, status: 'queued',
+      coverageComplete: false, progress: { schemas: 0, relations: 0, fields: 0, assets: 0 }, createdAt: '2026-08-21T00:00:00.000Z',
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({ ok: true, status: { source, counts: { assets: 0, fields: 0, needsReview: 0 } } })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs: [] })
+      if (url.includes('/catalog/search')) return response({ ok: true, page: { sourceId: 'profile-a', query: '*', items: [], truncated: false, warnings: [] } })
+      if (url.endsWith('/catalog/scan') && init?.method === 'POST') {
+        expect(JSON.parse(String(init.body))).toEqual({ sessionId: 'session-1', scope: { kind: 'source' } })
+        return response({ ok: true, run })
+      }
+      if (url.includes('/status')) return response({ connected: true, summary: { type: 'mysql', database: 'orders', profileId: 'profile-a' } })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' })
+    fireEvent.click(catalogTab)
+    fireEvent.change(within(dialog).getByRole('combobox', { name: '扫描' }), { target: { value: 'source' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: '扫描' }))
+    expect(within(dialog).getByText(/确认扫描整个数据源/)).toBeTruthy()
+    expect(fetchMock.mock.calls.filter(call => String(call[0]).endsWith('/catalog/scan'))).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole('button', { name: '全库' }))
+    await waitFor(() => expect(fetchMock.mock.calls.filter(call => String(call[0]).endsWith('/catalog/scan'))).toHaveLength(1))
+  })
+
+  it('keeps a human semantic draft intact when optimistic verification conflicts', async () => {
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'Orders', database: 'orders',
+      credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+    }
+    const semantic = {
+      id: 'metric-gmv:v00000001', semanticId: 'metric-gmv', sourceId: 'profile-a', version: 1,
+      createdAt: '2026-08-21T00:00:00.000Z',
+      definition: {
+        kind: 'metric', name: 'GMV', aliases: ['成交金额'], description: 'Paid order amount', owner: 'finance',
+        sourceAssetIds: ['asset-orders'], status: 'inferred', formula: 'SUM(amount)', grain: 'day',
+        filters: [], exclusions: [], revisionNote: 'candidate',
+      },
+    }
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/catalog/semantics/metric-gmv/verify') && init?.method === 'POST') {
+        return { ok: false, status: 409, json: async () => ({ error: 'Catalog semantic version conflict; current version is 2' }) } as Response
+      }
+      if (url.includes('/catalog/semantics/metric-gmv')) return response({ ok: true, semantic })
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({ ok: true, status: { source, counts: { assets: 1, fields: 0, needsReview: 1 } } })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs: [] })
+      if (url.includes('/catalog/search')) return response({
+        ok: true,
+        page: {
+          sourceId: 'profile-a', query: '*', items: [{
+            id: 'metric-gmv', sourceId: 'profile-a', resultType: 'semantic', kind: 'metric', name: 'GMV',
+            path: 'metric:GMV', summary: 'Paid order amount', matchReasons: ['browse'], status: 'inferred',
+            version: 1, provenance: 'inferred', untrusted: true,
+          }], truncated: false, warnings: [],
+        },
+      })
+      if (url.includes('/status')) return response({ connected: false })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：未连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    await waitFor(() => expect(catalogTab.disabled).toBe(false))
+    fireEvent.click(catalogTab)
+    const list = within(dialog).getByRole('listbox', { name: '数据目录' })
+    fireEvent.click(await within(list).findByRole('option', { name: /GMV/ }))
+    fireEvent.click(await within(dialog).findByRole('button', { name: '人工确认' }))
+    const formula = within(dialog).getByLabelText('公式（仅作为不可信文本保存）') as HTMLTextAreaElement
+    const note = within(dialog).getByLabelText('修订说明') as HTMLTextAreaElement
+    fireEvent.change(formula, { target: { value: 'SUM(draft_amount)' } })
+    fireEvent.change(note, { target: { value: 'Finance approval' } })
+    const verifyButtons = within(dialog).getAllByRole('button', { name: '人工确认' })
+    fireEvent.click(verifyButtons.at(-1)!)
+    expect(await within(dialog).findByText(/current version is 2/)).toBeTruthy()
+    expect((within(dialog).getByLabelText('公式（仅作为不可信文本保存）') as HTMLTextAreaElement).value)
+      .toBe('SUM(draft_amount)')
+    expect((within(dialog).getByLabelText('修订说明') as HTMLTextAreaElement).value).toBe('Finance approval')
+  })
+
+  it('loads stable Catalog search pages and renders a selected successful-run diff', async () => {
+    const source = {
+      id: 'profile-a', profileId: 'profile-a', type: 'mysql', name: 'Orders', database: 'orders',
+      credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+    }
+    const runs = ['run-1', 'run-2'].map((id, index) => ({
+      id, sourceId: 'profile-a', sessionId: 'session-1', scope: { kind: 'source' }, status: 'succeeded',
+      coverageComplete: true, progress: { schemas: 1, relations: index + 1, fields: 0, assets: index + 2 },
+      createdAt: `2026-08-21T00:00:0${index}.000Z`, completedAt: `2026-08-21T00:00:0${index}.500Z`,
+    }))
+    const item = (id: string, name: string) => ({
+      id, sourceId: 'profile-a', resultType: 'asset', kind: 'table', name, path: `orders.sales.${name}`,
+      summary: name, matchReasons: ['browse'], status: 'observed', provenance: 'database', untrusted: true,
+    })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/catalog/sources')) return response({ ok: true, sources: [source] })
+      if (url.includes('/catalog/status')) return response({ ok: true, status: { source, counts: { assets: 2, fields: 0, needsReview: 0 } } })
+      if (url.includes('/catalog/runs')) return response({ ok: true, runs })
+      if (url.includes('/catalog/search')) {
+        const cursor = new URL(url, 'http://dsh.internal').searchParams.get('cursor')
+        return response({
+          ok: true,
+          page: cursor === 'cursor-1'
+            ? { sourceId: 'profile-a', query: '*', items: [item('asset-b', 'customers')], truncated: false, warnings: [] }
+            : { sourceId: 'profile-a', query: '*', items: [item('asset-a', 'orders')], nextCursor: 'cursor-1', truncated: true, warnings: [] },
+        })
+      }
+      if (url.includes('/catalog/diff')) return response({
+        ok: true,
+        diff: {
+          sourceId: 'profile-a', fromRunId: 'run-1', toRunId: 'run-2', scope: { kind: 'source' }, truncated: false,
+          items: [{ kind: 'added', assetId: 'asset-b', name: 'customers', path: 'orders.sales.customers', summary: ['added'] }],
+        },
+      })
+      if (url.includes('/status')) return response({ connected: false })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    renderWorkbench('data-agent')
+    fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：未连接' }))
+    const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    await waitFor(() => expect(catalogTab.disabled).toBe(false))
+    fireEvent.click(catalogTab)
+    const list = within(dialog).getByRole('listbox', { name: '数据目录' })
+    expect(await within(list).findByRole('option', { name: /orders/ })).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: '加载更多' }))
+    expect(await within(list).findByRole('option', { name: /customers/ })).toBeTruthy()
+    await waitFor(() => {
+      expect((within(dialog).getByRole('combobox', { name: '起始成功扫描' }) as HTMLSelectElement).value).toBe('run-1')
+      expect((within(dialog).getByRole('combobox', { name: '目标成功扫描' }) as HTMLSelectElement).value).toBe('run-2')
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: '查看变更' }))
+    expect(await within(dialog).findByText('新增')).toBeTruthy()
+    expect(within(dialog).getAllByText('customers')).toHaveLength(2)
   })
 })

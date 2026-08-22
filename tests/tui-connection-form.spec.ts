@@ -46,11 +46,10 @@ class FakeOutput extends EventEmitter {
 }
 
 describe('dsh-tui connection form', () => {
-  it('only activates for an interactive dsh-tui profile', () => {
-    expect(isDshTuiTerminal(['node', 'dsh', '--profile', 'dsh-tui'], { isTTY: true }, { isTTY: true })).toBe(true)
-    expect(isDshTuiTerminal(['node', 'dsh', '--profile=dsh-tui'], { isTTY: true }, { isTTY: true })).toBe(true)
-    expect(isDshTuiTerminal(['node', 'dsh', '--profile', 'web'], { isTTY: true }, { isTTY: true })).toBe(false)
-    expect(isDshTuiTerminal(['node', 'dsh', '--profile', 'dsh-tui'], { isTTY: false }, { isTTY: true })).toBe(false)
+  it('checks terminal capability without inferring a profile from argv', () => {
+    expect(isDshTuiTerminal({ isTTY: true }, { isTTY: true })).toBe(true)
+    expect(isDshTuiTerminal({ isTTY: false }, { isTTY: true })).toBe(false)
+    expect(isDshTuiTerminal({ isTTY: true }, { isTTY: false })).toBe(false)
   })
 
   it('shows all network fields together and uses Tab/Shift+Tab for focus', () => {

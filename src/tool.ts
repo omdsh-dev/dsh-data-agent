@@ -56,12 +56,13 @@ import {
 } from './structured-read.ts'
 import { analysisArtifactRelativePath, writeAnalysisHtml } from './analysis-html.ts'
 import { sanitizePresentationText } from './presentation-text.ts'
+import { applyCatalogTools } from './catalog-tools.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent-tool'
 
 /** Services required before the tool can register. */
-export const inject = ['tools', 'subprocess', 'dataAgentConnections']
+export const inject = ['tools', 'subprocess', 'dataAgentConnections', 'dataAgentCatalog']
 
 /** Tool-half configuration (loader schema with the same defaults as the host). */
 export interface Config {
@@ -419,4 +420,5 @@ export function apply(ctx: Context, config: Config): void {
   // Mounted in the data-agent standing preset scope: every UI gets the same
   // file-producing tool, while Web may additionally render presentationMeta.
   ctx.tools.register(defineRenderAnalysisTool(ctx, resolved))
+  applyCatalogTools(ctx)
 }

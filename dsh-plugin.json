@@ -3,7 +3,7 @@
   "manifestVersion": "0.15",
   "id": "io.github.omdsh-dev.dsh-data-agent",
   "name": "DSH Data Agent",
-  "version": "0.0.13",
+  "version": "0.1.0",
   "facets": {
     "host": {
       "entry": "lib/ecosystem.js",
@@ -28,8 +28,8 @@
   "permissions": [
     {
       "name": "commands.invoke",
-      "scope": "io.github.omdsh-dev.dsh-data-agent.database",
-      "reason": "invoke the declared database connection command"
+      "scope": "io.github.omdsh-dev.dsh-data-agent",
+      "reason": "invoke the declared database and human-controlled Catalog commands when the dsh-tui runtime is loaded"
     }
   ],
   "contributes": {
@@ -37,7 +37,12 @@
       {
         "id": "io.github.omdsh-dev.dsh-data-agent.database",
         "title": "Database",
-        "description": "Manage the native data-agent database connection"
+        "description": "Manage the native data-agent database connection when the dsh-tui runtime is loaded"
+      },
+      {
+        "id": "io.github.omdsh-dev.dsh-data-agent.catalog",
+        "title": "Data Catalog",
+        "description": "Scan system metadata, follow persistent progress, and browse versioned Catalog results when the dsh-tui runtime is loaded"
       }
     ],
     "panels": []

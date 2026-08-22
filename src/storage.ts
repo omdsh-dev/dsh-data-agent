@@ -97,6 +97,11 @@ export function createDomainConnectionPersistence(domain: ConnectionStorageDomai
     getLatestProfile() {
       return latestConnectionProfile(profiles.entries())
     },
+    listProfiles() {
+      return [...profiles.entries()]
+        .map(([profileId, profile]) => ({ profileId, profile }))
+        .sort((left, right) => left.profileId.localeCompare(right.profileId))
+    },
     putProfile(profileId, profile) {
       return profiles.put(profileId, profile)
     },

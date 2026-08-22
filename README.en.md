@@ -44,7 +44,7 @@ This package includes an experimental declaration for the [DSH Ecosystem Specifi
 | --- | --- |
 | Specification and stage | Community v0.15, Draft / Experimental |
 | Pinned baseline | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
-| Manifest | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.0.13` |
+| Manifest | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.1.0` |
 | Admission decision | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host |
 | Evidence level | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence |
 | Exercised environment | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3` |
@@ -63,12 +63,37 @@ The plugin remains **trusted in-process** and is not sandboxed. Manifest permiss
 - **Shares the core path across Web UI and dsh-tui**: For a visual workflow, we recommend [zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui), where you can connect databases, browse schemas, and inspect results in the browser. For a keyboard-first workflow, we recommend [ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI), where you can use the same Data Mode, connect through `/database`, and move directly into conversational analysis. Both interfaces share the database service and tool protocol; validate the exact version and deployment separately.
 - **Connect common business databases**: Supports MySQL, PostgreSQL, SQLite, Oracle, Hive, Impala, ClickHouse, Apache Doris, and SQL Server across application databases, analytics systems, local data files, and data warehouses.
 - **Let DSH complete the analysis loop**: DSH inspects table structures, writes SQL, runs the query, and adjusts its approach based on errors or returned data instead of stopping at an unverified SQL draft.
-- **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, `sql-cmd`, and `render-analysis`; Web, Desktop, dsh-tui, and headless profiles use the same tool protocol. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
+- **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, `sql-cmd`, `render-analysis`, `catalog-search`, `catalog-get`, and `metric-get`; Web, Desktop, dsh-tui, and headless profiles use the same eight-tool protocol. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
 - **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
-The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to configure the connection, browse schemas, inspect columns, or run SQL in one Modal. MySQL browsing verifies each schema with the current account and hides only schemas that explicitly deny database access; authorized system and application schemas remain visible. Before and after the conversation starts, it no longer occupies the area above the composer or a left sidebar.
+The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to use four tabs—Connection, Tables, Data Catalog, and SQL—in one Modal. The Data Catalog reads the independent persistent `data_agent_catalog@1` domain. Historical snapshots remain searchable after the live database disconnects; a new scan still requires a connection to the same stable profile.
 
 The SQL tab renders read-query results as a structured table with a sticky header, 100-row pages, and local horizontal scrolling for wide datasets. The complete loaded result can be exported as Excel (`.xlsx`), UTF-8 CSV, or copied to the clipboard, with a hard limit of 50,000 rows per query. Write/administrative commands and errors remain text messages instead of being misparsed as tables.
+
+### Data Catalog and metric governance
+
+A Catalog scan is an explicit human action. Its first stage reads database system catalogs only: it does not read business rows, persist sample rows, or run full-table `COUNT(*)` queries for exact counts. Its second stage uses the model currently configured in the initiating DSH session to generate table-level and field-level business-meaning candidates, one table at a time. The model receives only bounded technical metadata—names, types, nullable flags, database comments, keys, and relations—not sample values, query results, or credentials. Web offers full-source, schema, and single-table scopes in the Data Catalog tab, with an extra confirmation for full scans. `/database` and `/catalog` are registered only when the current Cordis composition actually loads `@deepseek-harness-tui/dsh-tui`; the profile label is not consulted, so installing Data Agent or merely naming a profile `dsh-tui` never exposes them. A normal Web composition uses the database workbench instead. dsh-tui uses:
+
+Catalog metadata queries use an independent `catalogMaxResultChars` capture bound (32 MiB by default), so they no longer inherit the smaller `maxResultChars` budget used by ordinary SQL tools. Exceeding the Catalog-specific bound still fails safely with guidance to narrow the scope or adjust the configuration; a truncated snapshot is never published.
+
+```text
+/catalog scan                       Choose a scope interactively; reconfirm a full scan
+/catalog scan --all                 Explicit full-source scan
+/catalog scan --schema sales        Scan one schema
+/catalog scan --schema sales --table orders
+/catalog status [--run <run-id>]
+/catalog cancel [--run <run-id>]
+/catalog diff [--from <run-id> --to <run-id>]
+/catalog view                       Open the read-only full-screen Catalog browser
+```
+
+Scans run in the background, with at most one active run per source. When dsh-tui exposes its public extension services, a persistent line above the prompt follows the real “technical metadata → Catalog publish → AI business meanings” phases. Success, partial success, and failure remain visible until the next scan or `/catalog view`, instead of disappearing with a short notification. `/catalog view` opens a read-only full-screen scene: tables/views are paged on the left, while the selected table's summary, fields, and AI business meanings appear on the right. It supports search, independently scrolling panes, business-schema/all-schema switching, refresh, and Escape to return. Older dsh-tui versions without the public status/scene services keep the scan commands and explicitly fall back to `/catalog status` and the Web Catalog.
+
+Results are stored by stable profile, asset identity, and immutable revision. Unchanged assets do not duplicate revisions. Only a complete successful technical scan may mark absent objects `missing`, and only inside its exact scope. Table/schema scans do not alter out-of-scope assets or the last-full-scan time. Reappearing assets become `restored`. Failed, cancelled, interrupted, or permission-incomplete metadata runs never replace the previous successful snapshot, and ambiguous permission failures are not treated as deletions. AI enrichment has separate queued, running, succeeded, partial, failed, and cancelled states. Model output remains bounded; if a full-table response reaches the token limit, the same model configuration automatically retries smaller field batches and persists only after every field is complete. An AI failure does not erase a committed technical snapshot or publish an incomplete result for a table.
+
+Database facts are `observed`; AI-generated table/field meanings and candidate business terms or metrics are `inferred`. Only human review in Web can verify the current version as `verified`. The Data Catalog groups meanings by table and lets a user confirm or delete each table or field candidate. Delete creates an auditable retired revision, hides it from the default detail, and prevents later scans from reviving or overwriting the human decision. Structural changes mark affected definitions `needs_review` without auto-verifying them. For business analysis, the agent first uses read-only `catalog-search`, then `catalog-get` for technical context or `metric-get` for an exact metric version; it falls back to live schema inspection when the Catalog has no match. AI candidates, database comments, human text, and formulas are always untrusted reference data.
+
+The first release does not include scheduled scans, business-row sampling, AI auto-certification, external-catalog synchronization, complete lineage, Catalog-level RBAC, or physical deletion driven by a scan.
 
 ![Database workbench](assets/tables.webp)
 
@@ -92,7 +117,7 @@ dsh plugin --profile web add @yejiming/dsh-data-agent
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
 ```
 
-The plugin installs the Data Mode preset automatically and preloads its database tools and command when the profile starts. Selecting the preset no longer performs dynamic package-subpath imports. No local build is required.
+The plugin installs the Data Mode preset automatically and preloads its database tools on every surface when the profile starts. `/database` and `/catalog` are enabled only by an actually loaded `@deepseek-harness-tui/dsh-tui` runtime, regardless of the profile name. Selecting the preset no longer performs dynamic package-subpath imports. No local build is required.
 
 ## Using Data Agent in the Web UI
 
@@ -109,6 +134,8 @@ Then:
 3. Once connected, ask an analysis question directly in the conversation.
 4. Follow up on the first result and ask DSH to narrow the scope, compare dimensions, or summarize the conclusions.
 
+A Web composition that does not load `@deepseek-harness-tui/dsh-tui` does not expose `/database` or `/catalog`; use the database workbench to connect, scan, cancel, and review Catalog content.
+
 For example, ask: “Analyze order changes over the last 30 days, identify the regions and products with the largest revenue decline, and explain the main causes.” DSH will inspect the relevant tables, generate and run the queries, and complete the analysis from real results.
 
 ### Analysis reports and HTML artifacts
@@ -124,7 +151,7 @@ Data Mode provides the render-analysis tool on every surface. The agent first ex
 
 ## Using Data Agent in dsh-tui
 
-Install Data Agent into the dsh-tui profile. `render-analysis` does not require a particular dsh-TUI version or scene capability:
+Install Data Agent into the dsh-tui profile. `render-analysis` does not require a particular dsh-TUI version or scene capability. Persistent Catalog status and full-screen result browsing activate automatically when dsh-tui exposes its public `status`/`scene` extension services:
 
 ```sh
 dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
@@ -151,7 +178,13 @@ After connecting, return to the chat input and ask a business question. Other us
 /database status       Show the current connection
 /database test         Test the current connection
 /database disconnect   Disconnect the current database
+/catalog scan           Choose a scope and start a Catalog scan
+/catalog status [--run <run-id>]  Show the latest result or a specific run
+/catalog diff           Compare the latest two successful snapshots
+/catalog view           Open read-only Catalog results grouped by table
 ```
+
+You do not need to repeat `/catalog status` after a scan starts: the line above the prompt follows technical collection and AI-enrichment progress, then retains the final success/failure state. After completion, run `/catalog view`; use arrows or `j/k` to select and scroll, Tab or ←/→ to switch panes, `/` to search, `a` to switch between the business schema and all schemas, `r` to refresh, and Escape to return. The TUI remains read-only; confirm or delete AI candidates one at a time from Web's Data Catalog.
 
 After the agent generates a report, the tool card shows dataset, view, empty-data facts, and the absolute HTML path. TUI does not print a character Dashboard and does not register `/analysis`; open the HTML in a local browser to inspect all six view types and raw data. The file belongs to that tool call, and `/resume` does not re-query the database.
 
@@ -224,6 +257,7 @@ If you see `failed to mount` or a missing `@yejiming/dsh-data-agent` package err
 - Temporary passwords entered in the Web UI or dsh-tui are used only for the current connection. The TUI displays only `*` and never restores the password when the form is reopened.
 - If authentication must be restored across processes, enter a DSH credential reference in the TUI form or pass it with `--password-ref`. The form restores the reference name, but never reads, displays, or persists its resolved password.
 - MySQL/Doris and SQL Server passwords enter only `MYSQL_PWD` and `SQLCMDPASSWORD`, respectively. A ClickHouse password enters only the official HTTP client's authentication field—not the URL, argv, or persisted configuration.
+- Catalog persistence contains only redacted source summaries, system metadata, versions, and human definitions. It never stores passwords, resolved credentials, client stdout/stderr, business query results, or sample rows.
 - When read-only mode is disabled, Data Agent can run update or administrative statements at your request. Before connecting to a production database, review the account permissions and backup policy.
 - Database connections are isolated by session, making it easier to keep different projects, customers, and analysis environments separate.
 - The plugin and ecosystem adapter run inside the DSH process; neither is an OS, process, or realm sandbox. Ecosystem permissions support admission negotiation and do not replace database-account controls, network isolation, or runtime security policy.

@@ -20,7 +20,10 @@ const HOST_TOOLS = [
   'ssh_upload',
 ] as const
 
-const DATA_TOOLS = ['str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd'] as const
+const DATA_TOOLS = [
+  'str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd',
+  'catalog-search', 'catalog-get', 'metric-get',
+] as const
 
 function tool(name: string): ToolDefinition {
   return {
@@ -81,7 +84,12 @@ describe('standing preset tool surface', () => {
     expect(ctx.tools.schemas(agentKey).map(item => item.name).sort()).toEqual(expected)
   })
 
-  it('registers the real package tools from the profile entry under an existing preset key', async () => {
+  it.each([
+    ['Web runtime', false, []],
+    ['Desktop runtime', false, []],
+    ['headless runtime', false, []],
+    ['runtime with dsh-tui loaded', true, ['catalog', 'database']],
+  ] as const)('registers shared tools but gates human commands on %s', async (surface, hasDshTuiPlugin, expectedCommands) => {
     const ctx = new Context()
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRegistry)
@@ -106,15 +114,58 @@ describe('standing preset tool surface', () => {
         maxQueryChars: 65_536,
         readonly: false,
         clients: {},
-      })
+      }, { isDshTuiPluginLoaded: () => hasDshTuiPlugin })
     }, { inject: ['commands', 'dataAgentConnections', 'subprocess', 'tools'] }))
 
-    const agentKey = { id: 'desktop-session' }
+    const agentKey = { id: `${surface}-session` }
     bindScopeParent(agentKey, dataKey)
     await mintScope(ctx, agentKey)
     expect(ctx.tools.schemas(agentKey).map(item => item.name).sort()).toEqual([
-      'render-analysis', 'sql-cmd', 'sql-query', 'sql-write', 'str_replace_editor',
+      'catalog-get', 'catalog-search', 'metric-get', 'render-analysis',
+      'sql-cmd', 'sql-query', 'sql-write', 'str_replace_editor',
     ])
-    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual(['database'])
+    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual(expectedCommands)
+  })
+
+  it('follows the actual dsh-tui Cordis runtime across late load and unload', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt, {})
+    await ctx.plugin(ToolRegistry)
+    await ctx.plugin(Commands)
+    ctx.provide('subprocess', {
+      resolveExecutable: async (command: string) => `/usr/bin/${command}`,
+      spawn: () => ({ done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }),
+    } as never)
+    ctx.provide('dataAgentConnections', createConnectionStore())
+
+    const dataKey = { agentPreset: 'custom-profile-data-agent' }
+    const standing = createScope(ctx, dataKey)
+    const scopeTag = Object.getOwnPropertySymbols(standing.ctx)
+      .find(candidate => Reflect.get(standing.ctx, candidate) === dataKey)!
+    await ctx.plugin(Object.assign(async (inner: Context) => {
+      inner.extend({ [scopeTag]: dataKey }).tools.register(tool('str_replace_editor'))
+      await mountPresetCapabilities(inner, dataKey, scopeTag, {
+        queryTimeoutMs: 30_000,
+        maxResultChars: 20_000,
+        maxRows: 100,
+        maxQueryChars: 65_536,
+        readonly: false,
+        clients: {},
+      })
+    }, { inject: ['commands', 'dataAgentConnections', 'subprocess', 'tools'] }))
+
+    const agentKey = { id: 'custom-profile-session' }
+    bindScopeParent(agentKey, dataKey)
+    await mintScope(ctx, agentKey)
+    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual([])
+
+    // The official package exports this exact Cordis runtime name. The
+    // profile's label is deliberately absent from this fixture.
+    const tui = ctx.plugin({ name: 'dsh-tui', apply() {} })
+    await tui
+    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual(['catalog', 'database'])
+
+    await tui.dispose()
+    expect(ctx.commands.list(agentKey as never).map(item => item.name)).toEqual([])
   })
 })

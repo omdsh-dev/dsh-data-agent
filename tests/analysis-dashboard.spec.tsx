@@ -43,7 +43,7 @@ globalThis.ResizeObserver ??= TestResizeObserver as unknown as typeof ResizeObse
 const dictionary = zh as Record<string, string>
 const t = (key: string, params?: Record<string, unknown>): string => {
   let text = dictionary[key] ?? key
-  for (const [name, value] of Object.entries(params ?? {})) text = text.replace('{{' + name + '}}', String(value))
+  for (const [name, value] of Object.entries(params ?? {})) text = text.replace('{' + name + '}', String(value))
   return text
 }
 

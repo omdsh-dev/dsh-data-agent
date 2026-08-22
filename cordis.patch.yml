@@ -1,8 +1,11 @@
 # The dsh-data-agent bundle patch: activates the plugin as a profile layer.
 #
-# Two host rows: `data-agent` provides the connection store, installs the
-# selectable agent preset, and statically preloads that preset's scoped tools
-# and command through the profile bundle path; `data-agent-routes` mounts the
+# Two host rows: `data-agent` provides connection and versioned Catalog stores,
+# installs the selectable agent preset, and statically preloads that preset's
+# scoped tools on every surface and gates the human commands plus optional
+# public status/scene presentation on the actual `dsh-tui` Cordis plugin
+# runtime (independent of profile name);
+# `data-agent-routes` mounts the
 # HTTP routes and only activates where the webserver exists (web profiles).
 # The browser half (lib/client.js) ships in the same package and loads under
 # the data-agent id through the `dsh.client` declaration in package.json.

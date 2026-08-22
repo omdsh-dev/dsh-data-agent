@@ -111,12 +111,17 @@ describe('Community v0.15 manifest and frozen native inventory', () => {
 
     expect(inventory).toMatchObject({
       bundleRows: ['@yejiming/dsh-data-agent', '@yejiming/dsh-data-agent/routes'],
-      commands: ['database'],
-      tools: ['render-analysis', 'sql-cmd', 'sql-query', 'sql-write', 'str_replace_editor'],
-      services: ['dataAgentConnections'],
-      routes: ['GET describe', 'GET schemas', 'GET status', 'GET tables', 'POST connect', 'POST disconnect', 'POST query'],
+      commands: ['catalog', 'database'],
+      tools: ['catalog-get', 'catalog-search', 'metric-get', 'render-analysis', 'sql-cmd', 'sql-query', 'sql-write', 'str_replace_editor'],
+      services: ['dataAgentCatalog', 'dataAgentCatalogReview', 'dataAgentCatalogScanner', 'dataAgentConnections'],
+      routes: expect.arrayContaining([
+        'GET catalog/assets/:assetId', 'GET catalog/diff', 'GET catalog/runs', 'GET catalog/search',
+        'GET catalog/semantics/:semanticId', 'GET catalog/sources', 'GET catalog/status',
+        'POST catalog/cancel', 'POST catalog/scan', 'POST catalog/semantics',
+        'POST catalog/semantics/:semanticId/retire', 'POST catalog/semantics/:semanticId/verify',
+      ]),
       webSlots: ['conversation.input.right', 'tool.call.toolview'],
-      storageDomains: ['data_agent_connections@1'],
+      storageDomains: ['data_agent_catalog@1', 'data_agent_connections@1'],
       databaseTypes: ['clickhouse', 'doris', 'hive', 'impala', 'mysql', 'oracle', 'postgres', 'sqlite', 'sqlserver'],
     })
     expect(inventory.publicExports).toEqual(expect.arrayContaining(metadata.inventory.nativeRuntime.publicExports))
@@ -199,6 +204,12 @@ describe('fixture negotiation and actual adapter coexistence', () => {
           spawn: () => ({ done: Promise.resolve({ exitCode: 0, signal: null }), collected: {} }),
         },
         dataAgentConnections: createConnectionStore(),
+        dataAgentCatalog: {
+          resolveSource: async () => ({ id: 'source-a' }),
+          search: async () => ({ sourceId: 'source-a', query: '*', items: [], truncated: false, warnings: [] }),
+          getAsset: () => { throw new Error('unused') },
+          getMetric: () => { throw new Error('unused') },
+        },
         get() { return undefined },
       } as never, {
         queryTimeoutMs: 5000,
@@ -217,14 +228,14 @@ describe('fixture negotiation and actual adapter coexistence', () => {
         get() { return undefined },
         emit() {},
         effect(setup: () => () => void) { return { dispose: setup() } },
-      } as never)
+      } as never, { isDshTuiPluginLoaded: () => true })
 
-      expect(nativeTools).toEqual(['sql-query', 'sql-write', 'sql-cmd', 'render-analysis'])
-      expect(nativeCommands).toEqual(['database'])
+      expect(nativeTools).toEqual(['sql-query', 'sql-write', 'sql-cmd', 'render-analysis', 'catalog-search', 'catalog-get', 'metric-get'])
+      expect(nativeCommands).toEqual(['database', 'catalog'])
       expect(collectCurrentInventory(rootPath)).toMatchObject({
-        commands: ['database'],
-        services: ['dataAgentConnections'],
-        storageDomains: ['data_agent_connections@1'],
+        commands: ['catalog', 'database'],
+        services: ['dataAgentCatalog', 'dataAgentCatalogReview', 'dataAgentCatalogScanner', 'dataAgentConnections'],
+        storageDomains: ['data_agent_catalog@1', 'data_agent_connections@1'],
       })
     } finally {
       await dispose()

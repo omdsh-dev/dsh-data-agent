@@ -44,7 +44,7 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 | --- | --- |
 | 规范与阶段 | Community v0.15，Draft / Experimental |
 | 固定基线 | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`；`dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
-| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.0.13` |
+| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.1.0` |
 | 准入结果 | 仓库内 eligible fixture 为 `compatible`；这不是实际 dsh-TUI Host 的准入结论 |
 | 证据等级 | `Parsed`；fixture negotiation 只记录为 `fixture-only`，不提升为 `Negotiated` |
 | 已执行环境 | 离线 parser/projector/definition 校验；`@dsh-std/adapter-dsh@0.1.0-rc3` 一次性本地 fixture 挂载/卸载 |
@@ -63,12 +63,37 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 - **共享Web UI与dsh-tui核心路径**：喜欢可视化操作时，可以在Web界面连接数据库、浏览库表和查看结果，推荐使用[zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui)；习惯键盘工作流时，可以在终端中使用同一“数据模式”，通过`/database`完成连接，然后直接开始对话分析，推荐使用[ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)。两种界面共享数据Agent的数据库服务和工具协议；具体版本与部署仍应分别验证。
 - **连接常见业务数据库**：支持MySQL、PostgreSQL、SQLite、Oracle、Hive、Impala、ClickHouse、Apache Doris和SQL Server，可用于业务系统、分析库、本地数据文件及数仓场景。
 - **DSH自动完成分析闭环**：DSH会根据当前问题查看表结构、编写SQL、执行查询，并结合报错或返回结果继续调整，而不是只生成一段未经验证的SQL。
-- **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`与`render-analysis`；Web、Desktop、dsh-tui和headless profile使用同一工具协议。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
+- **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`、`render-analysis`、`catalog-search`、`catalog-get`与`metric-get`；Web、Desktop、dsh-tui和headless profile使用同一套八工具协议。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
 - **安全地使用真实数据**：支持只读模式和数据库只读账号；TUI密码会被隐藏，且不会作为表单草稿恢复。是否允许修改数据由你决定。
 
-Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal中配置连接、浏览库表、查看字段结构或临时运行SQL。MySQL库表浏览会用当前账号逐库验证访问权限，只隐藏明确返回无权访问的库；有权限的系统库与业务库都会正常显示。开始对话前后都不占用输入框上方或左侧的对话空间。
+Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal的“连接配置、库表、数据目录、SQL”四个页签中配置连接、浏览结构、治理口径或临时运行SQL。“数据目录”读取独立的`data_agent_catalog@1`持久化域；只要存在历史snapshot，断开实时数据库后仍可搜索和查看，重新扫描则必须连接到同一个稳定Profile。
 
 SQL命令页会把读查询结果显示为带固定表头的结构化表格，并按100行分页，宽表可在结果区内横向滚动。当前结果可导出为Excel（`.xlsx`）、UTF-8 CSV或复制到剪贴板；三种导出都包含已加载的完整结果，单次最多50,000行。写入/管理命令及错误仍显示为文本消息，不会被误解析成表格。
+
+### 数据目录与口径治理
+
+Catalog扫描是显式人工动作。第一阶段只读取数据库系统目录，不读取业务明细、不保存样例行，也不会为精确行数执行全表`COUNT(*)`；第二阶段调用发起扫描的DSH会话当前配置模型，按表生成表级和字段级业务含义候选。发送给模型的只有表/字段名称、类型、nullable、数据库注释、键和关系等有界技术元数据，不包含样例值、查询结果或凭据。Web可在“数据目录”页选择全库、Schema或单表范围；全库扫描需要二次确认。`/database`和`/catalog`只在当前Cordis组合实际加载`@deepseek-harness-tui/dsh-tui`插件时注册；Profile名称不参与判断，仅安装Data Agent或把Profile命名为`dsh-tui`都不会暴露命令。普通Web组合不展示这两个命令，而是在数据库工作台中完成连接和扫描。dsh-tui使用：
+
+Catalog元数据查询使用独立的`catalogMaxResultChars`捕获上限（默认32 MiB），不会再受普通SQL工具较小的`maxResultChars`限制；超过Catalog专属上限时仍会安全失败，并提示缩小扫描范围或调整配置，不会发布被截断的snapshot。
+
+```text
+/catalog scan                       交互选择范围；选择全库时再次确认
+/catalog scan --all                 显式全库扫描
+/catalog scan --schema sales        扫描一个Schema
+/catalog scan --schema sales --table orders
+/catalog status [--run <run-id>]
+/catalog cancel [--run <run-id>]
+/catalog diff [--from <run-id> --to <run-id>]
+/catalog view                       打开只读全屏目录浏览器
+```
+
+扫描在后台运行，同一个source同时只允许一个活动run。在提供公开扩展接口的dsh-tui中，输入框上方会持续显示“技术元数据采集 → 目录发布 → AI业务含义”的实际进度；成功、部分成功或失败终态会一直保留到下一次扫描或打开`/catalog view`，不再依赖短暂通知。`/catalog view`使用全屏只读场景：左侧按表/视图分页，右侧展示表级说明、字段类型与字段级AI业务含义，支持搜索、左右独立滚动、业务Schema/全部Schema切换和刷新；按Esc返回。旧版dsh-tui没有公开状态/scene服务时，扫描命令仍可用，并明确回退到`/catalog status`和Web数据目录。
+
+结果按稳定Profile、资产身份和不可变revision保存：未变化对象不复制revision；完整成功的技术扫描只在其精确范围内把消失对象标记为`missing`；单表/Schema扫描不会改动范围外对象，也不会更新最近全库扫描时间；对象重新出现时记录为`restored`。元数据失败、取消、中断或权限不完整的run不会覆盖上一份成功snapshot，权限不确定时也不会把对象误判为删除。AI阶段具有独立的排队、运行、成功、部分成功、失败和取消状态；模型输出保持有界，整表输出触及token上限时会沿用当前模型配置并自动按字段分批重试，只有整张表的字段结果齐全后才写入。AI失败不会抹掉已经成功提交的技术snapshot，也不会把不完整表结果写成候选。
+
+数据库事实是`observed`，AI生成的表/字段业务含义以及候选业务术语/指标是`inferred`；只有Web中的人工审核可以基于当前version确认成`verified`。数据目录按表展示表级说明和每个字段说明，用户可以逐项确认或删除；删除会保留审计revision并从默认详情隐藏，后续扫描不会自动复活或覆盖已确认/已删除决策。结构变化会把受影响口径标为`needs_review`，不会自动确认。Agent分析业务问题时先用只读`catalog-search`查找目录，再用`catalog-get`读取技术上下文或`metric-get`读取精确指标版本；目录无命中时再回退到实时Schema探查。目录中的AI候选、数据库注释、人工说明和公式都按不可信参考文本处理。
+
+首版不包含定时扫描、业务明细采样、AI自动认证、外部Catalog同步、完整血缘、Catalog级RBAC或扫描结果物理删除。
 
 ![数据库工作台](assets/tables.webp)
 
@@ -92,7 +117,7 @@ dsh plugin --profile web add @yejiming/dsh-data-agent
 dsh plugin --profile web add github:omdsh-dev/dsh-data-agent
 ```
 
-插件会自动安装“数据模式”预设，并在profile启动时预加载该预设的数据库工具与命令；选择预设时不再动态导入插件子路径，无需本地构建。
+插件会自动安装“数据模式”预设，并在profile启动时为所有界面预加载该预设的数据库工具；`/database`与`/catalog`仅由当前组合中实际加载的`@deepseek-harness-tui/dsh-tui`运行时启用，与Profile名称无关。选择预设时不再动态导入插件子路径，无需本地构建。
 
 ## 在Web UI中使用
 
@@ -109,6 +134,8 @@ dsh --profile web
 3. 连接成功后，直接在对话框中提出分析问题。
 4. 根据第一轮结果继续追问，让DSH缩小范围、比较维度或总结结论。
 
+未加载`@deepseek-harness-tui/dsh-tui`的Web命令目录不会展示`/database`或`/catalog`；连接、扫描、取消和目录审核均从数据库工作台完成。
+
 例如，输入“分析最近30天订单变化，找出销售额下降最明显的地区和商品，并解释主要原因”，DSH会自行查看相关表、生成并执行查询，再根据真实结果完成分析。
 
 ### 分析报告与HTML文件
@@ -124,7 +151,7 @@ dsh --profile web
 
 ## 在dsh-tui中使用
 
-把Data Agent安装到dsh-tui profile即可；`render-analysis`不要求特定dsh-TUI版本或scene能力：
+把Data Agent安装到dsh-tui profile即可；`render-analysis`不要求特定dsh-TUI版本或scene能力。Catalog持续状态和全屏结果浏览会在dsh-tui提供公开`status`/`scene`扩展服务时自动启用：
 
 ```sh
 dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
@@ -151,7 +178,13 @@ dsh --profile dsh-tui
 /database status       查看当前连接
 /database test         测试当前连接
 /database disconnect   断开当前连接
+/catalog scan           交互选择并启动Catalog扫描
+/catalog status [--run <run-id>]  查看最近结果或指定run
+/catalog diff           比较最近两个成功snapshot
+/catalog view           打开按表组织的只读Catalog结果
 ```
+
+扫描开始后无需反复执行`/catalog status`：输入框上方会持续显示技术采集和AI业务含义进度，并保留最终成功/失败状态。完成后执行`/catalog view`，使用↑↓或`j/k`选择表、Tab或←→切换左右区域、`/`搜索、`a`切换业务Schema/全部Schema、`r`刷新、Esc返回。TUI只提供读取；AI候选的确认与删除仍在Web“数据目录”中逐项完成。
 
 Agent生成分析报告后，工具卡会显示数据集、视图、空数据摘要与HTML绝对路径。TUI不会输出字符Dashboard，也没有`/analysis`命令；直接在本机浏览器中打开该HTML即可查看六类视图和原始数据。文件来自本次工具调用，`/resume`不会重新查询数据库。
 
@@ -223,6 +256,7 @@ Windows路径可以写成`C:\Program Files\MySQL\MySQL Server 9.0\bin`。插件�
 - Web UI和dsh-tui中的临时密码只用于当前连接；TUI只显示`*`，重新打开表单时不会恢复密码。
 - 需要跨进程恢复认证时，可以在TUI表单填写DSH credential reference，或通过`--password-ref`传入；表单会恢复引用名，但不会读取、显示或持久化解析后的密码。
 - MySQL/Doris和SQL Server密码分别只传入`MYSQL_PWD`和`SQLCMDPASSWORD`；ClickHouse密码只进入官方HTTP客户端的认证字段，不进入URL、argv或持久化配置。
+- Catalog仅持久化脱敏source摘要、系统元数据、版本与人工口径；不保存密码、credential解析值、客户端stdout/stderr、业务查询结果或样例行。
 - 未开启只读模式时，数据Agent可以按你的要求执行更新或管理语句。连接生产数据库前，请先确认账号权限和数据备份策略。
 - 不同会话的数据库连接相互隔离，便于分别处理不同项目、客户或分析环境。
 - 插件及其生态适配器都运行在DSH进程内，不是OS、进程或realm沙箱；生态permission只能用于准入协商，不能替代数据库账号权限、网络隔离或运行环境安全策略。

@@ -155,6 +155,8 @@ export interface PersistedConnectionProfileEntry {
 export interface ConnectionPersistence {
   getProfile(profileId: string): PersistedConnectionProfile | undefined
   getLatestProfile?(): PersistedConnectionProfileEntry | undefined
+  /** Deterministic profile enumeration used only for exact, non-secret identity reuse. */
+  listProfiles?(): PersistedConnectionProfileEntry[]
   putProfile(profileId: string, profile: PersistedConnectionProfile): Promise<void>
   deleteProfile(profileId: string): Promise<boolean>
   getBinding(sessionId: string): SessionConnectionBinding | undefined
@@ -169,12 +171,17 @@ export interface ConnectionPersistence {
 export interface ConnectionServiceOptions {
   connectTimeoutMs: number
   queryTimeoutMs: number
+  catalogQueryTimeoutMs?: number
+  /** Per-stream capture budget for package-owned system-catalog queries. */
+  catalogMaxResultChars?: number
   maxResultChars: number
   maxQueryChars?: number
   introspectMaxTables: number
   readonly: boolean
   clients: Partial<Record<string, ClientConfig>>
   cwd?: string
+  /** Profile ids already used by durable downstream data, ordered by the owner. */
+  preferredProfileIds?: () => readonly string[]
 }
 
 export interface ConnectResult {
@@ -212,6 +219,8 @@ export interface DataAgentConnections {
   disconnect(sessionId: string): Promise<void>
   test(sessionId: string, signal: AbortSignal): Promise<ConnectResult>
   resolveForExecution(sessionId: string): Promise<DatabaseConnection>
+  /** Execute one package-owned, read-only system-catalog statement. Not exposed as a model tool. */
+  queryMetadata(sessionId: string, sql: string, signal: AbortSignal): Promise<QueryResult>
   listSchemas(sessionId: string, signal: AbortSignal): Promise<string[]>
   listTables(sessionId: string, schema: string | undefined, signal: AbortSignal): Promise<string[]>
   describe(sessionId: string, schema: string | undefined, table: string, signal: AbortSignal): Promise<ColumnInfo[]>
@@ -360,9 +369,12 @@ export function createConnectionService(
     mode?: QueryOptions['mode'],
     connect = false,
     maxResultChars = resolvedOptions.maxResultChars,
+    catalog = false,
   ): QueryOptions => ({
     clients: resolvedOptions.clients,
-    timeoutMs: connect ? resolvedOptions.connectTimeoutMs : resolvedOptions.queryTimeoutMs,
+    timeoutMs: connect
+      ? resolvedOptions.connectTimeoutMs
+      : catalog ? resolvedOptions.catalogQueryTimeoutMs ?? resolvedOptions.queryTimeoutMs : resolvedOptions.queryTimeoutMs,
     maxResultChars,
     ...mode !== undefined ? { mode } : {},
   })
@@ -375,13 +387,14 @@ export function createConnectionService(
     connect = false,
     mode?: QueryOptions['mode'],
     maxResultChars?: number,
+    catalog = false,
   ): Promise<QueryResult> => {
     try {
       const result = await runClientQuery(
         requireContext(),
         connection,
         sql,
-        queryOptions(mode, connect, maxResultChars),
+        queryOptions(mode, connect, maxResultChars, catalog),
         signal,
         introspection,
       )
@@ -458,6 +471,73 @@ export function createConnectionService(
       else await persistence.putBinding(sessionId, previousBinding)
       throw error
     }
+  }
+
+  const matchingProfiles = (connection: DatabaseConnection): PersistedConnectionProfileEntry[] =>
+    (persistence?.listProfiles?.() ?? [])
+      .filter(entry => profileMatchesConnection(entry.profile, connection, resolvedOptions.cwd))
+
+  const preferredMatches = (
+    matches: readonly PersistedConnectionProfileEntry[],
+  ): PersistedConnectionProfileEntry[] => {
+    const preferred = new Set(resolvedOptions.preferredProfileIds?.() ?? [])
+    return matches.filter(entry => preferred.has(entry.profileId))
+  }
+
+  const reusableProfileId = (sessionId: string, connection: DatabaseConnection): string => {
+    if (connection.profileId !== undefined) return connection.profileId
+    const fallback = `session:${sessionId}`
+    const matches = matchingProfiles(connection)
+    const binding = persistence?.getBinding(sessionId)
+    const boundMatch = binding === undefined
+      ? undefined
+      : matches.find(entry => entry.profileId === binding.profileId)
+    const preferred = preferredMatches(matches)
+    const stableMatches = matches.filter(entry => !entry.profileId.startsWith('session:'))
+
+    // A profile already owning durable Catalog data is the canonical identity,
+    // including legacy session-prefixed ids. Exact identity matching above
+    // prevents an unrelated endpoint/principal from being adopted.
+    if (boundMatch !== undefined && preferred.some(entry => entry.profileId === boundMatch.profileId)) {
+      return boundMatch.profileId
+    }
+    if (preferred.length === 1) return preferred[0]!.profileId
+    if (preferred.length > 1) return fallback
+
+    // Keep an explicit existing stable binding when duplicate stable profiles
+    // make endpoint-only matching ambiguous.
+    if (boundMatch !== undefined && !boundMatch.profileId.startsWith('session:')) return boundMatch.profileId
+    if (stableMatches.length === 1) return stableMatches[0]!.profileId
+    if (stableMatches.length > 1) return fallback
+    if (boundMatch !== undefined) return boundMatch.profileId
+    return matches.length === 1 ? matches[0]!.profileId : fallback
+  }
+
+  const reconcileStableProfile = async (
+    sessionId: string,
+    connection: DatabaseConnection,
+  ): Promise<DatabaseConnection> => {
+    if (persistence === undefined || connection.profileId === undefined) return connection
+    const matches = matchingProfiles(connection)
+    const preferred = preferredMatches(matches)
+    if (preferred.some(entry => entry.profileId === connection.profileId)) return connection
+    const stableMatches = matches.filter(entry => !entry.profileId.startsWith('session:'))
+
+    const target = preferred.length === 1
+      ? preferred[0]
+      : connection.profileId.startsWith('session:')
+        ? stableMatches.length === 1
+          ? stableMatches[0]
+          : undefined
+        : undefined
+    if (target === undefined) return connection
+
+    const profileId = target.profileId
+    const updatedAt = new Date().toISOString()
+    await persistence.putBinding(sessionId, { profileId, updatedAt })
+    const reconciled = { ...connection, profileId, tables: copyTables(connection.tables) }
+    runtime.set(sessionId, reconciled)
+    return reconciled
   }
 
   const credentialSummary = async (connection: DatabaseConnection): Promise<CredentialSummary | undefined> => {
@@ -538,14 +618,14 @@ export function createConnectionService(
     async status(sessionId) {
       const connection = rawConnection(sessionId)
       if (connection === undefined) return undefined
-      return statusSummary(connection)
+      return statusSummary(await reconcileStableProfile(sessionId, connection))
     },
     async connect(sessionId, input, signal) {
       if (sessionId.length === 0) throw new Error('sessionId 必须是非空字符串')
       const normalized = normalizeConnectionInput(input, resolvedOptions.cwd)
       const execution = await resolveCredential(normalized)
       const tables = await verify(execution, signal, true)
-      const profileId = normalized.profileId ?? `session:${sessionId}`
+      const profileId = reusableProfileId(sessionId, normalized)
       const updatedAt = new Date().toISOString()
       const draft = formDraftFromConnection(normalized)
       await persistAtomically(sessionId, profileId, profileFromConnection(normalized, updatedAt), draft)
@@ -575,6 +655,31 @@ export function createConnectionService(
         throw new Error('请先在 Web「数据库」标签页连接数据库，或在 TUI 运行 /database connect（未找到当前会话的连接）')
       }
       return resolveCredential(connection)
+    },
+    async queryMetadata(sessionId, sql, signal) {
+      if (sql.trim().length === 0) throw new Error('Catalog metadata SQL must not be empty')
+      const maxQueryChars = resolvedOptions.maxQueryChars ?? DEFAULT_MAX_QUERY_CHARS
+      if (sql.length > maxQueryChars) throw new Error(`Catalog metadata SQL exceeds ${maxQueryChars} characters`)
+      assertSingleStatement(sql, 'Catalog metadata query')
+      const connection = await service.resolveForExecution(sessionId)
+      if (classifyStatement(sql, connection.type) !== 'read') {
+        throw new Error('Catalog metadata execution accepts read-only system catalog statements only')
+      }
+      const result = await run(
+        connection,
+        sql,
+        signal,
+        true,
+        false,
+        undefined,
+        resolvedOptions.catalogMaxResultChars ?? resolvedOptions.maxResultChars,
+        true,
+      )
+      if (result.exitCode !== 0) {
+        const detail = result.stderr.trim() !== '' ? result.stderr.trim() : result.stdout.trim()
+        throw new Error(`Catalog metadata query failed (exit ${result.exitCode}): ${detail}`)
+      }
+      return result
     },
     async listSchemas(sessionId, signal) {
       const connection = await service.resolveForExecution(sessionId)
@@ -773,6 +878,33 @@ function profileFromConnection(connection: DatabaseConnection, updatedAt: string
     ...connection.passwordRef !== undefined ? { passwordRef: connection.passwordRef } : {},
     ...connection.credentialMode !== undefined ? { credentialMode: connection.credentialMode } : {},
   }
+}
+
+/** Match only normalized, non-secret endpoint/principal identity fields. */
+function profileMatchesConnection(
+  profile: PersistedConnectionProfile,
+  connection: DatabaseConnection,
+  cwd = process.cwd(),
+): boolean {
+  let candidate: DatabaseConnection
+  try {
+    candidate = normalizeConnectionInput({
+      type: profile.type,
+      database: profile.database,
+      ...profile.host !== undefined ? { host: profile.host } : {},
+      ...profile.port !== undefined ? { port: profile.port } : {},
+      ...profile.user !== undefined ? { user: profile.user } : {},
+      ...profile.secure !== undefined ? { secure: profile.secure } : {},
+    }, cwd)
+  } catch {
+    return false
+  }
+  return candidate.type === connection.type
+    && candidate.database === connection.database
+    && candidate.host === connection.host
+    && candidate.port === connection.port
+    && candidate.user === connection.user
+    && (candidate.secure ?? false) === (connection.secure ?? false)
 }
 
 /** Infer legacy records while leaving ambiguous secret-less SQL profiles conservative. */

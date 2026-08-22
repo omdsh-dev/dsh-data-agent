@@ -22,9 +22,11 @@ import {
   runTuiConnectionForm,
 } from './tui-connection-form.ts'
 import type {} from './index.ts'
+import { registerCatalogCommand } from './catalog-command.ts'
+import { createCatalogTuiAdapter } from './catalog-tui.ts'
 
 export const name = 'data-agent-database-command'
-export const inject = ['commands', 'dataAgentConnections', 'tools']
+export const inject = ['commands', 'dataAgentConnections', 'dataAgentCatalog', 'dataAgentCatalogScanner', 'tools']
 
 export const DATABASE_COMMAND_USAGE = [
   '用法：',
@@ -41,7 +43,10 @@ type DatabaseAction =
   | { kind: 'test' }
   | { kind: 'disconnect' }
 
-export const DATA_AGENT_TOOL_NAMES = ['str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd'] as const
+export const DATA_AGENT_TOOL_NAMES = [
+  'str_replace_editor', 'sql-query', 'sql-write', 'sql-cmd',
+  'catalog-search', 'catalog-get', 'metric-get',
+] as const
 const DATA_AGENT_OWN_TOOL_NAMES = new Set<string>([
   ...DATA_AGENT_TOOL_NAMES,
   'render-analysis',
@@ -68,8 +73,56 @@ const defaultInteraction: DatabaseCommandInteraction = {
   }),
 }
 
-/** Register the command in the calling preset/agent scope. */
-export function apply(ctx: Context): void {
+export interface DataAgentCommandAdapterOptions {
+  /** Override only for focused runtime-boundary tests. */
+  isDshTuiPluginLoaded?: (ctx: Context) => boolean
+}
+
+/** Official Cordis runtime name exported by `@deepseek-harness-tui/dsh-tui`. */
+export const DSH_TUI_PLUGIN_RUNTIME_NAME = 'dsh-tui'
+
+/**
+ * Detect actual plugin usage from Cordis' live registry. Package installation,
+ * argv and profile labels are deliberately irrelevant.
+ */
+export function isDshTuiPluginLoaded(ctx: Context): boolean {
+  for (const runtime of ctx.registry.values()) {
+    if (runtime.name !== DSH_TUI_PLUGIN_RUNTIME_NAME) continue
+    for (const fiber of runtime.fibers) {
+      if (fiber.uid !== null) return true
+    }
+  }
+  return false
+}
+
+/** Mount both human commands and return one symmetric disposer. */
+function registerDshTuiCommands(ctx: Context): () => void {
+  const catalogTui = createCatalogTuiAdapter(ctx)
+  const disposeDatabase = ctx.commands.register({
+    name: 'database',
+    description: '查看、连接、测试或断开 data-agent 数据库连接',
+    input: { hint: 'status | connect | test | disconnect' },
+    recordInput: false,
+    handler: async (invocation) => executeDatabaseCommand(ctx, invocation),
+  })
+  const disposeCatalog = registerCatalogCommand(ctx, catalogTui)
+
+  // dsh-tui rebuilds its command list when `commands/change` fires. During a
+  // blank-session preset switch the registry's first notification happens
+  // while the standing preset is still being mounted, before the agent scope
+  // is parented to that standing scope. Notify once more on the next task so
+  // the just-joined agent can discover this scoped command immediately.
+  const refreshTimer = setTimeout(() => ctx.emit('commands/change'), 0)
+  return () => {
+    clearTimeout(refreshTimer)
+    disposeCatalog()
+    catalogTui.dispose()
+    disposeDatabase()
+  }
+}
+
+/** Keep the tool boundary everywhere; follow the actual dsh-tui runtime lifecycle for commands. */
+export function apply(ctx: Context, options: DataAgentCommandAdapterOptions = {}): void {
   // This entry is the final row mounted in the data-agent standing preset
   // scope. Deny every currently visible host tool except this preset's own
   // registrations. An allowlist cannot be used here: when an existing agent is
@@ -82,21 +135,29 @@ export function apply(ctx: Context): void {
     .filter(toolName => !DATA_AGENT_OWN_TOOL_NAMES.has(toolName))
   ctx.tools.restrict({ deny: inheritedToolNames })
 
-  ctx.commands.register({
-    name: 'database',
-    description: '查看、连接、测试或断开 data-agent 数据库连接',
-    input: { hint: 'status | connect | test | disconnect' },
-    recordInput: false,
-    handler: async (invocation) => executeDatabaseCommand(ctx, invocation),
-  })
+  const detect = options.isDshTuiPluginLoaded ?? isDshTuiPluginLoaded
+  let disposeCommands: (() => void) | undefined
+  const reconcile = () => {
+    const shouldRegister = detect(ctx)
+    if (shouldRegister && disposeCommands === undefined) {
+      disposeCommands = registerDshTuiCommands(ctx)
+    } else if (!shouldRegister && disposeCommands !== undefined) {
+      disposeCommands()
+      disposeCommands = undefined
+    }
+  }
 
-  // dsh-tui rebuilds its command list when `commands/change` fires. During a
-  // blank-session preset switch the registry's first notification happens
-  // while the standing preset is still being mounted, before the agent scope
-  // is parented to that standing scope. Notify once more on the next task so
-  // the just-joined agent can discover this scoped command immediately.
-  const refreshTimer = setTimeout(() => ctx.emit('commands/change'), 0)
-  ctx.effect(() => () => clearTimeout(refreshTimer), 'data-agent: refresh scoped command adapters')
+  reconcile()
+  if (options.isDshTuiPluginLoaded === undefined) {
+    // `internal/plugin` fires for both creation and disposal. Global delivery
+    // makes this independent of whether dsh-tui loads before or after the
+    // data-agent standing scope.
+    ctx.on('internal/plugin', reconcile, { global: true })
+  }
+  ctx.effect(() => () => {
+    disposeCommands?.()
+    disposeCommands = undefined
+  }, 'data-agent: dsh-tui human command adapters')
 }
 
 /** Public for focused command tests and alternate command adapters. */

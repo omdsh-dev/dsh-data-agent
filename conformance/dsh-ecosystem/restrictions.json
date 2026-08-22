@@ -4,10 +4,10 @@
   "items": [
     { "id": "tool-extension-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "The pinned TUI profile does not import the complete model Tool/Preset declaration used by the native data-agent scope." },
     { "id": "agent-preset-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "Agent preset standing-scope composition remains a native DSH contract." },
-    { "id": "cordis-service-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "The dataAgentConnections Cordis service has no admitted Community v0.15 service definition." },
+    { "id": "cordis-service-not-in-tui-profile", "kind": "upstream-gap", "requirementId": "DECL-CLOSURE-001", "summary": "The dataAgentConnections and Catalog Cordis service faces have no admitted Community v0.15 service definition." },
     { "id": "http-routes-native-only", "kind": "restriction", "requirementId": "NATIVE-NO-REGRESSION-001", "summary": "HTTP routes remain owned by the native Web bundle row." },
     { "id": "web-slots-native-only", "kind": "restriction", "requirementId": "NATIVE-NO-REGRESSION-001", "summary": "Web slots remain owned by the native browser client." },
-    { "id": "storage-domain-native-only", "kind": "restriction", "requirementId": "DECL-CLOSURE-001", "summary": "The durable data_agent_connections domain remains owned by native Cordis storage-domain." },
+    { "id": "storage-domain-native-only", "kind": "restriction", "requirementId": "DECL-CLOSURE-001", "summary": "The durable data_agent_connections and data_agent_catalog domains remain owned by native Cordis storage-domain." },
     { "id": "credential-resolution-native-only", "kind": "restriction", "requirementId": "TRUST-001", "summary": "Credential references resolve only inside the existing native runtime and are excluded from evidence." },
     { "id": "database-execution-native-only", "kind": "restriction", "requirementId": "DEPENDENCY-CLOSURE-001", "summary": "Database execution remains native and depends on packaged or external database clients." },
     { "id": "legacy-local-tty", "kind": "restriction", "requirementId": "PRESENTATION-001", "summary": "The masked local TTY form is preserved but is not standard Presentation evidence." },

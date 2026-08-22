@@ -20,7 +20,7 @@ type DatabaseAction = {
 } | {
     kind: 'disconnect';
 };
-export declare const DATA_AGENT_TOOL_NAMES: readonly ["str_replace_editor", "sql-query", "sql-write", "sql-cmd"];
+export declare const DATA_AGENT_TOOL_NAMES: readonly ["str_replace_editor", "sql-query", "sql-write", "sql-cmd", "catalog-search", "catalog-get", "metric-get"];
 export interface DatabaseCommandInteraction {
     isTuiFormAvailable(): boolean;
     collectTuiConnection(signal: AbortSignal, options: {
@@ -28,8 +28,19 @@ export interface DatabaseCommandInteraction {
         persistDraft(draft: ConnectionFormDraft): Promise<void>;
     }): Promise<DatabaseConnectionInput | undefined>;
 }
-/** Register the command in the calling preset/agent scope. */
-export declare function apply(ctx: Context): void;
+export interface DataAgentCommandAdapterOptions {
+    /** Override only for focused runtime-boundary tests. */
+    isDshTuiPluginLoaded?: (ctx: Context) => boolean;
+}
+/** Official Cordis runtime name exported by `@deepseek-harness-tui/dsh-tui`. */
+export declare const DSH_TUI_PLUGIN_RUNTIME_NAME = "dsh-tui";
+/**
+ * Detect actual plugin usage from Cordis' live registry. Package installation,
+ * argv and profile labels are deliberately irrelevant.
+ */
+export declare function isDshTuiPluginLoaded(ctx: Context): boolean;
+/** Keep the tool boundary everywhere; follow the actual dsh-tui runtime lifecycle for commands. */
+export declare function apply(ctx: Context, options?: DataAgentCommandAdapterOptions): void;
 /** Public for focused command tests and alternate command adapters. */
 export declare function executeDatabaseCommand(ctx: Context, invocation: CommandInvocation, interaction?: DatabaseCommandInteraction): Promise<CommandResult>;
 /** Parse one command's raw input without ever accepting a plaintext password. */

@@ -112,6 +112,8 @@ export interface PersistedConnectionProfileEntry {
 export interface ConnectionPersistence {
     getProfile(profileId: string): PersistedConnectionProfile | undefined;
     getLatestProfile?(): PersistedConnectionProfileEntry | undefined;
+    /** Deterministic profile enumeration used only for exact, non-secret identity reuse. */
+    listProfiles?(): PersistedConnectionProfileEntry[];
     putProfile(profileId: string, profile: PersistedConnectionProfile): Promise<void>;
     deleteProfile(profileId: string): Promise<boolean>;
     getBinding(sessionId: string): SessionConnectionBinding | undefined;
@@ -125,12 +127,17 @@ export interface ConnectionPersistence {
 export interface ConnectionServiceOptions {
     connectTimeoutMs: number;
     queryTimeoutMs: number;
+    catalogQueryTimeoutMs?: number;
+    /** Per-stream capture budget for package-owned system-catalog queries. */
+    catalogMaxResultChars?: number;
     maxResultChars: number;
     maxQueryChars?: number;
     introspectMaxTables: number;
     readonly: boolean;
     clients: Partial<Record<string, ClientConfig>>;
     cwd?: string;
+    /** Profile ids already used by durable downstream data, ordered by the owner. */
+    preferredProfileIds?: () => readonly string[];
 }
 export interface ConnectResult {
     tables: string[];
@@ -167,6 +174,8 @@ export interface DataAgentConnections {
     disconnect(sessionId: string): Promise<void>;
     test(sessionId: string, signal: AbortSignal): Promise<ConnectResult>;
     resolveForExecution(sessionId: string): Promise<DatabaseConnection>;
+    /** Execute one package-owned, read-only system-catalog statement. Not exposed as a model tool. */
+    queryMetadata(sessionId: string, sql: string, signal: AbortSignal): Promise<QueryResult>;
     listSchemas(sessionId: string, signal: AbortSignal): Promise<string[]>;
     listTables(sessionId: string, schema: string | undefined, signal: AbortSignal): Promise<string[]>;
     describe(sessionId: string, schema: string | undefined, table: string, signal: AbortSignal): Promise<ColumnInfo[]>;

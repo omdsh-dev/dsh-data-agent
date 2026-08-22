@@ -16,7 +16,11 @@ import {
 
 interface SpawnSpec {
   argv: readonly string[]
-  stdio: { stdin: { data: string } }
+  stdio: {
+    stdin: { data: string }
+    stdout?: { maxBytes: number }
+    stderr?: { maxBytes: number }
+  }
   signal: AbortSignal
   env?: Record<string, string>
 }
@@ -30,6 +34,9 @@ function memoryPersistence() {
   const persistence: ConnectionPersistence = {
     getProfile: id => profiles.get(id),
     getLatestProfile: () => latestConnectionProfile(profiles.entries()),
+    listProfiles: () => [...profiles.entries()]
+      .map(([profileId, profile]) => ({ profileId, profile }))
+      .sort((left, right) => left.profileId.localeCompare(right.profileId)),
     async putProfile(id, value) { profiles.set(id, value) },
     async deleteProfile(id) { return profiles.delete(id) },
     getBinding: id => bindings.get(id),
@@ -123,6 +130,27 @@ const serviceOptions: ConnectionServiceOptions = {
 const signal = () => new AbortController().signal
 
 describe('DataAgentConnectionService', () => {
+  it('uses a Catalog-specific metadata capture budget instead of the interactive SQL limit', async () => {
+    const host = fakeContext({ output: () => ({ stdout: 'orders\n' }) })
+    const service = createConnectionService(host.ctx, {
+      ...serviceOptions,
+      maxResultChars: 20_000,
+      catalogMaxResultChars: 8_000_000,
+    })
+    service.set('session-catalog', {
+      type: 'mysql', host: 'db', port: 3306, user: 'app', database: 'orders',
+    })
+
+    await service.queryMetadata(
+      'session-catalog',
+      "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='orders';",
+      signal(),
+    )
+
+    expect(host.spawned[0]?.stdio.stdout).toEqual({ maxBytes: 8_000_000 })
+    expect(host.spawned[0]?.stdio.stderr).toEqual({ maxBytes: 8_000_000 })
+  })
+
   it('uses automatic client discovery during the initial cross-surface connection check', async () => {
     const customDirectory = process.platform === 'win32' ? 'C:\\company\\mysql\\bin' : '/opt/company/mysql/bin'
     const separator = process.platform === 'win32' ? ';' : ':'
@@ -172,6 +200,86 @@ describe('DataAgentConnectionService', () => {
       type: 'mysql', host: 'db', port: '3306', user: 'app', database: 'orders', readonly: true,
     })
     expect(JSON.stringify([...durable.profiles, ...durable.bindings])).not.toContain('super-secret')
+  })
+
+  it('reuses one exact stable profile across sessions without merging ambiguous or different connections', async () => {
+    const durable = memoryPersistence()
+    durable.profiles.set('dsh_data_agent_demo', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      credentialMode: 'password', updatedAt: '2026-08-22T01:00:00.000Z',
+    })
+    durable.profiles.set('session:old', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      credentialMode: 'password', updatedAt: '2026-08-22T02:00:00.000Z',
+    })
+    const service = createConnectionService(fakeContext().ctx, serviceOptions, durable.persistence)
+
+    const reused = await service.connect('new-session', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+    }, signal())
+    expect(reused.summary.profileId).toBe('dsh_data_agent_demo')
+    expect(durable.bindings.get('new-session')?.profileId).toBe('dsh_data_agent_demo')
+
+    const differentUser = await service.connect('other-user', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'readonly', database: 'dsh_data_agent_demo',
+    }, signal())
+    expect(differentUser.summary.profileId).toBe('session:other-user')
+
+    durable.profiles.set('another_stable_profile', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      credentialMode: 'password', updatedAt: '2026-08-22T03:00:00.000Z',
+    })
+    const ambiguous = await service.connect('ambiguous-session', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+    }, signal())
+    expect(ambiguous.summary.profileId).toBe('session:ambiguous-session')
+  })
+
+  it('reconciles an already-connected session profile during status restoration', async () => {
+    const durable = memoryPersistence()
+    const catalogProfileId = 'session:catalog-source'
+    const connection = {
+      type: 'mysql' as const, host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      credentialMode: 'password' as const, updatedAt: '2026-08-22T01:00:00.000Z',
+    }
+    durable.profiles.set(catalogProfileId, connection)
+    durable.profiles.set('session:current', { ...connection, updatedAt: '2026-08-22T02:00:00.000Z' })
+    durable.bindings.set('current', { profileId: 'session:current', updatedAt: '2026-08-22T02:00:00.000Z' })
+    const service = createConnectionService(fakeContext().ctx, {
+      ...serviceOptions,
+      preferredProfileIds: () => [catalogProfileId],
+    }, durable.persistence)
+    service.set('current', { ...connection, profileId: 'session:current', password: 'memory-secret' })
+
+    const summary = await service.status('current')
+
+    expect(summary?.profileId).toBe(catalogProfileId)
+    expect(summary?.ready).toBe(true)
+    expect(service.get('current')?.profileId).toBe(catalogProfileId)
+    expect(durable.bindings.get('current')?.profileId).toBe(catalogProfileId)
+  })
+
+  it('reuses the exact Catalog-backed legacy profile when duplicate session profiles exist', async () => {
+    const durable = memoryPersistence()
+    const catalogProfileId = 'session:catalog-source'
+    const connection = {
+      type: 'mysql' as const, host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+      credentialMode: 'password' as const, updatedAt: '2026-08-22T01:00:00.000Z',
+    }
+    durable.profiles.set(catalogProfileId, connection)
+    durable.profiles.set('session:duplicate-a', { ...connection, updatedAt: '2026-08-22T02:00:00.000Z' })
+    durable.profiles.set('session:duplicate-b', { ...connection, updatedAt: '2026-08-22T03:00:00.000Z' })
+    const service = createConnectionService(fakeContext().ctx, {
+      ...serviceOptions,
+      preferredProfileIds: () => [catalogProfileId],
+    }, durable.persistence)
+
+    const result = await service.connect('new-session', {
+      type: 'mysql', host: 'localhost', port: 3306, user: 'dsh_demo', database: 'dsh_data_agent_demo',
+    }, signal())
+
+    expect(result.summary.profileId).toBe(catalogProfileId)
+    expect(durable.bindings.get('new-session')?.profileId).toBe(catalogProfileId)
   })
 
   it('persists and restores a session form draft without a secret field', async () => {

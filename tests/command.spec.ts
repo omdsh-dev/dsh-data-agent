@@ -19,6 +19,7 @@ function invocation(rawInput: string, id = 'agent-a') {
 
 function commandContext(options?: { questions?: { ask(request: { questions: { id: string }[] }): Promise<unknown> } }) {
   let registered: Record<string, unknown> | undefined
+  let catalogRegistered: Record<string, unknown> | undefined
   let restriction: Record<string, unknown> | undefined
   const emitted: string[] = []
   const calls: { method: string; sessionId?: string; input?: unknown }[] = []
@@ -38,7 +39,11 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
     async disconnect(sessionId: string) { calls.push({ method: 'disconnect', sessionId }) },
   }
   const ctx = {
-    commands: { register(definition: Record<string, unknown>) { registered = definition; return () => {} } },
+    commands: { register(definition: Record<string, unknown>) {
+      if (definition.name === 'catalog') catalogRegistered = definition
+      else registered = definition
+      return () => {}
+    } },
     tools: {
       restrict(filter: Record<string, unknown>) { restriction = filter; return () => {} },
       schemas() {
@@ -61,6 +66,7 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
     drafts,
     emitted,
     get registered() { return registered },
+    get catalogRegistered() { return catalogRegistered },
     get restriction() { return restriction },
   }
 }
@@ -68,15 +74,27 @@ function commandContext(options?: { questions?: { ask(request: { questions: { id
 describe('/database command', () => {
   it('registers an agent-scoped human command with recordInput disabled', async () => {
     const fixture = commandContext()
-    await apply(fixture.ctx)
+    await apply(fixture.ctx, { isDshTuiPluginLoaded: () => true })
     expect(fixture.registered).toMatchObject({
       name: 'database',
       recordInput: false,
     })
     expect(fixture.registered?.handler).toBeTypeOf('function')
+    expect(fixture.catalogRegistered).toMatchObject({ name: 'catalog', recordInput: false })
     expect(fixture.restriction).toEqual({ deny: ['describe_image', 'ssh_exec'] })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(fixture.emitted).toContain('commands/change')
+  })
+
+  it('keeps the data-agent tool restriction but registers no human commands without dsh-tui', async () => {
+    const fixture = commandContext()
+    await apply(fixture.ctx, { isDshTuiPluginLoaded: () => false })
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(fixture.registered).toBeUndefined()
+    expect(fixture.catalogRegistered).toBeUndefined()
+    expect(fixture.emitted).not.toContain('commands/change')
+    expect(fixture.restriction).toEqual({ deny: ['describe_image', 'ssh_exec'] })
   })
 
   it('returns a redacted status and usage for an empty command', async () => {

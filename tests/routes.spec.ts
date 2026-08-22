@@ -34,8 +34,53 @@ function routeFixture(ready = true) {
       return { kind: 'table', columns: ['id'], rows: [{ id: '1' }], elapsedMs: 3, truncated: false, maxRows: 50_000 }
     },
   }
+  const source = {
+    id: 'profile-a', profileId: 'profile-a', type: 'mysql' as const, name: 'Orders', database: 'orders',
+    credentialConfigured: true, createdAt: '2026-08-21T00:00:00.000Z', updatedAt: '2026-08-21T00:00:00.000Z',
+  }
+  const catalogRun = {
+    id: 'run-a', sourceId: 'profile-a', sessionId: 's', scope: { kind: 'source' as const }, status: 'queued' as const,
+    coverageComplete: false, progress: { schemas: 0, relations: 0, fields: 0, assets: 0 }, createdAt: '2026-08-21T00:00:00.000Z',
+  }
+  const catalog = {
+    listSources() { calls.push({ method: 'catalog.listSources', args: [] }); return [source] },
+    listRuns(...args: unknown[]) { calls.push({ method: 'catalog.listRuns', args }); return [catalogRun] },
+    status(...args: unknown[]) {
+      calls.push({ method: 'catalog.status', args })
+      return { source, latestRun: catalogRun, counts: { assets: 1, fields: 0, needsReview: 0 } }
+    },
+    async search(...args: unknown[]) {
+      calls.push({ method: 'catalog.search', args })
+      return { sourceId: 'profile-a', query: 'orders', items: [], truncated: false, warnings: [] }
+    },
+    getAsset(...args: unknown[]) {
+      calls.push({ method: 'catalog.getAsset', args })
+      return { asset: { assetId: 'asset-a' }, fields: [], relations: [], semantics: [], truncated: false, untrusted: true }
+    },
+    diff(...args: unknown[]) {
+      calls.push({ method: 'catalog.diff', args })
+      return { sourceId: 'profile-a', fromRunId: 'a', toRunId: 'b', scope: { kind: 'source' }, items: [], truncated: false }
+    },
+    getSemantic(...args: unknown[]) {
+      calls.push({ method: 'catalog.getSemantic', args })
+      return { semanticId: 'metric-a', version: 1 }
+    },
+  }
+  const scanner = {
+    async start(...args: unknown[]) { calls.push({ method: 'catalog.start', args }); return catalogRun },
+    async cancel(...args: unknown[]) { calls.push({ method: 'catalog.cancel', args }); return catalogRun },
+  }
+  const review = {
+    async saveCandidate(...args: unknown[]) { calls.push({ method: 'catalog.saveCandidate', args }); return { semanticId: 'metric-a', version: 1 } },
+    async verify(...args: unknown[]) { calls.push({ method: 'catalog.verify', args }); return { semanticId: 'metric-a', version: 2 } },
+    async retire(...args: unknown[]) { calls.push({ method: 'catalog.retire', args }); return { semanticId: 'metric-a', version: 3 } },
+    async dismissMeaning(...args: unknown[]) { calls.push({ method: 'catalog.dismissMeaning', args }); return { semanticId: 'meaning-a', version: 2 } },
+  }
   const ctx: any = {
     dataAgentConnections: service,
+    dataAgentCatalog: catalog,
+    dataAgentCatalogScanner: scanner,
+    dataAgentCatalogReview: review,
     webServer: {
       register(route: { handler: typeof handler }) { handler = route.handler; return () => {} },
     },
@@ -112,5 +157,58 @@ describe('Web route adapter', () => {
       reconnectRequired: true,
       summary: { ready: false, reconnectRequired: true },
     })
+  })
+
+  it('serves bounded Catalog reads and scan control through the shared faces', async () => {
+    const fixture = routeFixture()
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/sources')).body).toMatchObject({
+      ok: true, sources: [{ id: 'profile-a' }],
+    })
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/status?sourceId=profile-a')).body)
+      .toMatchObject({ ok: true, status: { counts: { assets: 1 } } })
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/search?sourceId=profile-a&query=orders&pageSize=25')).body)
+      .toMatchObject({ ok: true, page: { sourceId: 'profile-a' } })
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/assets/asset-a?sourceId=profile-a&pageSize=25')).body)
+      .toMatchObject({ ok: true, detail: { truncated: false } })
+    const scan = await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/scan', {
+      sessionId: 's', scope: { kind: 'schema', schema: 'sales' },
+    })
+    expect(scan).toMatchObject({ status: 202, body: { ok: true, run: { id: 'run-a' } } })
+    expect(fixture.calls.find(call => call.method === 'catalog.start')?.args[0]).toEqual({
+      sessionId: 's', scope: { kind: 'schema', schema: 'sales' },
+    })
+  })
+
+  it('strictly rejects malformed Catalog scope, unknown fields, and oversized pages before mutation', async () => {
+    const fixture = routeFixture()
+    expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/scan', {
+      sessionId: 's', scope: { kind: 'source', table: 'orders' },
+    })).status).toBe(400)
+    expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/scan', {
+      sessionId: 's', scope: { kind: 'source' }, password: 'forbidden',
+    })).status).toBe(400)
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/search?sourceId=profile-a&query=x&pageSize=201')).status).toBe(400)
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/search?sourceId=profile-a&query=x&includeInferred=yes')).status).toBe(400)
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/search?sourceId=profile-a&query=x&unknown=true')).status).toBe(400)
+    expect((await dispatch(fixture.handler, 'GET', '/plugins/data-agent/catalog/search?sourceId=profile-a&query=x&query=y')).status).toBe(400)
+    expect(fixture.calls.some(call => call.method === 'catalog.start')).toBe(false)
+  })
+
+  it('keeps human semantic mutations on review routes rather than the read face', async () => {
+    const fixture = routeFixture()
+    const definition = {
+      kind: 'metric', name: 'GMV', aliases: [], description: 'GMV', sourceAssetIds: ['asset-a'],
+      status: 'inferred', formula: 'SUM(amount)', grain: 'day', filters: [], exclusions: [], revisionNote: 'draft',
+    }
+    expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/semantics', {
+      sourceId: 'profile-a', expectedVersion: 0, definition,
+    })).body).toMatchObject({ ok: true, semantic: { version: 1 } })
+    expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/semantics/metric-a/verify', {
+      sourceId: 'profile-a', expectedVersion: 1, definition: { ...definition, status: 'verified', revisionNote: 'approved' },
+    })).body).toMatchObject({ ok: true, semantic: { version: 2 } })
+    expect((await dispatch(fixture.handler, 'POST', '/plugins/data-agent/catalog/semantics/meaning-a/dismiss', {
+      sourceId: 'profile-a', expectedVersion: 1,
+    })).body).toMatchObject({ ok: true, semantic: { version: 2 } })
+    expect(fixture.calls.map(call => call.method)).toEqual(['catalog.saveCandidate', 'catalog.verify', 'catalog.dismissMeaning'])
   })
 })

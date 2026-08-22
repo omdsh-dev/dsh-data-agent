@@ -3,9 +3,10 @@
  *
  * dsh-tui 0.6.x exposes commands but no public custom-form/sensitive-input
  * slot. This adapter therefore owns a small terminal form and only activates
- * for an interactive `dsh-tui` profile. It snapshots the host's `readable`
- * listeners, consumes input for the lifetime of the form, then restores the
- * listeners exactly. It never imports dsh-tui, React, or Ink.
+ * after the command adapter has detected an active `dsh-tui` runtime. It
+ * snapshots the host's `readable` listeners, consumes input for the lifetime
+ * of the form, then restores the listeners exactly. It never imports dsh-tui,
+ * React, or Ink.
  * @module @yejiming/dsh-data-agent/tui-connection-form
  */
 
@@ -141,19 +142,17 @@ export function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>, secur
   return sharedDefaultDatabasePort(type, secure)
 }
 
-/** Detect the supported host without coupling to dsh-tui modules. */
+/**
+ * Check only terminal capability. The command adapter already proves that the
+ * actual dsh-tui plugin is loaded before it exposes `/database`; repeating a
+ * profile-name or argv heuristic here would reject custom profiles that use
+ * dsh-tui and admit profiles that merely happen to be named `dsh-tui`.
+ */
 export function isDshTuiTerminal(
-  argv: readonly string[] = process.argv,
   input: Pick<TuiFormInput, 'isTTY'> = process.stdin,
   output: Pick<TuiFormOutput, 'isTTY'> = process.stdout,
 ): boolean {
-  if (input.isTTY !== true || output.isTTY !== true) return false
-  for (let index = 0; index < argv.length; index += 1) {
-    const value = argv[index]
-    if (value === '--profile' && argv[index + 1] === 'dsh-tui') return true
-    if (value === '--profile=dsh-tui') return true
-  }
-  return false
+  return input.isTTY === true && output.isTTY === true
 }
 
 /** Pure keyboard reducer, kept separate from terminal ownership for regression tests. */

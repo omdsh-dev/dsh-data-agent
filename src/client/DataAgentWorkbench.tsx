@@ -4,7 +4,7 @@
  * Only a compact database button remains mounted from the composer slot and
  * is visually lifted into the context row above the composer card.
  * Clicking it opens one Modal containing connection settings, the schema
- * explorer, and SQL runner as three tabs. Hero and active conversations share
+ * explorer, data Catalog, and SQL runner as four tabs. Hero and active conversations share
  * this exact surface; the plugin never measures or shifts host layout.
  *
  * Non-data-agent sessions render null before any effect or request runs.
@@ -29,6 +29,7 @@ import {
   type SavedConnection,
 } from './persistence.ts'
 import { QueryResultTable, type StructuredWorkbenchResult } from './QueryResultTable.tsx'
+import { CatalogPanel } from './CatalogPanel.tsx'
 import css from './DataAgentWorkbench.module.css'
 
 /** The plugin's preset id, matching the installed agent preset directory. */
@@ -148,6 +149,7 @@ interface ConnectionWireSummary {
   credentialMode?: 'none' | 'password' | 'reference'
   ready?: boolean
   reconnectRequired?: boolean
+  profileId?: string
 }
 interface ConnectResponse { ok: boolean; tables?: string[]; summary?: ConnectionWireSummary; error?: string }
 interface StatusResponse { connected: boolean; reconnectRequired?: boolean; summary?: ConnectionWireSummary }
@@ -185,7 +187,7 @@ export type DataAgentWorkbenchProps =
   & PropsLocale<'data-agent'>
   & InjectFace<DataAgentWorkbenchInjected>
 
-type WorkbenchTab = 'connection' | 'schema' | 'sql'
+type WorkbenchTab = 'connection' | 'schema' | 'catalog' | 'sql'
 
 /** Default port per type (used to fill the form from a saved connection). */
 function defaultPortOf(type: DatabaseType, secure = false): string {
@@ -286,6 +288,8 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [error, setError] = useState<string | null>(null)
   const [connected, setConnected] = useState(false)
   const [reconnectRequired, setReconnectRequired] = useState(false)
+  const [connectionProfileId, setConnectionProfileId] = useState<string | undefined>()
+  const [catalogAvailable, setCatalogAvailable] = useState(false)
 
   // One workbench Modal owns connection, schema, and SQL as tabs.
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
@@ -306,6 +310,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [sqlResult, setSqlResult] = useState<SqlResultState | null>(null)
   const sqlResultId = useRef(0)
   const triggerSlotRef = useRef<HTMLDivElement>(null)
+  const catalogStateKey = useRef({}).current
 
   // 草稿持久化：任何表单字段变化立即保存；密码仅在用户勾选后保存，
   // 使未连接的输入在切换会话/刷新后也能恢复。首轮跳过（初始化回填值
@@ -360,6 +365,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             ? 'reference'
             : 'password')
           setCredentialStatus(summary.credential)
+          setConnectionProfileId(summary.profileId)
           if (!matchesSaved) {
             setPassword('')
             setRememberPassword(false)
@@ -384,6 +390,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
               setConnected(true)
               setReconnectRequired(false)
               setCredentialStatus(result.summary?.credential)
+              setConnectionProfileId(result.summary?.profileId)
             } else {
               setError(`连接恢复失败：${result.error ?? 'unknown error'}`)
             }
@@ -451,6 +458,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
         setConnected(true)
         setReconnectRequired(false)
         setCredentialStatus(result.summary?.credential)
+        setConnectionProfileId(result.summary?.profileId)
         if (result.summary?.credentialMode === 'none' && !sqlite) {
           saveConnection({
             type,
@@ -490,8 +498,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       setConnected(false)
       setReconnectRequired(false)
       setCredentialStatus(undefined)
+      setConnectionProfileId(undefined)
       setReadonly(false)
-      setActiveTab('connection')
+      if (activeTab !== 'catalog') setActiveTab('connection')
       setSchemas([])
       schemasLoaded.current = false
       setActiveSchema(null)
@@ -640,6 +649,7 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const tabs: ReadonlyArray<{ id: WorkbenchTab; label: string; icon: ReactNode }> = [
     { id: 'connection', label: t('action.config'), icon: <DatabaseIcon /> },
     { id: 'schema', label: t('action.browse'), icon: <TableIcon /> },
+    { id: 'catalog', label: t('action.catalog'), icon: <FolderIcon /> },
     { id: 'sql', label: t('wb.sql'), icon: <TerminalIcon /> },
   ]
 
@@ -701,7 +711,9 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
           <div className={css.tabs} role="tablist" aria-label={t('wb.workbench.tabs')}>
             {tabs.map(tab => {
-              const disabled = tab.id !== 'connection' && !connected
+              const disabled = tab.id === 'catalog'
+                ? !connected && !catalogAvailable
+                : tab.id !== 'connection' && !connected
               return (
                 <button
                   key={tab.id}
@@ -1027,6 +1039,18 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
             )}
           </section>
           )}
+
+          <CatalogPanel
+            id={`${tabsId}-catalog-panel`}
+            labelledBy={`${tabsId}-catalog-tab`}
+            active={activeTab === 'catalog'}
+            sessionId={sessionId}
+            connected={connected}
+            connectionProfileId={connectionProfileId}
+            stateKey={catalogStateKey}
+            t={t}
+            onAvailabilityChange={setCatalogAvailable}
+          />
 
           {error !== null && (
             <div className={css.errorBar} role="alert">

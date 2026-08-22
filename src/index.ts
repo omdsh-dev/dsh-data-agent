@@ -2,9 +2,10 @@
  * Data Agent profile entry. The host row provides the
  * `dataAgentConnections` service (shared non-secret profile/binding storage;
  * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
- * wildcard default), installs the `data-agent` agent preset into
+ * wildcard default), provides a separate versioned governance Catalog, installs the `data-agent` agent preset into
  * `$DSH_HOME/.agent-presets/`, and preloads the preset-scoped database tools
- * and command through this profile bundle entry.
+ * on every surface, while registering `/database` and `/catalog` only while
+ * the current Cordis composition actually loads the dsh-tui plugin.
  *
  * The HTTP routes live in the separate `./routes` entry
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
@@ -34,6 +35,9 @@ import type {} from '@deepseek-ai/dsh-subprocess'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     dataAgentConnections: DataAgentConnections
+    dataAgentCatalog: DataAgentCatalog
+    dataAgentCatalogScanner: DataAgentCatalogScanner
+    dataAgentCatalogReview: DataAgentCatalogReview
   }
 }
 import z from 'schemastery'
@@ -45,6 +49,26 @@ import {
 } from './connections.ts'
 import { clientsSchema, type CliDatabaseType, type ClientConfig } from './clients.ts'
 import {
+  createCatalogService,
+  type DataAgentCatalog,
+  type DataAgentCatalogReview,
+  type DataAgentCatalogScanner,
+} from './catalog.ts'
+import { createDshCatalogMeaningGenerator } from './catalog-ai.ts'
+import {
+  catalogStorageSpec,
+  createDomainCatalogPersistence,
+  createMemoryCatalogPersistence,
+  type CatalogPersistence,
+} from './catalog-storage.ts'
+import {
+  DEFAULT_CATALOG_ASSET_CONCURRENCY,
+  DEFAULT_CATALOG_MAX_ASSETS,
+  DEFAULT_CATALOG_MAX_RESULT_CHARS,
+  DEFAULT_CATALOG_MAX_TEXT_CHARS,
+  DEFAULT_CATALOG_PAGE_SIZE,
+  DEFAULT_CATALOG_QUERY_TIMEOUT_MS,
+  DEFAULT_CATALOG_SCHEMA_CONCURRENCY,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_INTROSPECT_MAX_TABLES,
   DEFAULT_MAX_RESULT_CHARS,
@@ -52,16 +76,64 @@ import {
   DEFAULT_MAX_ROWS,
   DEFAULT_PRESET_ID,
   DEFAULT_QUERY_TIMEOUT_MS,
+  MAX_CATALOG_PAGE_SIZE,
 } from './defaults.ts'
-import { apply as applyDatabaseCommand } from './command.ts'
+import {
+  apply as applyDatabaseCommand,
+  type DataAgentCommandAdapterOptions,
+} from './command.ts'
 import { connectionStorageSpec, createDomainConnectionPersistence } from './storage.ts'
 import { apply as applyDatabaseTools, type Config as ToolConfig } from './tool.ts'
+
+export type {
+  CatalogServiceBundle,
+  CatalogServiceOptions,
+  CatalogStatusSummary,
+  DataAgentCatalog,
+  DataAgentCatalogReview,
+  DataAgentCatalogScanner,
+  StartCatalogScanInput,
+} from './catalog.ts'
+export type {
+  CatalogAssetDetail,
+  CatalogAssetHead,
+  CatalogAssetKind,
+  CatalogAssetRevision,
+  CatalogAssetStatus,
+  CatalogCapability,
+  CatalogDiffItem,
+  CatalogDiffKind,
+  CatalogDiffPage,
+  CatalogEnrichment,
+  CatalogEnrichmentStatus,
+  CatalogIdentity,
+  CatalogObservation,
+  CatalogProgress,
+  CatalogRelation,
+  CatalogRun,
+  CatalogRunStatus,
+  CatalogScope,
+  CatalogSearchFilters,
+  CatalogSearchItem,
+  CatalogSearchPage,
+  CatalogSearchRequest,
+  CatalogSemanticEntry,
+  CatalogSemanticKind,
+  CatalogSemanticRevision,
+  CatalogSemanticStatus,
+  CatalogSource,
+  CatalogTechnicalPayload,
+  MetricDefinition,
+  MeaningDefinition,
+  SemanticDefinition,
+  TermDefinition,
+} from './catalog-types.ts'
 
 /** Cordis plugin name (diagnostics only). */
 export const name = 'data-agent'
 
 /** Services required before the profile entry can mount its preset layer. */
-export const inject = ['agentPresets', 'commands', 'credentials', 'subprocess', 'tools']
+export const inject = ['agentPresets', 'agents', 'commands', 'credentials', 'llm', 'subprocess', 'tools']
 
 /** Deployment overrides for one database type's CLI client. */
 export type ClientsConfig = Partial<Record<CliDatabaseType, ClientConfig>>
@@ -99,6 +171,20 @@ export interface Config {
   introspectMaxTables: number
   /** Deadline for one database-tool query, milliseconds. */
   queryTimeoutMs: number
+  /** Deadline for one package-owned system-catalog metadata query. */
+  catalogQueryTimeoutMs: number
+  /** Per-stream capture budget for one package-owned system-catalog query. */
+  catalogMaxResultChars: number
+  /** Maximum schemas and table/view details processed concurrently. */
+  catalogSchemaConcurrency: number
+  catalogAssetConcurrency: number
+  /** Hard technical asset bound for one scan. */
+  catalogMaxAssetsPerRun: number
+  /** Maximum normalized database/human text field length. */
+  catalogMaxTextChars: number
+  /** Default and maximum Catalog list/detail page sizes. */
+  catalogPageSize: number
+  catalogMaxPageSize: number
   /** In-memory cap on database-tool captured output. */
   maxResultChars: number
   /** Maximum structured rows returned by one database read tool call. */
@@ -122,6 +208,14 @@ export const Config = z.object({
   connectTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_CONNECT_TIMEOUT_MS),
   introspectMaxTables: z.number().step(1).min(1).default(DEFAULT_INTROSPECT_MAX_TABLES),
   queryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_QUERY_TIMEOUT_MS),
+  catalogQueryTimeoutMs: z.number().step(1).min(1000).default(DEFAULT_CATALOG_QUERY_TIMEOUT_MS),
+  catalogMaxResultChars: z.number().step(1).min(1024).default(DEFAULT_CATALOG_MAX_RESULT_CHARS),
+  catalogSchemaConcurrency: z.number().step(1).min(1).max(16).default(DEFAULT_CATALOG_SCHEMA_CONCURRENCY),
+  catalogAssetConcurrency: z.number().step(1).min(1).max(32).default(DEFAULT_CATALOG_ASSET_CONCURRENCY),
+  catalogMaxAssetsPerRun: z.number().step(1).min(1).max(1_000_000).default(DEFAULT_CATALOG_MAX_ASSETS),
+  catalogMaxTextChars: z.number().step(1).min(256).max(4_096).default(DEFAULT_CATALOG_MAX_TEXT_CHARS),
+  catalogPageSize: z.number().step(1).min(1).max(MAX_CATALOG_PAGE_SIZE).default(DEFAULT_CATALOG_PAGE_SIZE),
+  catalogMaxPageSize: z.number().step(1).min(1).max(MAX_CATALOG_PAGE_SIZE).default(MAX_CATALOG_PAGE_SIZE),
   maxResultChars: z.number().step(1).min(1024).default(DEFAULT_MAX_RESULT_CHARS),
   maxRows: z.number().step(1).min(1).default(DEFAULT_MAX_ROWS),
   maxQueryChars: z.number().step(1).min(1024).default(DEFAULT_MAX_QUERY_CHARS),
@@ -193,6 +287,8 @@ const LEGACY_MANAGED_PRESET_SHA256 = new Set([
   'bae875a90d638ea78715030246b0f8a9f1a2c3359ca61febb6ceb59d0fcd930a',
   // 0.0.11 before HTML artifacts: described render-analysis as Web-only.
   'd3c6f4049580069eec1c6b7de101f12c7fb30482ad317434afb69afb08a91fc6',
+  // 0.0.13 before the governance Catalog tools/persona contract.
+  '11c4b5ef62c5934d1dc7133950bd78622dd68dc4e1075b5f24d0789011d6da9d',
 ])
 
 /** Public for regression tests of the non-destructive preset migration gate. */
@@ -256,7 +352,7 @@ type PresetCapabilitiesConfig = Pick<
 >
 
 /**
- * Register the statically imported database tools and command under the exact
+ * Register the statically imported database tools and surface adapters under the exact
  * standing key owned by the data-agent preset. Selecting the preset performs
  * no package import and only links the agent scope to this key.
  */
@@ -265,6 +361,7 @@ export async function mountPresetCapabilities(
   key: ScopeKey,
   scopeTag: symbol,
   config: PresetCapabilitiesConfig,
+  commandOptions: DataAgentCommandAdapterOptions = {},
 ): Promise<void> {
   // Do not call createScope() from this package. A linked/profile package may
   // resolve a second copy of dsh-scope while Desktop's registries use the copy
@@ -273,7 +370,7 @@ export async function mountPresetCapabilities(
   // scope that AgentPresets created with the host singleton instead.
   const scoped = ctx.extend({ [scopeTag]: key })
   applyDatabaseTools(scoped, config)
-  applyDatabaseCommand(scoped)
+  applyDatabaseCommand(scoped, commandOptions)
 }
 
 interface StandingScopeRecord {
@@ -313,12 +410,23 @@ async function standingScopeTag(ctx: Context, presetId: string, key: ScopeKey): 
  * @param config - validated loader configuration.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
+  if (config.catalogPageSize > config.catalogMaxPageSize) {
+    throw new Error('data-agent: catalogPageSize cannot exceed catalogMaxPageSize')
+  }
   const resolved: Required<Config> = {
     presetId: config.presetId,
     installPreset: config.installPreset,
     connectTimeoutMs: config.connectTimeoutMs,
     introspectMaxTables: config.introspectMaxTables,
     queryTimeoutMs: config.queryTimeoutMs,
+    catalogQueryTimeoutMs: config.catalogQueryTimeoutMs,
+    catalogMaxResultChars: config.catalogMaxResultChars,
+    catalogSchemaConcurrency: config.catalogSchemaConcurrency,
+    catalogAssetConcurrency: config.catalogAssetConcurrency,
+    catalogMaxAssetsPerRun: config.catalogMaxAssetsPerRun,
+    catalogMaxTextChars: config.catalogMaxTextChars,
+    catalogPageSize: config.catalogPageSize,
+    catalogMaxPageSize: config.catalogMaxPageSize,
     maxResultChars: config.maxResultChars,
     maxRows: config.maxRows,
     maxQueryChars: config.maxQueryChars,
@@ -331,15 +439,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const mountService = (
     scope: Context,
     persistence?: ReturnType<typeof createDomainConnectionPersistence>,
-  ): void => {
+    preferredProfileIds?: () => readonly string[],
+  ): DataAgentConnections => {
     const store = createConnectionService(scope, {
       connectTimeoutMs: resolved.connectTimeoutMs,
       queryTimeoutMs: resolved.queryTimeoutMs,
+      catalogQueryTimeoutMs: resolved.catalogQueryTimeoutMs,
+      catalogMaxResultChars: resolved.catalogMaxResultChars,
       maxResultChars: resolved.maxResultChars,
       maxQueryChars: resolved.maxQueryChars,
       introspectMaxTables: resolved.introspectMaxTables,
       readonly: resolved.readonly,
       clients: resolved.clients,
+      ...preferredProfileIds !== undefined ? { preferredProfileIds } : {},
     }, persistence)
     scope.provide('dataAgentConnections', store)
 
@@ -358,21 +470,51 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
       store.set(sessionId, connection)
     }
+    return store
   }
 
   const presetReady = resolved.installPreset
     ? await installPreset(ctx, resolved.presetId)
     : false
 
+  let connectionPersistence: ReturnType<typeof createDomainConnectionPersistence> | undefined
+  let catalogPersistence: CatalogPersistence
   if (resolved.persistConnections) {
     const storageDomain = await ensureStorageDomain(ctx)
     const domain = await storageDomain.open(connectionStorageSpec)
     ctx.effect(() => () => domain.close(), 'data-agent: close connection storage domain')
-    mountService(ctx, createDomainConnectionPersistence(domain))
+    connectionPersistence = createDomainConnectionPersistence(domain)
+    const catalogDomain = await storageDomain.open(catalogStorageSpec)
+    ctx.effect(() => () => catalogDomain.close(), 'data-agent: close Catalog storage domain')
+    catalogPersistence = createDomainCatalogPersistence(catalogDomain)
   } else {
-    ctx.logger.warn('data-agent: persistConnections=false; connection state is process-local and cannot restore across Web/TUI')
-    mountService(ctx)
+    ctx.logger.warn('data-agent: persistConnections=false; connection and Catalog state are process-local and cannot restore across Web/TUI')
+    catalogPersistence = createMemoryCatalogPersistence()
   }
+
+  // Catalog source ids are durable identities. Prefer their exact matching
+  // connection profile even when an older installation created it with a
+  // session-prefixed id; this keeps later sessions on the same Catalog.
+  const connectionService = mountService(
+    ctx,
+    connectionPersistence,
+    () => catalogPersistence.listSources().map(source => source.profileId),
+  )
+
+  const catalog = await createCatalogService(connectionService, catalogPersistence, {
+    maxAssetsPerRun: resolved.catalogMaxAssetsPerRun,
+    maxTextChars: resolved.catalogMaxTextChars,
+    pageSize: resolved.catalogPageSize,
+    maxPageSize: resolved.catalogMaxPageSize,
+    schemaConcurrency: resolved.catalogSchemaConcurrency,
+    assetConcurrency: resolved.catalogAssetConcurrency,
+    meaningGenerator: createDshCatalogMeaningGenerator(ctx.agents, ctx.llm),
+    logger: ctx.logger,
+  })
+  ctx.provide('dataAgentCatalog', catalog.read)
+  ctx.provide('dataAgentCatalogScanner', catalog.scanner)
+  ctx.provide('dataAgentCatalogReview', catalog.review)
+  ctx.effect(() => () => catalog.scanner.interruptActiveRuns(), 'data-agent: interrupt active Catalog scans')
 
   if (presetReady) {
     const standingKey = await ctx.agentPresets.standingKeyFor(resolved.presetId)

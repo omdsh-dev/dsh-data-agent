@@ -3,9 +3,10 @@
  *
  * dsh-tui 0.6.x exposes commands but no public custom-form/sensitive-input
  * slot. This adapter therefore owns a small terminal form and only activates
- * for an interactive `dsh-tui` profile. It snapshots the host's `readable`
- * listeners, consumes input for the lifetime of the form, then restores the
- * listeners exactly. It never imports dsh-tui, React, or Ink.
+ * after the command adapter has detected an active `dsh-tui` runtime. It
+ * snapshots the host's `readable` listeners, consumes input for the lifetime
+ * of the form, then restores the listeners exactly. It never imports dsh-tui,
+ * React, or Ink.
  * @module @yejiming/dsh-data-agent/tui-connection-form
  */
 import { type ConnectionFormDraft, type ConnectionFormInitial, type DatabaseConnectionInput } from './connections.ts';
@@ -85,8 +86,13 @@ export declare function connectionFormDraft(state: TuiConnectionFormState): Conn
 export declare function tuiConnectionFields(type: DatabaseType): readonly TuiConnectionField[];
 /** Default network port shown as a placeholder and applied only at submit time. */
 export declare function defaultDatabasePort(type: Exclude<DatabaseType, 'sqlite'>, secure?: boolean): number;
-/** Detect the supported host without coupling to dsh-tui modules. */
-export declare function isDshTuiTerminal(argv?: readonly string[], input?: Pick<TuiFormInput, 'isTTY'>, output?: Pick<TuiFormOutput, 'isTTY'>): boolean;
+/**
+ * Check only terminal capability. The command adapter already proves that the
+ * actual dsh-tui plugin is loaded before it exposes `/database`; repeating a
+ * profile-name or argv heuristic here would reject custom profiles that use
+ * dsh-tui and admit profiles that merely happen to be named `dsh-tui`.
+ */
+export declare function isDshTuiTerminal(input?: Pick<TuiFormInput, 'isTTY'>, output?: Pick<TuiFormOutput, 'isTTY'>): boolean;
 /** Pure keyboard reducer, kept separate from terminal ownership for regression tests. */
 export declare function updateTuiConnectionForm(current: TuiConnectionFormState, key: TuiFormKey): TuiFormTransition;
 /** Rendered value is masked before it reaches the ANSI string. */

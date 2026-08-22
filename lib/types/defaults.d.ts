@@ -24,3 +24,25 @@ export declare const WORKBENCH_MAX_RESULT_CHARS: number;
 export declare const DEFAULT_MAX_QUERY_CHARS = 65536;
 /** Grace period for the subprocess terminate escalation. */
 export declare const DEFAULT_GRACE_MS = 5000;
+/** Catalog metadata query deadline. Kept separate from user SQL execution. */
+export declare const DEFAULT_CATALOG_QUERY_TIMEOUT_MS = 30000;
+/**
+ * Per-stream capture budget for one system-catalog query. Catalog metadata is
+ * intentionally independent from the much smaller model/interactive SQL
+ * result budget because a schema snapshot can contain thousands of objects.
+ */
+export declare const DEFAULT_CATALOG_MAX_RESULT_CHARS: number;
+/** Maximum schemas inspected concurrently by one Catalog scan. */
+export declare const DEFAULT_CATALOG_SCHEMA_CONCURRENCY = 2;
+/** Maximum tables/views inspected concurrently by one Catalog scan. */
+export declare const DEFAULT_CATALOG_ASSET_CONCURRENCY = 4;
+/** Hard bound on technical assets (including columns) staged by one run. */
+export declare const DEFAULT_CATALOG_MAX_ASSETS = 50000;
+/** Maximum normalized length of one database or human-authored text field. */
+export declare const DEFAULT_CATALOG_MAX_TEXT_CHARS = 4096;
+/** Default and maximum page sizes for Catalog list/detail reads. */
+export declare const DEFAULT_CATALOG_PAGE_SIZE = 50;
+export declare const MAX_CATALOG_PAGE_SIZE = 200;
+/** Default and maximum result counts exposed to the model. */
+export declare const DEFAULT_CATALOG_TOOL_TOP_K = 10;
+export declare const MAX_CATALOG_TOOL_TOP_K = 25;
