@@ -40,16 +40,16 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 
 This package includes an experimental declaration for the [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15. It does not replace or double-register the existing Cordis behavior. The native bundle, preset, commands, tools, routes, Web UI, TUI form, and connection storage remain the sole functional implementation.
 
-| Item | Current status |
-| --- | --- |
-| Specification and stage | Community v0.15, Draft / Experimental |
-| Pinned baseline | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
-| Manifest | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.1.1` |
-| Admission decision | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host |
-| Evidence level | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence |
-| Exercised environment | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3` |
-| Artifact | The release identity is package name and version; a tarball SHA-256 is written only to an external sidecar after a real `npm pack`, never into the source manifest |
-| Unverified | Real Host Descriptor, real Web/Desktop/dsh-tui, real TTY, database, remote, attach/detach, multiple Presentation, `Observed`, and `Attested` evidence |
+| Item                    | Current status                                                                                                                                                     |
+| -------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Specification and stage | Community v0.15, Draft / Experimental                                                                                                                              |
+| Pinned baseline         | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b`                                                  |
+| Manifest                | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.1.1`                                                                      |
+| Admission decision      | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host                                                        |
+| Evidence level          | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence                                                         |
+| Exercised environment   | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3`                                               |
+| Artifact                | The release identity is package name and version; a tarball SHA-256 is written only to an external sidecar after a real `npm pack`, never into the source manifest |
+| Unverified              | Real Host Descriptor, real Web/Desktop/dsh-tui, real TTY, database, remote, attach/detach, multiple Presentation, `Observed`, and `Attested` evidence              |
 
 Active restrictions include intentionally leaving `UserInteraction` undeclared because the pinned Community manifest cannot carry the requirement spec required by its dsh-std definition. Model tools, the agent preset, Cordis service, HTTP routes, Web slots, persistence domain, and local TTY remain native DSH behavior. During `@dsh-std/adapter-dsh` discovery, the ecosystem facet publishes only a degraded snapshot and no second Command, Tool, or UI handler.
 
@@ -67,42 +67,23 @@ The plugin remains **trusted in-process** and is not sandboxed. Manifest permiss
 - **Stay focused with Data Mode**: The session uses DSH's native `str_replace_editor` for files and keeps `sql-query`, `sql-write`, `sql-cmd`, `render-analysis`, `catalog-search`, `catalog-get`, and `metric-get`; Web, Desktop, dsh-tui, and headless profiles use the same eight-tool protocol. Host or community tools such as `describe_image` and `ssh_*` do not leak into Data Mode.
 - **Work safely with real data**: Use read-only mode and a read-only database account when appropriate. TUI passwords are masked and are never restored as part of a form draft. You decide whether the session may modify data.
 
-![Data governance: AI-generated business meanings for tables and fields with human review](assets/data-governance.png)
+### Database Workbench
 
-The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to use four tabs—Connection, Tables, Data Governance, and SQL—in one Modal. The Data Governance tab reads the independent persistent `data_agent_catalog@1` domain. Historical snapshots remain searchable after the live database disconnects; a new scan still requires a connection to the same stable profile.
-
-The SQL tab renders read-query results as a structured table with a sticky header, 100-row pages, and local horizontal scrolling for wide datasets. The complete loaded result can be exported as Excel (`.xlsx`), UTF-8 CSV, or copied to the clipboard, with a hard limit of 50,000 rows per query. Write/administrative commands and errors remain text messages instead of being misparsed as tables.
-
-### Data Catalog and metric governance
-
-A Catalog scan is an explicit human action. Its first stage reads database system catalogs only: it does not read business rows, persist sample rows, or run full-table `COUNT(*)` queries for exact counts. Its second stage uses the model currently configured in the initiating DSH session to generate table-level and field-level business-meaning candidates, one table at a time. The model receives only bounded technical metadata—names, types, nullable flags, database comments, keys, and relations—not sample values, query results, or credentials. Web offers full-source, schema, and single-table scopes in the Data Governance tab, with an extra confirmation for full scans. `/database` and `/catalog` are registered only when the current Cordis composition actually loads `@deepseek-harness-tui/dsh-tui`; the profile label is not consulted, so installing Data Agent or merely naming a profile `dsh-tui` never exposes them. A normal Web composition uses the database workbench instead. dsh-tui uses:
-
-Catalog metadata queries use an independent `catalogMaxResultChars` capture bound (32 MiB by default), so they no longer inherit the smaller `maxResultChars` budget used by ordinary SQL tools. Exceeding the Catalog-specific bound still fails safely with guidance to narrow the scope or adjust the configuration; a truncated snapshot is never published.
-
-```text
-/catalog scan                       Choose a scope interactively; reconfirm a full scan
-/catalog scan --all                 Explicit full-source scan
-/catalog scan --schema sales        Scan one schema
-/catalog scan --schema sales --table orders
-/catalog status [--run <run-id>]
-/catalog cancel [--run <run-id>]
-/catalog diff [--from <run-id> --to <run-id>]
-/catalog view                       Open the read-only full-screen Catalog browser
-```
-
-Scans run in the background, with at most one active run per source. When dsh-tui exposes its public extension services, a persistent line above the prompt follows the real “technical metadata → Catalog publish → AI business meanings” phases. Success, partial success, and failure remain visible until the next scan or `/catalog view`, instead of disappearing with a short notification. `/catalog view` opens a read-only full-screen scene: tables/views are paged on the left, while the selected table's summary, fields, and AI business meanings appear on the right. It supports search, independently scrolling panes, business-schema/all-schema switching, refresh, and Escape to return. Older dsh-tui versions without the public status/scene services keep the scan commands and explicitly fall back to `/catalog status` and the Web Catalog.
-
-Results are stored by stable profile, asset identity, and immutable revision. Unchanged assets do not duplicate revisions. Only a complete successful technical scan may mark absent objects `missing`, and only inside its exact scope. Table/schema scans do not alter out-of-scope assets or the last-full-scan time. Reappearing assets become `restored`. Failed, cancelled, interrupted, or permission-incomplete metadata runs never replace the previous successful snapshot, and ambiguous permission failures are not treated as deletions. AI enrichment has separate queued, running, succeeded, partial, failed, and cancelled states. Model output remains bounded; if a full-table response reaches the token limit, the same model configuration automatically retries smaller field batches and persists only after every field is complete. An AI failure does not erase a committed technical snapshot or publish an incomplete result for a table.
-
-Database facts are `observed`; AI-generated table/field meanings and candidate business terms or metrics are `inferred`. Only human review in Web can verify the current version as `verified`. The Data Catalog groups meanings by table and lets a user confirm or delete each table or field candidate. Delete creates an auditable retired revision, hides it from the default detail, and prevents later scans from reviving or overwriting the human decision. Structural changes mark affected definitions `needs_review` without auto-verifying them. For business analysis, the agent first uses read-only `catalog-search`, then `catalog-get` for technical context or `metric-get` for an exact metric version; it falls back to live schema inspection when the Catalog has no match. AI candidates, database comments, human text, and formulas are always untrusted reference data.
-
-The first release does not include scheduled scans, business-row sampling, AI auto-certification, external-catalog synchronization, complete lineage, Catalog-level RBAC, or physical deletion driven by a scan.
+The Web UI also includes an on-demand database workbench. Click the database button in the top-right of the composer to use four tabs—Connection, Tables, Data Governance, and SQL—in one Modal.
 
 ![Database workbench](assets/tables.webp)
+
+### Analyze Data Through Conversation
 
 Choose “Data Mode” when creating a session, and DSH will use the data-analysis workflow for everything that follows.
 
 ![Data Mode preset](assets/settings.webp)
+
+### Data Catalog and Metric Governance
+
+In Web, open Data Governance, choose a source and scan scope, then click Scan. Search or compare results, review AI meanings, and add terms or metrics. Full scans require confirmation.
+
+![Data governance: AI-generated business meanings for tables and fields with human review](assets/data-governance.png)
 
 ## Quick Install
 

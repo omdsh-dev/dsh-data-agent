@@ -67,42 +67,23 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 - **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`、`render-analysis`、`catalog-search`、`catalog-get`与`metric-get`；Web、Desktop、dsh-tui和headless profile使用同一套八工具协议。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
 - **安全地使用真实数据**：支持只读模式和数据库只读账号；TUI密码会被隐藏，且不会作为表单草稿恢复。是否允许修改数据由你决定。
 
-![数据治理：AI生成表和字段业务含义，并由用户审核](assets/data-governance.png)
+### 数据库工作台
 
-Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal的“连接配置、库表、数据治理、SQL”四个页签中配置连接、浏览结构、治理口径或临时运行SQL。“数据治理”页读取独立的`data_agent_catalog@1`持久化域；只要存在历史snapshot，断开实时数据库后仍可搜索和查看，重新扫描则必须连接到同一个稳定Profile。
-
-SQL命令页会把读查询结果显示为带固定表头的结构化表格，并按100行分页，宽表可在结果区内横向滚动。当前结果可导出为Excel（`.xlsx`）、UTF-8 CSV或复制到剪贴板；三种导出都包含已加载的完整结果，单次最多50,000行。写入/管理命令及错误仍显示为文本消息，不会被误解析成表格。
-
-### 数据目录与口径治理
-
-Catalog扫描是显式人工动作。第一阶段只读取数据库系统目录，不读取业务明细、不保存样例行，也不会为精确行数执行全表`COUNT(*)`；第二阶段调用发起扫描的DSH会话当前配置模型，按表生成表级和字段级业务含义候选。发送给模型的只有表/字段名称、类型、nullable、数据库注释、键和关系等有界技术元数据，不包含样例值、查询结果或凭据。Web可在“数据治理”页选择全库、Schema或单表范围；全库扫描需要二次确认。`/database`和`/catalog`只在当前Cordis组合实际加载`@deepseek-harness-tui/dsh-tui`插件时注册；Profile名称不参与判断，仅安装Data Agent或把Profile命名为`dsh-tui`都不会暴露命令。普通Web组合不展示这两个命令，而是在数据库工作台中完成连接和扫描。dsh-tui使用：
-
-Catalog元数据查询使用独立的`catalogMaxResultChars`捕获上限（默认32 MiB），不会再受普通SQL工具较小的`maxResultChars`限制；超过Catalog专属上限时仍会安全失败，并提示缩小扫描范围或调整配置，不会发布被截断的snapshot。
-
-```text
-/catalog scan                       交互选择范围；选择全库时再次确认
-/catalog scan --all                 显式全库扫描
-/catalog scan --schema sales        扫描一个Schema
-/catalog scan --schema sales --table orders
-/catalog status [--run <run-id>]
-/catalog cancel [--run <run-id>]
-/catalog diff [--from <run-id> --to <run-id>]
-/catalog view                       打开只读全屏目录浏览器
-```
-
-扫描在后台运行，同一个source同时只允许一个活动run。在提供公开扩展接口的dsh-tui中，输入框上方会持续显示“技术元数据采集 → 目录发布 → AI业务含义”的实际进度；成功、部分成功或失败终态会一直保留到下一次扫描或打开`/catalog view`，不再依赖短暂通知。`/catalog view`使用全屏只读场景：左侧按表/视图分页，右侧展示表级说明、字段类型与字段级AI业务含义，支持搜索、左右独立滚动、业务Schema/全部Schema切换和刷新；按Esc返回。旧版dsh-tui没有公开状态/scene服务时，扫描命令仍可用，并明确回退到`/catalog status`和Web“数据治理”页。
-
-结果按稳定Profile、资产身份和不可变revision保存：未变化对象不复制revision；完整成功的技术扫描只在其精确范围内把消失对象标记为`missing`；单表/Schema扫描不会改动范围外对象，也不会更新最近全库扫描时间；对象重新出现时记录为`restored`。元数据失败、取消、中断或权限不完整的run不会覆盖上一份成功snapshot，权限不确定时也不会把对象误判为删除。AI阶段具有独立的排队、运行、成功、部分成功、失败和取消状态；模型输出保持有界，整表输出触及token上限时会沿用当前模型配置并自动按字段分批重试，只有整张表的字段结果齐全后才写入。AI失败不会抹掉已经成功提交的技术snapshot，也不会把不完整表结果写成候选。
-
-数据库事实是`observed`，AI生成的表/字段业务含义以及候选业务术语/指标是`inferred`；只有Web中的人工审核可以基于当前version确认成`verified`。数据目录按表展示表级说明和每个字段说明，用户可以逐项确认或删除；删除会保留审计revision并从默认详情隐藏，后续扫描不会自动复活或覆盖已确认/已删除决策。结构变化会把受影响口径标为`needs_review`，不会自动确认。Agent分析业务问题时先用只读`catalog-search`查找目录，再用`catalog-get`读取技术上下文或`metric-get`读取精确指标版本；目录无命中时再回退到实时Schema探查。目录中的AI候选、数据库注释、人工说明和公式都按不可信参考文本处理。
-
-首版不包含定时扫描、业务明细采样、AI自动认证、外部Catalog同步、完整血缘、Catalog级RBAC或扫描结果物理删除。
+Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal的“连接配置、库表、数据治理、SQL”四个页签中配置连接、浏览结构、治理口径或临时运行SQL。
 
 ![数据库工作台](assets/tables.webp)
+
+### 通过对话完成数据分析
 
 创建会话时选择“数据模式”，DSH就会以数据分析工作流处理后续问题。
 
 ![数据模式预设](assets/settings.webp)
+
+### 数据治理
+
+在Web数据库工作台打开“数据治理”页，选择数据源和扫描范围（全库、Schema或单表），点击“扫描”；全库扫描需再次确认。完成后可搜索表、字段、术语或指标，查看版本变化，并逐项确认或删除AI生成的表/字段业务含义，也可人工新增业务术语和指标定义。后续分析会自动参考已保存的口径。
+
+![数据治理：AI生成表和字段业务含义，并由用户审核](assets/data-governance.png)
 
 ## 快速安装
 
