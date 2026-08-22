@@ -26,7 +26,7 @@
 
 <p align="center">
 
-[Project Overview](#project-overview) · [Ecosystem Status](#ecosystem-specification-status) · [Features](#features) · [Quick Install](#quick-install) · [Web UI](#using-data-agent-in-the-web-ui) · [dsh-tui](#using-data-agent-in-dsh-tui) · [Security](#security)
+[Project Overview](#project-overview) · [Features](#features) · [Quick Install](#quick-install) · [Web UI](#using-data-agent-in-the-web-ui) · [dsh-tui](#using-data-agent-in-dsh-tui) · [Security](#security) · [Local Development](#local-development) · [Ecosystem Status](#ecosystem-specification-status)
 
 </p>
 
@@ -36,26 +36,9 @@ dsh-data-agent is a data analysis plugin for DeepSeek Harness (DSH). Connect a d
 
 ![Data analysis charts](assets/charts.webp)
 
-## Ecosystem Specification Status
-
-This package includes an experimental declaration for the [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15. It does not replace or double-register the existing Cordis behavior. The native bundle, preset, commands, tools, routes, Web UI, TUI form, and connection storage remain the sole functional implementation.
-
-| Item                    | Current status                                                                                                                                                     |
-| -------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Specification and stage | Community v0.15, Draft / Experimental                                                                                                                              |
-| Pinned baseline         | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b`                                                  |
-| Manifest                | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.1.1`                                                                      |
-| Admission decision      | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host                                                        |
-| Evidence level          | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence                                                         |
-| Exercised environment   | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3`                                               |
-| Artifact                | The release identity is package name and version; a tarball SHA-256 is written only to an external sidecar after a real `npm pack`, never into the source manifest |
-| Unverified              | Real Host Descriptor, real Web/Desktop/dsh-tui, real TTY, database, remote, attach/detach, multiple Presentation, `Observed`, and `Attested` evidence              |
-
-Active restrictions include intentionally leaving `UserInteraction` undeclared because the pinned Community manifest cannot carry the requirement spec required by its dsh-std definition. Model tools, the agent preset, Cordis service, HTTP routes, Web slots, persistence domain, and local TTY remain native DSH behavior. During `@dsh-std/adapter-dsh` discovery, the ecosystem facet publishes only a degraded snapshot and no second Command, Tool, or UI handler.
-
-The plugin remains **trusted in-process** and is not sandboxed. Manifest permissions are Host admission contracts; they do not provide OS, process, or realm isolation. These results are not official DSH certification, security approval, a vulnerability-free guarantee, or a universal Host compatibility claim.
-
 ## Features
+
+![DSH Data Agent features: conversation, SQL, data governance, business insights, reports, and read-only protection](assets/dsh-data-agent-features.webp)
 
 - **Analyze data through conversation**: Describe your goal in natural language. DSH understands the question, breaks it into analysis steps, queries real data, and organizes the conclusions. You can keep asking follow-up questions to explore the same context in greater depth.
 - **Discover business insights automatically**: Data Agent goes beyond returning query results. It helps compare trends, locate anomalies, identify valuable customers or products, and turn the data into explanations that support decisions.
@@ -275,9 +258,24 @@ The prebuilt `lib/` directory is committed to the repository, so npm and GitHub 
 
 Upgrading the specification baseline requires an explicit update to both revisions and pinned digests in `conformance/dsh-ecosystem/baseline.json`, offline conformance against the matching local checkouts, review of inventory/restriction drift, and a complete build and test run. Generate release evidence with `pnpm conformance:artifact --output-dir <outside-worktree-directory>` so a real `npm pack` tarball produces an external sidecar. Documentation and claims must stay within the weakest verified evidence level in that sidecar.
 
-## License
+## Ecosystem Specification Status
 
-MIT
+This package includes an experimental declaration for the [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15. It does not replace or double-register the existing Cordis behavior. The native bundle, preset, commands, tools, routes, Web UI, TUI form, and connection storage remain the sole functional implementation.
+
+| Item                    | Current status                                                                                                                                                     |
+| -------------------------| --------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Specification and stage | Community v0.15, Draft / Experimental                                                                                                                              |
+| Pinned baseline         | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`; `dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b`                                                  |
+| Manifest                | `dsh-plugin.json`, `manifestVersion: 0.15`, package identity `@yejiming/dsh-data-agent@0.1.1`                                                                      |
+| Admission decision      | The repository's eligible fixture is `compatible`; this is not an admission result from a real dsh-TUI Host                                                        |
+| Evidence level          | `Parsed`; fixture negotiation is recorded only as `fixture-only` and does not become `Negotiated` evidence                                                         |
+| Exercised environment   | Offline parser/projector/definition validation; disposable local mount/unmount with `@dsh-std/adapter-dsh@0.1.0-rc3`                                               |
+| Artifact                | The release identity is package name and version; a tarball SHA-256 is written only to an external sidecar after a real `npm pack`, never into the source manifest |
+| Unverified              | Real Host Descriptor, real Web/Desktop/dsh-tui, real TTY, database, remote, attach/detach, multiple Presentation, `Observed`, and `Attested` evidence              |
+
+Active restrictions include intentionally leaving `UserInteraction` undeclared because the pinned Community manifest cannot carry the requirement spec required by its dsh-std definition. Model tools, the agent preset, Cordis service, HTTP routes, Web slots, persistence domain, and local TTY remain native DSH behavior. During `@dsh-std/adapter-dsh` discovery, the ecosystem facet publishes only a degraded snapshot and no second Command, Tool, or UI handler.
+
+The plugin remains **trusted in-process** and is not sandboxed. Manifest permissions are Host admission contracts; they do not provide OS, process, or realm isolation. These results are not official DSH certification, security approval, a vulnerability-free guarantee, or a universal Host compatibility claim.
 
 ## Related Links
 
@@ -285,3 +283,7 @@ MIT
 - [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui): An extensible Web UI for DeepSeek Harness, with browser-based interaction and a plugin and theme ecosystem
 - [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui): A keyboard-first, full-screen terminal interface for DeepSeek Harness, designed for efficient conversational development workflows
 - [platonai/Browser4](https://github.com/platonai/Browser4): an AI-native browser engine for autonomous agents, intelligent extraction, and large-scale web automation.
+
+## License
+
+MIT

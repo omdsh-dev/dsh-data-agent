@@ -26,7 +26,7 @@
 
 <p align="center">
 
-[项目简介](#项目简介) · [生态规范状态](#生态规范状态) · [主要功能](#主要功能) · [快速安装](#快速安装) · [Web UI](#在web-ui中使用) · [dsh-tui](#在dsh-tui中使用) · [安全说明](#安全说明)
+[项目简介](#项目简介) · [主要功能](#主要功能) · [快速安装](#快速安装) · [Web UI](#在web-ui中使用) · [dsh-tui](#在dsh-tui中使用) · [安全说明](#安全说明) · [本地开发](#本地开发) · [生态规范状态](#生态规范状态)
 
 </p>
 
@@ -36,26 +36,9 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 
 ![数据分析图表](assets/charts.webp)
 
-## 生态规范状态
-
-本包附带一层实验性的 [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15 声明。它不会替代或重复注册现有 Cordis 功能；原生 bundle、preset、命令、工具、路由、Web UI、TUI 表单和连接存储仍是唯一功能实现。
-
-| 项目 | 当前状态 |
-| --- | --- |
-| 规范与阶段 | Community v0.15，Draft / Experimental |
-| 固定基线 | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`；`dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
-| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.1.1` |
-| 准入结果 | 仓库内 eligible fixture 为 `compatible`；这不是实际 dsh-TUI Host 的准入结论 |
-| 证据等级 | `Parsed`；fixture negotiation 只记录为 `fixture-only`，不提升为 `Negotiated` |
-| 已执行环境 | 离线 parser/projector/definition 校验；`@dsh-std/adapter-dsh@0.1.0-rc3` 一次性本地 fixture 挂载/卸载 |
-| Artifact | 发布物身份为包名和版本；tarball SHA-256 只在真实 `npm pack` 后写入工作树外 sidecar，不嵌入 source manifest |
-| 未验证 | 真实 Host Descriptor、真实 Web/Desktop/dsh-tui、真实 TTY、数据库、remote、attach/detach、多 Presentation、`Observed`、`Attested` |
-
-主要限制包括：`UserInteraction` 因固定 Community manifest 无法携带 dsh-std definition 所需 requirement spec 而暂不声明；模型工具、agent preset、Cordis service、HTTP routes、Web slots、持久化域和本地 TTY 仍由原生 DSH 路径拥有。安装 `@dsh-std/adapter-dsh` 进行发现时，生态 facet 只发布降级快照，不发布第二个 Command、Tool 或 UI handler。
-
-该插件仍是 **trusted in-process**、非沙箱代码。Manifest permission 是 Host 的准入契约，不提供 OS、进程或 realm 隔离。上述结果不代表 DSH 官方认证、安全批准、无漏洞保证或对所有 Host 的普遍兼容承诺。
-
 ## 主要功能
+
+![DSH Data Agent主要功能：对话、SQL、数据治理、商业洞察、分析报告与只读保护](assets/dsh-data-agent-features.webp)
 
 - **通过对话完成数据分析**：直接用自然语言描述目标，DSH会理解问题、拆解分析步骤、查询真实数据并整理结论。你可以继续追问，分析会沿着当前上下文逐步深入。
 - **自动寻找商业洞察**：不仅返回查询结果，还能帮助比较趋势、定位异常、识别高价值客户或商品，并把数据转化为便于业务决策的说明。
@@ -274,9 +257,24 @@ pnpm conformance
 
 升级规范基线必须显式更新`conformance/dsh-ecosystem/baseline.json`中的两个revision和固定digest，使用对应的本地checkout离线运行conformance，复核inventory/restriction漂移，并重新执行完整构建与测试。发布证据应运行`pnpm conformance:artifact --output-dir <工作树外目录>`，从真实`npm pack` tarball生成外部sidecar；文档和claim不得超过其中最弱的已验证证据等级。
 
-## 许可
+## 生态规范状态
 
-MIT
+本包附带一层实验性的 [DSH Ecosystem Specification](https://github.com/T-Auto/dsh-ecosystem-spec) Community v0.15 声明。它不会替代或重复注册现有 Cordis 功能；原生 bundle、preset、命令、工具、路由、Web UI、TUI 表单和连接存储仍是唯一功能实现。
+
+| 项目 | 当前状态 |
+| --- | --- |
+| 规范与阶段 | Community v0.15，Draft / Experimental |
+| 固定基线 | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`；`dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
+| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.1.1` |
+| 准入结果 | 仓库内 eligible fixture 为 `compatible`；这不是实际 dsh-TUI Host 的准入结论 |
+| 证据等级 | `Parsed`；fixture negotiation 只记录为 `fixture-only`，不提升为 `Negotiated` |
+| 已执行环境 | 离线 parser/projector/definition 校验；`@dsh-std/adapter-dsh@0.1.0-rc3` 一次性本地 fixture 挂载/卸载 |
+| Artifact | 发布物身份为包名和版本；tarball SHA-256 只在真实 `npm pack` 后写入工作树外 sidecar，不嵌入 source manifest |
+| 未验证 | 真实 Host Descriptor、真实 Web/Desktop/dsh-tui、真实 TTY、数据库、remote、attach/detach、多 Presentation、`Observed`、`Attested` |
+
+主要限制包括：`UserInteraction` 因固定 Community manifest 无法携带 dsh-std definition 所需 requirement spec 而暂不声明；模型工具、agent preset、Cordis service、HTTP routes、Web slots、持久化域和本地 TTY 仍由原生 DSH 路径拥有。安装 `@dsh-std/adapter-dsh` 进行发现时，生态 facet 只发布降级快照，不发布第二个 Command、Tool 或 UI handler。
+
+该插件仍是 **trusted in-process**、非沙箱代码。Manifest permission 是 Host 的准入契约，不提供 OS、进程或 realm 隔离。上述结果不代表 DSH 官方认证、安全批准、无漏洞保证或对所有 Host 的普遍兼容承诺。
 
 ## 友情链接
 
@@ -284,3 +282,7 @@ MIT
 - [dsh-web-ui](https://github.com/dsh-external/dsh-web-ui)：DeepSeek Harness的可扩展Web UI，支持浏览器端交互以及插件与主题扩展
 - [dsh-cc-tui](https://github.com/dsh-external/dsh-cc-tui)：面向DeepSeek Harness的键盘优先全屏终端界面，适用于高效的对话式开发工作流
 - [platonai/Browser4](https://github.com/platonai/Browser4)：面向自主智能体、智能信息抽取与大规模Web自动化的AI原生浏览器引擎
+
+## 许可
+
+MIT
