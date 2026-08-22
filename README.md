@@ -44,7 +44,7 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 | --- | --- |
 | 规范与阶段 | Community v0.15，Draft / Experimental |
 | 固定基线 | `dsh-ecosystem-spec@ec80a4be5d92bbb971655afd0f097bb5586a1a28`；`dsh-std@614dfa1ac168db79fcf4577cf0ebb34e2e3b944b` |
-| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.1.0` |
+| Manifest | `dsh-plugin.json`，`manifestVersion: 0.15`，包身份 `@yejiming/dsh-data-agent@0.1.1` |
 | 准入结果 | 仓库内 eligible fixture 为 `compatible`；这不是实际 dsh-TUI Host 的准入结论 |
 | 证据等级 | `Parsed`；fixture negotiation 只记录为 `fixture-only`，不提升为 `Negotiated` |
 | 已执行环境 | 离线 parser/projector/definition 校验；`@dsh-std/adapter-dsh@0.1.0-rc3` 一次性本地 fixture 挂载/卸载 |
@@ -59,6 +59,7 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 
 - **通过对话完成数据分析**：直接用自然语言描述目标，DSH会理解问题、拆解分析步骤、查询真实数据并整理结论。你可以继续追问，分析会沿着当前上下文逐步深入。
 - **自动寻找商业洞察**：不仅返回查询结果，还能帮助比较趋势、定位异常、识别高价值客户或商品，并把数据转化为便于业务决策的说明。
+- **AI驱动的数据治理**：使用当前DSH会话配置的AI模型扫描数据库，根据库表、字段、注释和关系，为每张表及每个字段生成业务含义候选。所有AI候选都需要人工确认，用户也可以人工补充业务术语和指标定义。后续查询分析时，数据Agent会通过内置的`catalog-search`、`catalog-get`和`metric-get`工具自动读取相关业务定义，让SQL和分析结论基于经过治理的业务口径。
 - **跨界面HTML分析报告（render-analysis）**：Agent可在普通工具调用里自主生成单图或Dashboard式综合分析报告（metric/line/bar/pie/scatter/table视图）。每次成功调用都会在当前工作目录的`analysis-reports/`中保存一份离线可打开的HTML；Web同时提供内联预览与“查看分析”Modal，dsh-tui直接返回文件路径。是否画图由Agent按问题判断，schema探查、单标量等查询不会被强制生成图表。
 - **共享Web UI与dsh-tui核心路径**：喜欢可视化操作时，可以在Web界面连接数据库、浏览库表和查看结果，推荐使用[zhu1090093659/dsh-web-ui](https://github.com/zhu1090093659/dsh-web-ui)；习惯键盘工作流时，可以在终端中使用同一“数据模式”，通过`/database`完成连接，然后直接开始对话分析，推荐使用[ccch1mneyyy/dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)。两种界面共享数据Agent的数据库服务和工具协议；具体版本与部署仍应分别验证。
 - **连接常见业务数据库**：支持MySQL、PostgreSQL、SQLite、Oracle、Hive、Impala、ClickHouse、Apache Doris和SQL Server，可用于业务系统、分析库、本地数据文件及数仓场景。
@@ -66,13 +67,15 @@ dsh-data-agent是DeepSeek Harness（DSH）的数据分析插件。连接数据�
 - **专注数据任务的数据模式**：会话使用DSH原生`str_replace_editor`处理文件，并保留`sql-query`、`sql-write`、`sql-cmd`、`render-analysis`、`catalog-search`、`catalog-get`与`metric-get`；Web、Desktop、dsh-tui和headless profile使用同一套八工具协议。`describe_image`、`ssh_*`等宿主或社区插件工具不会进入数据模式。
 - **安全地使用真实数据**：支持只读模式和数据库只读账号；TUI密码会被隐藏，且不会作为表单草稿恢复。是否允许修改数据由你决定。
 
-Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal的“连接配置、库表、数据目录、SQL”四个页签中配置连接、浏览结构、治理口径或临时运行SQL。“数据目录”读取独立的`data_agent_catalog@1`持久化域；只要存在历史snapshot，断开实时数据库后仍可搜索和查看，重新扫描则必须连接到同一个稳定Profile。
+![数据治理：AI生成表和字段业务含义，并由用户审核](assets/data-governance.png)
+
+Web UI还提供按需数据库工作台：点击输入框右上角的数据库按钮，即可在同一个Modal的“连接配置、库表、数据治理、SQL”四个页签中配置连接、浏览结构、治理口径或临时运行SQL。“数据治理”页读取独立的`data_agent_catalog@1`持久化域；只要存在历史snapshot，断开实时数据库后仍可搜索和查看，重新扫描则必须连接到同一个稳定Profile。
 
 SQL命令页会把读查询结果显示为带固定表头的结构化表格，并按100行分页，宽表可在结果区内横向滚动。当前结果可导出为Excel（`.xlsx`）、UTF-8 CSV或复制到剪贴板；三种导出都包含已加载的完整结果，单次最多50,000行。写入/管理命令及错误仍显示为文本消息，不会被误解析成表格。
 
 ### 数据目录与口径治理
 
-Catalog扫描是显式人工动作。第一阶段只读取数据库系统目录，不读取业务明细、不保存样例行，也不会为精确行数执行全表`COUNT(*)`；第二阶段调用发起扫描的DSH会话当前配置模型，按表生成表级和字段级业务含义候选。发送给模型的只有表/字段名称、类型、nullable、数据库注释、键和关系等有界技术元数据，不包含样例值、查询结果或凭据。Web可在“数据目录”页选择全库、Schema或单表范围；全库扫描需要二次确认。`/database`和`/catalog`只在当前Cordis组合实际加载`@deepseek-harness-tui/dsh-tui`插件时注册；Profile名称不参与判断，仅安装Data Agent或把Profile命名为`dsh-tui`都不会暴露命令。普通Web组合不展示这两个命令，而是在数据库工作台中完成连接和扫描。dsh-tui使用：
+Catalog扫描是显式人工动作。第一阶段只读取数据库系统目录，不读取业务明细、不保存样例行，也不会为精确行数执行全表`COUNT(*)`；第二阶段调用发起扫描的DSH会话当前配置模型，按表生成表级和字段级业务含义候选。发送给模型的只有表/字段名称、类型、nullable、数据库注释、键和关系等有界技术元数据，不包含样例值、查询结果或凭据。Web可在“数据治理”页选择全库、Schema或单表范围；全库扫描需要二次确认。`/database`和`/catalog`只在当前Cordis组合实际加载`@deepseek-harness-tui/dsh-tui`插件时注册；Profile名称不参与判断，仅安装Data Agent或把Profile命名为`dsh-tui`都不会暴露命令。普通Web组合不展示这两个命令，而是在数据库工作台中完成连接和扫描。dsh-tui使用：
 
 Catalog元数据查询使用独立的`catalogMaxResultChars`捕获上限（默认32 MiB），不会再受普通SQL工具较小的`maxResultChars`限制；超过Catalog专属上限时仍会安全失败，并提示缩小扫描范围或调整配置，不会发布被截断的snapshot。
 
@@ -87,7 +90,7 @@ Catalog元数据查询使用独立的`catalogMaxResultChars`捕获上限（默�
 /catalog view                       打开只读全屏目录浏览器
 ```
 
-扫描在后台运行，同一个source同时只允许一个活动run。在提供公开扩展接口的dsh-tui中，输入框上方会持续显示“技术元数据采集 → 目录发布 → AI业务含义”的实际进度；成功、部分成功或失败终态会一直保留到下一次扫描或打开`/catalog view`，不再依赖短暂通知。`/catalog view`使用全屏只读场景：左侧按表/视图分页，右侧展示表级说明、字段类型与字段级AI业务含义，支持搜索、左右独立滚动、业务Schema/全部Schema切换和刷新；按Esc返回。旧版dsh-tui没有公开状态/scene服务时，扫描命令仍可用，并明确回退到`/catalog status`和Web数据目录。
+扫描在后台运行，同一个source同时只允许一个活动run。在提供公开扩展接口的dsh-tui中，输入框上方会持续显示“技术元数据采集 → 目录发布 → AI业务含义”的实际进度；成功、部分成功或失败终态会一直保留到下一次扫描或打开`/catalog view`，不再依赖短暂通知。`/catalog view`使用全屏只读场景：左侧按表/视图分页，右侧展示表级说明、字段类型与字段级AI业务含义，支持搜索、左右独立滚动、业务Schema/全部Schema切换和刷新；按Esc返回。旧版dsh-tui没有公开状态/scene服务时，扫描命令仍可用，并明确回退到`/catalog status`和Web“数据治理”页。
 
 结果按稳定Profile、资产身份和不可变revision保存：未变化对象不复制revision；完整成功的技术扫描只在其精确范围内把消失对象标记为`missing`；单表/Schema扫描不会改动范围外对象，也不会更新最近全库扫描时间；对象重新出现时记录为`restored`。元数据失败、取消、中断或权限不完整的run不会覆盖上一份成功snapshot，权限不确定时也不会把对象误判为删除。AI阶段具有独立的排队、运行、成功、部分成功、失败和取消状态；模型输出保持有界，整表输出触及token上限时会沿用当前模型配置并自动按字段分批重试，只有整张表的字段结果齐全后才写入。AI失败不会抹掉已经成功提交的技术snapshot，也不会把不完整表结果写成候选。
 
@@ -184,7 +187,7 @@ dsh --profile dsh-tui
 /catalog view           打开按表组织的只读Catalog结果
 ```
 
-扫描开始后无需反复执行`/catalog status`：输入框上方会持续显示技术采集和AI业务含义进度，并保留最终成功/失败状态。完成后执行`/catalog view`，使用↑↓或`j/k`选择表、Tab或←→切换左右区域、`/`搜索、`a`切换业务Schema/全部Schema、`r`刷新、Esc返回。TUI只提供读取；AI候选的确认与删除仍在Web“数据目录”中逐项完成。
+扫描开始后无需反复执行`/catalog status`：输入框上方会持续显示技术采集和AI业务含义进度，并保留最终成功/失败状态。完成后执行`/catalog view`，使用↑↓或`j/k`选择表、Tab或←→切换左右区域、`/`搜索、`a`切换业务Schema/全部Schema、`r`刷新、Esc返回。TUI只提供读取；AI候选的确认与删除仍在Web“数据治理”页逐项完成。
 
 Agent生成分析报告后，工具卡会显示数据集、视图、空数据摘要与HTML绝对路径。TUI不会输出字符Dashboard，也没有`/analysis`命令；直接在本机浏览器中打开该HTML即可查看六类视图和原始数据。文件来自本次工具调用，`/resume`不会重新查询数据库。
 

@@ -258,7 +258,7 @@ describe('DataAgentWorkbench composer entry', () => {
 
     fireEvent.click(trigger)
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据治理' }) as HTMLButtonElement
     await waitFor(() => expect(catalogTab.disabled).toBe(false))
     fireEvent.click(catalogTab)
     const scan = within(dialog).getByRole('button', { name: '扫描' }) as HTMLButtonElement
@@ -424,16 +424,16 @@ describe('DataAgentWorkbench composer entry', () => {
     const trigger = await screen.findByRole('button', { name: '数据库工作台：未连接' })
     fireEvent.click(trigger)
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据治理' }) as HTMLButtonElement
     await waitFor(() => expect(catalogTab.disabled).toBe(false))
     expect((within(dialog).getByRole('tab', { name: '库表' }) as HTMLButtonElement).disabled).toBe(true)
     const catalogPanel = document.getElementById(catalogTab.getAttribute('aria-controls')!) as HTMLElement
     expect(catalogPanel.hidden).toBe(true)
-    expect(within(dialog).queryByRole('listbox', { name: '数据目录' })).toBeNull()
+    expect(within(dialog).queryByRole('listbox', { name: '数据治理' })).toBeNull()
     fireEvent.click(catalogTab)
     expect(catalogPanel.hidden).toBe(false)
     const search = await within(dialog).findByRole('textbox', { name: '搜索表、字段、术语或指标' }) as HTMLInputElement
-    const catalogList = within(dialog).getByRole('listbox', { name: '数据目录' })
+    const catalogList = within(dialog).getByRole('listbox', { name: '数据治理' })
     await waitFor(() => expect(within(catalogList).getByRole('option', { name: /orders/ })).toBeTruthy())
     const initialSearch = new URL(catalogSearchUrls.at(-1)!, 'http://localhost')
     expect(initialSearch.searchParams.get('schema')).toBe('orders')
@@ -451,7 +451,7 @@ describe('DataAgentWorkbench composer entry', () => {
     fireEvent.change(search, { target: { value: '成交金额' } })
     fireEvent.click(within(dialog).getByRole('tab', { name: '连接配置' }))
     expect(catalogPanel.hidden).toBe(true)
-    expect(within(dialog).queryByRole('listbox', { name: '数据目录' })).toBeNull()
+    expect(within(dialog).queryByRole('listbox', { name: '数据治理' })).toBeNull()
     fireEvent.click(catalogTab)
     fireEvent.keyDown(document, { key: 'Escape' })
     fireEvent.click(trigger)
@@ -524,8 +524,8 @@ describe('DataAgentWorkbench composer entry', () => {
     renderWorkbench('data-agent')
     fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    fireEvent.click(await within(dialog).findByRole('tab', { name: '数据目录' }))
-    const list = await within(dialog).findByRole('listbox', { name: '数据目录' })
+    fireEvent.click(await within(dialog).findByRole('tab', { name: '数据治理' }))
+    const list = await within(dialog).findByRole('listbox', { name: '数据治理' })
     fireEvent.click(await within(list).findByRole('option', { name: /orders/ }))
     fireEvent.click(await within(dialog).findByRole('tab', { name: '业务定义' }))
     expect(await within(dialog).findByText('记录客户订单及其交易状态。')).toBeTruthy()
@@ -563,7 +563,7 @@ describe('DataAgentWorkbench composer entry', () => {
     renderWorkbench('data-agent')
     fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：已连接' }))
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' })
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据治理' })
     fireEvent.click(catalogTab)
     fireEvent.change(within(dialog).getByRole('combobox', { name: '扫描' }), { target: { value: 'source' } })
     fireEvent.click(within(dialog).getByRole('button', { name: '扫描' }))
@@ -613,10 +613,10 @@ describe('DataAgentWorkbench composer entry', () => {
     renderWorkbench('data-agent')
     fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：未连接' }))
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据治理' }) as HTMLButtonElement
     await waitFor(() => expect(catalogTab.disabled).toBe(false))
     fireEvent.click(catalogTab)
-    const list = within(dialog).getByRole('listbox', { name: '数据目录' })
+    const list = within(dialog).getByRole('listbox', { name: '数据治理' })
     fireEvent.click(await within(list).findByRole('option', { name: /GMV/ }))
     fireEvent.click(await within(dialog).findByRole('button', { name: '人工确认' }))
     const formula = within(dialog).getByLabelText('公式（仅作为不可信文本保存）') as HTMLTextAreaElement
@@ -673,10 +673,10 @@ describe('DataAgentWorkbench composer entry', () => {
     renderWorkbench('data-agent')
     fireEvent.click(await screen.findByRole('button', { name: '数据库工作台：未连接' }))
     const dialog = screen.getByRole('dialog', { name: '数据库工作台' })
-    const catalogTab = await within(dialog).findByRole('tab', { name: '数据目录' }) as HTMLButtonElement
+    const catalogTab = await within(dialog).findByRole('tab', { name: '数据治理' }) as HTMLButtonElement
     await waitFor(() => expect(catalogTab.disabled).toBe(false))
     fireEvent.click(catalogTab)
-    const list = within(dialog).getByRole('listbox', { name: '数据目录' })
+    const list = within(dialog).getByRole('listbox', { name: '数据治理' })
     expect(await within(list).findByRole('option', { name: /orders/ })).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '加载更多' }))
     expect(await within(list).findByRole('option', { name: /customers/ })).toBeTruthy()
