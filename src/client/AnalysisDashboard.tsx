@@ -189,7 +189,6 @@ function ReportModal({ report, t, open, onClose }: {
       open={open}
       onClose={onClose}
       title={report.title}
-      closeLabel={t('analysis.close')}
       className={css.modal}
       headless
     >

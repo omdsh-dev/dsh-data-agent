@@ -1,7 +1,8 @@
 /** Read-only Catalog model tools. No scan or review service is injected here. */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import {
   DEFAULT_CATALOG_TOOL_TOP_K,
   MAX_CATALOG_TOOL_TOP_K,

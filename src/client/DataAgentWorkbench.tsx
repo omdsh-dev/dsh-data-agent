@@ -17,6 +17,8 @@ import { IconDataOutline16, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-cl
 // Type-only: pulls the ui-conversation slot declarations (conversation.input.right)
 // and the framework-standard view props into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: contributes the alpha.2 sessionId/useSessions slot props.
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import {
   DATABASE_TYPES,
   databaseTypeDescriptor,
@@ -30,10 +32,9 @@ import {
 } from './persistence.ts'
 import { QueryResultTable, type StructuredWorkbenchResult } from './QueryResultTable.tsx'
 import { CatalogPanel } from './CatalogPanel.tsx'
+import { DATA_AGENT_PRESET, type ObservableSnapshot, type WorkbenchOpenSnapshot } from './workbench-open.ts'
+import { overrideComposerPlaceholder } from './workbench-placeholder.ts'
 import css from './DataAgentWorkbench.module.css'
-
-/** The plugin's preset id, matching the installed agent preset directory. */
-const DATA_AGENT_PRESET = 'data-agent'
 
 /** 16×16 stroke icons drawn inline (the primitives package does not export icon atoms). */
 function Icon({ className, children, size = 14 }: { className?: string; children: ReactNode; size?: number }) {
@@ -124,7 +125,12 @@ export type { DatabaseType } from '../database-types.ts'
 
 /** The sessions-list slice the workbench needs (structural; avoids a runtime import). */
 export interface SessionListLike {
-  byId: Record<string, { agentPreset?: string }>
+  current?: string
+  byId: Record<string, {
+    projectionValues?: {
+      agentPreset?: string | null
+    }
+  }>
 }
 
 /** One described column. */
@@ -178,7 +184,9 @@ export interface DataAgentWorkbenchInjected {
       getSnapshot(): SessionListLike
       subscribe(fn: () => void): () => void
     }
+    workbenchOpen: ObservableSnapshot<WorkbenchOpenSnapshot>
   }
+  acknowledgeWorkbenchOpen(revision: number): void
 }
 
 /** The workbench's full component props: the composer-right seat + locale + sessions hook. */
@@ -259,9 +267,17 @@ function savedMatchesSummary(saved: SavedConnection, summary: ConnectionWireSumm
 }
 
 /** The database workbench body. */
-export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkbenchProps) {
-  const list = useSessions(snapshot => snapshot)
-  const isDataAgent = list.byId[sessionId as never]?.agentPreset === DATA_AGENT_PRESET
+export function DataAgentWorkbench({
+  sessionId,
+  useSessions,
+  useWorkbenchOpen,
+  acknowledgeWorkbenchOpen,
+  t,
+}: DataAgentWorkbenchProps) {
+  const list = useSessions((snapshot: SessionListLike) => snapshot)
+  const isDataAgent = list.byId[sessionId as never]?.projectionValues?.agentPreset === DATA_AGENT_PRESET
+  const openRequest = useWorkbenchOpen((snapshot: WorkbenchOpenSnapshot) => snapshot)
+  const requestedFromHero = openRequest.sessionId === sessionId && openRequest.revision > 0
   const tabsId = useId()
 
   // 表单从已保存的连接配置（localStorage）惰性初始化：切换会话/刷新/重启后回填。
@@ -292,7 +308,10 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
   const [catalogAvailable, setCatalogAvailable] = useState(false)
 
   // One workbench Modal owns connection, schema, and SQL as tabs.
-  const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  // The hero bridge publishes before the newly materialized Session renders,
+  // so its scoped workbench can take the request as initial local state. The
+  // request is acknowledged when the user dismisses this Modal.
+  const [workbenchOpen, setWorkbenchOpen] = useState(requestedFromHero)
   const [activeTab, setActiveTab] = useState<WorkbenchTab>('connection')
   // Mount-time auto-reconnect in flight (from the saved connection).
   const [restoring, setRestoring] = useState(false)
@@ -599,21 +618,13 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
       : t('composer.placeholder.disconnected')
 
   // input.right does not expose a placeholder setter. Bridge only to the
-  // textarea in this trigger's own composer card, and restore the host value
-  // on every cleanup. Disabled host states keep their more important reason.
+  // alpha.2 Lexical editor (with the legacy textarea fallback), and restore
+  // the host value on every cleanup. Disabled host states keep their more
+  // important reason.
   useLayoutEffect(() => {
     if (!isDataAgent) return
     const card = triggerSlotRef.current?.closest('[data-composer-card]')
-    const textarea = card?.querySelector<HTMLTextAreaElement>('textarea')
-    if (textarea === undefined || textarea === null || textarea.disabled) return
-
-    const hostPlaceholder = textarea.getAttribute('placeholder')
-    textarea.setAttribute('placeholder', composerPlaceholder)
-    return () => {
-      if (textarea.getAttribute('placeholder') !== composerPlaceholder) return
-      if (hostPlaceholder === null) textarea.removeAttribute('placeholder')
-      else textarea.setAttribute('placeholder', hostPlaceholder)
-    }
+    return overrideComposerPlaceholder(card, composerPlaceholder)
   })
 
   // A session not running the data-agent preset: nothing renders at all.
@@ -673,7 +684,10 @@ export function DataAgentWorkbench({ sessionId, useSessions, t }: DataAgentWorkb
 
       <Modal
         open={workbenchOpen}
-        onClose={() => setWorkbenchOpen(false)}
+        onClose={() => {
+          setWorkbenchOpen(false)
+          if (requestedFromHero) acknowledgeWorkbenchOpen(openRequest.revision)
+        }}
         title={t('wb.workbench.title')}
         description={t('wb.workbench.description')}
         closeLabel={t('action.close')}

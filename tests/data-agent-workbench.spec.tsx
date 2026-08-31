@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { DataAgentWorkbench, type SessionListLike } from '../src/client/DataAgentWorkbench.tsx'
 import { zh } from '../src/client/locales.ts'
 import { CONNECTION_STORAGE_KEY } from '../src/client/persistence.ts'
+import type { WorkbenchOpenSnapshot } from '../src/client/workbench-open.ts'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconDataOutline16: () => React.createElement('span', { 'data-testid': 'database-icon' }),
@@ -65,30 +66,59 @@ function response(body: unknown): Response {
 
 function useSessionsFor(agentPreset?: string) {
   const snapshot: SessionListLike = {
-    byId: { 'session-1': agentPreset === undefined ? {} : { agentPreset } },
+    byId: {
+      'session-1': agentPreset === undefined
+        ? {}
+        : { projectionValues: { agentPreset } },
+    },
   }
   return <T,>(selector: (value: SessionListLike) => T): T => selector(snapshot)
 }
 
-function renderWorkbench(agentPreset?: string) {
+function useWorkbenchOpenFor(snapshot: WorkbenchOpenSnapshot = { pending: false, revision: 0 }) {
+  return <T,>(selector: (value: WorkbenchOpenSnapshot) => T): T => selector(snapshot)
+}
+
+function renderWorkbench(
+  agentPreset?: string,
+  openSnapshot: WorkbenchOpenSnapshot = { pending: false, revision: 0 },
+  acknowledgeWorkbenchOpen = vi.fn(),
+) {
   return render(<DataAgentWorkbench {...{
     sessionId: 'session-1',
     useSessions: useSessionsFor(agentPreset),
+    useWorkbenchOpen: useWorkbenchOpenFor(openSnapshot),
+    acknowledgeWorkbenchOpen,
     t,
   } as never} />)
 }
 
-function composerWorkbenchNode(agentPreset?: string) {
+function composerWorkbenchNode(agentPreset?: string, editor: 'lexical' | 'textarea' = 'lexical') {
   return (
     <div data-composer-card>
-      <textarea aria-label="宿主输入框" placeholder="宿主占位文案" />
+      {editor === 'lexical'
+        ? (
+            <div>
+              <div role="textbox" aria-label="宿主输入框" contentEditable data-placeholder="宿主占位文案" />
+              <div data-composer-placeholder="true">宿主占位文案</div>
+            </div>
+          )
+        : <textarea aria-label="宿主输入框" placeholder="宿主占位文案" />}
       <DataAgentWorkbench {...{
         sessionId: 'session-1',
         useSessions: useSessionsFor(agentPreset),
+        useWorkbenchOpen: useWorkbenchOpenFor(),
+        acknowledgeWorkbenchOpen: vi.fn(),
         t,
       } as never} />
     </div>
   )
+}
+
+function placeholderOf(input: HTMLElement): string | null {
+  return input instanceof HTMLTextAreaElement
+    ? input.getAttribute('placeholder')
+    : input.getAttribute('data-placeholder')
 }
 
 describe('DataAgentWorkbench composer entry', () => {
@@ -121,6 +151,21 @@ describe('DataAgentWorkbench composer entry', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(trigger.getAttribute('aria-expanded')).toBe('false')
     expect(document.documentElement.className).not.toContain('da-split')
+  })
+
+  it('accepts the one-shot hero request for its materialized data-agent session', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ connected: false })))
+    const acknowledge = vi.fn()
+    renderWorkbench('data-agent', {
+      pending: false,
+      revision: 3,
+      sessionId: 'session-1',
+    }, acknowledge)
+
+    expect(await screen.findByRole('dialog', { name: '数据库工作台' })).toBeTruthy()
+    expect(acknowledge).not.toHaveBeenCalled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(acknowledge).toHaveBeenCalledWith(3)
   })
 
   it('shows all database types and submits ClickHouse HTTPS with shared default ports', async () => {
@@ -156,16 +201,30 @@ describe('DataAgentWorkbench composer entry', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
   })
 
-  it('sets the disconnected composer placeholder and restores the host copy outside data-agent', async () => {
+  it('sets the disconnected Lexical placeholder and restores the host copy outside data-agent', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ connected: false })))
     const view = render(composerWorkbenchNode('data-agent'))
-    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+    const input = screen.getByRole('textbox', { name: '宿主输入框' })
 
     await screen.findByRole('button', { name: '数据库工作台：未连接' })
-    expect(textarea.placeholder).toBe('数据库未连接，请点击输入框右上角的配置按钮')
+    expect(placeholderOf(input)).toBe('数据库未连接，请点击输入框右上角的配置按钮')
+    expect(input.getAttribute('aria-label')).toBe('宿主输入框')
+    expect(view.container.querySelector('[data-composer-placeholder="true"]')?.textContent)
+      .toBe('数据库未连接，请点击输入框右上角的配置按钮')
 
     view.rerender(composerWorkbenchNode('standard'))
-    expect(textarea.placeholder).toBe('宿主占位文案')
+    expect(placeholderOf(input)).toBe('宿主占位文案')
+    expect(input.getAttribute('aria-label')).toBe('宿主输入框')
+    expect(view.container.querySelector('[data-composer-placeholder="true"]')?.textContent).toBe('宿主占位文案')
+  })
+
+  it('keeps the legacy textarea placeholder bridge for older compatible surfaces', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ connected: false })))
+    render(composerWorkbenchNode('data-agent', 'textarea'))
+    const input = screen.getByRole('textbox', { name: '宿主输入框' })
+
+    await screen.findByRole('button', { name: '数据库工作台：未连接' })
+    expect(placeholderOf(input)).toBe('数据库未连接，请点击输入框右上角的配置按钮')
   })
 
   it('sets the connected composer placeholder after restoring server state', async () => {
@@ -174,10 +233,10 @@ describe('DataAgentWorkbench composer entry', () => {
       summary: { type: 'mysql', database: 'orders' },
     })))
     render(composerWorkbenchNode('data-agent'))
-    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+    const input = screen.getByRole('textbox', { name: '宿主输入框' })
 
     await screen.findByRole('button', { name: '数据库工作台：已连接' })
-    expect(textarea.placeholder).toBe('数据库连接成功，请描述分析内容')
+    expect(placeholderOf(input)).toBe('数据库连接成功，请描述分析内容')
   })
 
   it('shows reauthentication instead of a green connected state after a temporary password is lost', async () => {
@@ -191,10 +250,10 @@ describe('DataAgentWorkbench composer entry', () => {
     }))
     vi.stubGlobal('fetch', fetchMock)
     render(composerWorkbenchNode('data-agent'))
-    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+    const input = screen.getByRole('textbox', { name: '宿主输入框' })
 
     const trigger = await screen.findByRole('button', { name: '数据库工作台：需要重新认证' })
-    expect(textarea.placeholder).toBe('数据库需要重新认证，请点击输入框右上角的配置按钮')
+    expect(placeholderOf(input)).toBe('数据库需要重新认证，请点击输入框右上角的配置按钮')
     expect(screen.getByTestId('state-dot').getAttribute('data-state')).toBe('warning')
     fireEvent.click(trigger)
 
@@ -250,10 +309,10 @@ describe('DataAgentWorkbench composer entry', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     render(composerWorkbenchNode('data-agent'))
-    const textarea = screen.getByRole('textbox', { name: '宿主输入框' }) as HTMLTextAreaElement
+    const input = screen.getByRole('textbox', { name: '宿主输入框' })
 
     const trigger = await screen.findByRole('button', { name: '数据库工作台：已连接' })
-    expect(textarea.placeholder).toBe('数据库连接成功，请描述分析内容')
+    expect(placeholderOf(input)).toBe('数据库连接成功，请描述分析内容')
     expect(fetchMock.mock.calls.filter(call => String(call[0]).endsWith('/connect'))).toHaveLength(1)
 
     fireEvent.click(trigger)

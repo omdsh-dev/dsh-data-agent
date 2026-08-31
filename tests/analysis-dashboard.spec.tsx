@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach } from 'vitest'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { RenderAnalysisRow, computeViewWidths, formatMetricValue } from '../src/client/AnalysisDashboard.tsx'
 import { zh } from '../src/client/locales.ts'
 

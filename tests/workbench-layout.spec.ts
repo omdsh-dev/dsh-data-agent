@@ -6,9 +6,29 @@ const root = new URL('../', import.meta.url)
 describe('database workbench host layout contract', () => {
   it('registers a context-row control from the composer slot instead of an above-input dock row', () => {
     const source = readFileSync(new URL('src/client/index.ts', root), 'utf8')
-    expect(source).toContain("scope.slots.inject('conversation.input.right'")
+    expect(source).toContain("slots.inject('conversation.input.right'")
     expect(source).toContain("name: 'conversation.input.right'")
-    expect(source).not.toContain("scope.slots.inject('conversation.input.dock'")
+    expect(source).not.toContain("slots.inject('conversation.input.dock'")
+  })
+
+  it('bridges the root-scoped alpha.2 hero through the host preset seat', () => {
+    const source = readFileSync(new URL('src/client/index.ts', root), 'utf8')
+    const hero = readFileSync(new URL('src/client/DataAgentHeroControls.tsx', root), 'utf8')
+    expect(source).toContain("slots.inject('conversation.hero.agentPreset'")
+    expect(source).toContain("name: 'conversation.hero.agentPreset'")
+    expect(source).toContain('uiWorkspace.startSession()')
+    expect(hero).toContain('preset === DATA_AGENT_PRESET')
+    expect(hero).toContain('<OriginalSeat {...props} />')
+  })
+
+  it('reads the alpha.2 preset projection and targets the Lexical composer placeholder', () => {
+    const source = readFileSync(new URL('src/client/DataAgentWorkbench.tsx', root), 'utf8')
+    expect(source).toContain('projectionValues?.agentPreset')
+    const placeholder = readFileSync(new URL('src/client/workbench-placeholder.ts', root), 'utf8')
+    expect(placeholder).toContain('[role="textbox"][contenteditable="true"]')
+    expect(placeholder).toContain('[data-composer-placeholder="true"]')
+    expect(placeholder).toContain("const attribute = lexical === null ? 'placeholder' : 'data-placeholder'")
+    expect(source).not.toContain('byId[sessionId as never]?.agentPreset')
   })
 
   it('does not measure, poll, or globally split hero/active conversation layout', () => {

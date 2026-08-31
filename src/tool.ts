@@ -20,7 +20,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from 'schemastery'
-import { defineTool, type InferValue, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { defineTool, type InferValue } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 // Type-only: pulls the ctx.subprocess merge (the subprocess host plugin) and
 // the ctx.dataAgentConnections merge (the main data-agent row).
 import type {} from '@deepseek-ai/dsh-subprocess'

@@ -7,7 +7,7 @@
  * `/plugins/data-agent/status` reports.
  * @module @yejiming/dsh-data-agent/client
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client';
+import type { Context as ClientContext } from '@deepseek-ai/cordis';
 import { type DataAgentKey } from './locales.ts';
 declare module '@deepseek-ai/dsh-client-ui-slots' {
     interface LocaleNamespaceMap {
@@ -15,7 +15,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
         'data-agent': DataAgentKey;
     }
 }
-/** Required services: the locale service, the slot registry, and the sessions list. */
+/** Required services: locale/slots, Session state, and host New Session navigation. */
 export declare const inject: string[];
 /**
  * Client plugin body: register the data-agent dictionaries and the database

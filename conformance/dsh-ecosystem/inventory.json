@@ -50,6 +50,7 @@
       "POST query"
     ],
     "webSlots": [
+      "conversation.hero.agentPreset",
       "conversation.input.right",
       "tool.call.toolview"
     ],

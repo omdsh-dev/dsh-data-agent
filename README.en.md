@@ -74,7 +74,7 @@ Start the Web console, create a new session, and select **"Data Mode"**:
 ```bash
 dsh --profile web
 ```
-1. Click the **Database icon** in the top-right of the composer, then fill in your connection details (supports connection testing);
+1. On the New Session screen, click **Connection Settings** beside **Data Mode**; after the session opens, you can use the **Database icon** in the top-right of the composer. Fill in your connection details in the same workbench (supports connection testing);
 2. Once connected, ask your business analysis question directly in the chat box;
 3. Ask follow-up questions to drill down deeper based on preliminary conclusions.
 

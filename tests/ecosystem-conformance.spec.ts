@@ -120,7 +120,7 @@ describe('Community v0.15 manifest and frozen native inventory', () => {
         'POST catalog/cancel', 'POST catalog/scan', 'POST catalog/semantics',
         'POST catalog/semantics/:semanticId/retire', 'POST catalog/semantics/:semanticId/verify',
       ]),
-      webSlots: ['conversation.input.right', 'tool.call.toolview'],
+      webSlots: ['conversation.hero.agentPreset', 'conversation.input.right', 'tool.call.toolview'],
       storageDomains: ['data_agent_catalog@1', 'data_agent_connections@1'],
       databaseTypes: ['clickhouse', 'doris', 'hive', 'impala', 'mysql', 'oracle', 'postgres', 'sqlite', 'sqlserver'],
     })

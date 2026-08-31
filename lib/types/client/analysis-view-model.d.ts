@@ -14,7 +14,7 @@
  *   degrade to the safe model content text, never guess or re-query.
  * @module @yejiming/dsh-data-agent/client/analysis-view-model
  */
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client';
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-conversation/client';
 import { type AnalysisReportV1 } from '../analysis.ts';
 /** The five display states of one render-analysis call. */
 export type AnalysisBlockState = 'running' | 'error' | 'interrupted' | 'report' | 'fallback';

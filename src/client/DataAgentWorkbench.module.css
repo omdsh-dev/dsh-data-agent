@@ -12,6 +12,36 @@
   pointer-events: auto;
 }
 
+.heroTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, inherit);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.heroTrigger:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(128, 128, 128, 0.08));
+}
+
+.heroTrigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-button-info-fill, #3b82f6) 28%, transparent);
+}
+
+.heroTrigger:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
 .trigger {
   position: relative;
   display: grid;
