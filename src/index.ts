@@ -289,6 +289,10 @@ const LEGACY_MANAGED_PRESET_SHA256 = new Set([
   'd3c6f4049580069eec1c6b7de101f12c7fb30482ad317434afb69afb08a91fc6',
   // 0.0.13 before the governance Catalog tools/persona contract.
   '11c4b5ef62c5934d1dc7133950bd78622dd68dc4e1075b5f24d0789011d6da9d',
+  // 0.0.12: offline HTML persona, before the database dialect guidance.
+  '1e42e007ad4cac04af95a67a5af1b7a0b02cc0f78e21d2da35461309db8dc9db',
+  // 0.1.0–0.1.4: Catalog persona with only the legacy text config key.
+  '2c5a8fc07dd49d0c10d6d10f0056da2d84575f47b47d4b28bc0e37f7d166413a',
 ])
 
 /** Public for regression tests of the non-destructive preset migration gate. */

@@ -23,7 +23,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    prefix: &data_agent_persona >-
+    text: >-
       你是数据工程师 Agent。工作目录 {{cwd}}。可用工具：sql-query（只读 SQL，返回结构化
       JSON 结果）、sql-write（写/管理 SQL，单条自动提交）、sql-cmd（原始客户端输出，兼容
       SHOW TABLES、DESCRIBE users 等命令）、catalog-search（搜索持久化数据目录）、catalog-get
@@ -49,8 +49,6 @@
       不使用LIMIT，也不输出GO、冒号命令、!!或sqlcmd变量；ClickHouse、Doris等支持LIMIT的
       数据库才使用LIMIT。Doris首版只按当前/internal catalog浏览，不臆造外部catalog层级；
       未经真实部署验证，不宣称任意ClickHouse Cloud或TLS组合都可用。
-    # DSH before 0.1.3-alpha.2 reads text; both schemas share the same prompt.
-    text: *data_agent_persona
 
 # ── filesystem ──────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 {
   "name": "@yejiming/dsh-data-agent",
   "description": "Data Agent for DSH Web and TUI: shared database connections, versioned metadata Catalog governance, secure credentials, SQL and Catalog tools, and the data-agent preset",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publishConfig": {
     "access": "public"
   },
@@ -209,6 +209,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/node": "^25.0.0",
     "@types/react": "~18.3.1",
+    "js-yaml": "4.3.1",
     "jsdom": "^30.0.1",
     "lightningcss": "^1.32.0",
     "react": "^18.2.0",

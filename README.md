@@ -69,6 +69,8 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ### 3. 开始分析
 
+升级插件后首次启动会自动更新已识别的原版 `data-agent` 预设，使其兼容新版 DSH 必填的 `persona.config.prefix`，同时保留旧版 DSH 使用的 `text`。自定义过的预设不会被覆盖；若启动报 `$.prefix missing required value`，请备份 `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml`（默认位于 `~/.dsh`），在 persona 的 config 中让 `prefix` 与原 `text` 使用相同提示词，再重启。
+
 #### 方式一：Web 界面（推荐）
 启动 Web 控制台后，新建会话并选择 **「数据模式」**：
 ```bash

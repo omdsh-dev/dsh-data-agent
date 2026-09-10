@@ -69,6 +69,8 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ### 3. Start Analyzing
 
+On the first start after a plugin upgrade, recognized, unmodified legacy `data-agent` presets are updated automatically to supply the `persona.config.prefix` required by newer DSH versions while retaining `text` for older hosts. Customized presets are never overwritten. If startup reports `$.prefix missing required value`, back up `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml` (`DSH_HOME` defaults to `~/.dsh`), give `prefix` the same prompt as the existing `text` in the persona config, and restart.
+
 #### Method 1: Web Interface (Recommended)
 Start the Web console, create a new session, and select **"Data Mode"**:
 ```bash
