@@ -31,14 +31,17 @@ describe('New Session workbench bridge', () => {
     expect(bridge.store.getSnapshot()).toEqual({ pending: true, revision: 0 })
 
     sessions.publish({
-      current: 'session-1',
-      byId: { 'session-1': { projectionValues: { agentPreset: 'standard' } } },
+      byId: { background: { retainedBy: { sidebar: 1 }, projectionValues: { agentPreset: 'data-agent' } } },
     })
     expect(bridge.store.getSnapshot()).toEqual({ pending: true, revision: 0 })
 
     sessions.publish({
-      current: 'session-1',
-      byId: { 'session-1': { projectionValues: { agentPreset: 'data-agent' } } },
+      byId: { 'session-1': { retainedBy: { mainView: 1 }, projectionValues: { agentPreset: 'standard' } } },
+    })
+    expect(bridge.store.getSnapshot()).toEqual({ pending: true, revision: 0 })
+
+    sessions.publish({
+      byId: { 'session-1': { retainedBy: { mainView: 1 }, projectionValues: { agentPreset: 'data-agent' } } },
     })
     expect(bridge.store.getSnapshot()).toEqual({
       pending: false,
@@ -62,7 +65,7 @@ describe('New Session workbench bridge', () => {
     bridge.requestFromHero()
     expect(startSession).toHaveBeenCalledTimes(1)
 
-    sessions.publish({ current: 'session-1', byId: { 'session-1': {} } })
+    sessions.publish({ byId: { 'session-1': { retainedBy: { mainView: 1 } } } })
     expect(bridge.store.getSnapshot().pending).toBe(true)
 
     bridge.acknowledge(0)

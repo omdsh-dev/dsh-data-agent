@@ -3,7 +3,7 @@
  * `dataAgentConnections` service (shared non-secret profile/binding storage;
  * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
  * wildcard default), provides a separate versioned governance Catalog, installs the `data-agent` agent preset into
- * `$DSH_HOME/.agent-presets/`, and preloads the preset-scoped database tools
+ * `$DSH_HOME/.agent-presets/`, and declares its preset-scoped database tools
  * on every surface, while registering `/database` and `/catalog` only while
  * the current Cordis composition actually loads the dsh-tui plugin.
  *
@@ -11,13 +11,12 @@
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
  * this row keeps working in headless profiles without a webserver. The
  * database implementations still have public `./tool` and `./command`
- * exports, but the shipped preset does not dynamically import those package
- * subpaths. Loading them here keeps Desktop on the same profile-startup path
- * as other UI bundles and avoids Electron ASAR package-resolution drift.
+ * exports. The preset registry loads them from absolute URLs beside this
+ * artifact, so scoped activation never relies on resolving this package
+ * again from a different host module root.
  * @module @yejiming/dsh-data-agent
  */
 import type { Context } from '@deepseek-ai/cordis';
-import type { ScopeKey } from '@deepseek-ai/dsh-scope';
 /** The `dataAgentConnections` service face on the cordis context. */
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -31,8 +30,7 @@ import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
 import { type CliDatabaseType, type ClientConfig } from './clients.ts';
 import { type DataAgentCatalog, type DataAgentCatalogReview, type DataAgentCatalogScanner } from './catalog.ts';
-import { type DataAgentCommandAdapterOptions } from './command.ts';
-import { type Config as ToolConfig } from './tool.ts';
+import type { Config as ToolConfig } from './tool.ts';
 export type { CatalogServiceBundle, CatalogServiceOptions, CatalogStatusSummary, DataAgentCatalog, DataAgentCatalogReview, DataAgentCatalogScanner, StartCatalogScanInput, } from './catalog.ts';
 export type { CatalogAssetDetail, CatalogAssetHead, CatalogAssetKind, CatalogAssetRevision, CatalogAssetStatus, CatalogCapability, CatalogDiffItem, CatalogDiffKind, CatalogDiffPage, CatalogEnrichment, CatalogEnrichmentStatus, CatalogIdentity, CatalogObservation, CatalogProgress, CatalogRelation, CatalogRun, CatalogRunStatus, CatalogScope, CatalogSearchFilters, CatalogSearchItem, CatalogSearchPage, CatalogSearchRequest, CatalogSemanticEntry, CatalogSemanticKind, CatalogSemanticRevision, CatalogSemanticStatus, CatalogSource, CatalogTechnicalPayload, MetricDefinition, MeaningDefinition, SemanticDefinition, TermDefinition, } from './catalog-types.ts';
 /** Cordis plugin name (diagnostics only). */
@@ -223,17 +221,18 @@ export declare function isLegacyManagedPreset(source: string): boolean;
 export declare function profileInstallCommand(profile: string): string;
 /** Actionable diagnostic for a roster-visible preset whose profile lacks this package. */
 export declare function missingProfileDependencyMessage(profile: string): string;
-/** Tool configuration inherited by the profile-preloaded preset capabilities. */
+/** Tool configuration inherited by the registry-owned preset capabilities. */
 type PresetCapabilitiesConfig = Pick<ToolConfig, 'queryTimeoutMs' | 'maxResultChars' | 'maxRows' | 'maxQueryChars' | 'readonly' | 'clients'>;
 /**
- * Register the statically imported database tools and surface adapters under the exact
- * standing key owned by the data-agent preset. Selecting the preset performs
- * no package import and only links the agent scope to this key.
+ * Declare the preset through the host registry. The registry owns its scope,
+ * revision lifetime and blank-session rebinding; no private scope tags are read.
+ * Absolute artifact URLs keep scoped entries beside this installed package even
+ * when the host and plugin use different module-resolution roots (Desktop).
  */
-export declare function mountPresetCapabilities(ctx: Context, key: ScopeKey, scopeTag: symbol, config: PresetCapabilitiesConfig, commandOptions?: DataAgentCommandAdapterOptions): Promise<void>;
+export declare function registerPreset(ctx: Context, presetId: string, config: PresetCapabilitiesConfig): Promise<void>;
 /**
  * Mount the data-agent profile row: connection store, config-seeded
- * connections, preset installation, and profile-preloaded preset capabilities.
+ * connections, preset installation, and registry-owned preset capabilities.
  * HTTP routes are the sibling `data-agent-routes` row (`./routes`).
  * @param ctx - host cordis context.
  * @param config - validated loader configuration.

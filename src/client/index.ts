@@ -9,7 +9,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ComponentType } from 'react'
-// Type-only: pulls the alpha.2 Session Controller service (ctx.sessions) into this program.
+// Type-only: pulls the Session Controller service (ctx.sessions) into this program.
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale) into this program.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -59,7 +59,7 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.inject(['slots', 'locale', 'sessions', 'uiWorkspace'], (scope: ClientContext) => {
     // The server half also has a `sessions` service in this package's combined
-    // declaration program. Narrow the browser fiber to the alpha.2 client
+    // declaration program. Narrow the browser fiber to the current client
     // services explicitly instead of relying on the colliding Context merge.
     const services = scope as unknown as {
       sessions: ISessions
@@ -68,10 +68,10 @@ export function apply(ctx: ClientContext): void {
     }
     const { sessions, slots, uiWorkspace } = services
     const list = sessions.list
-    // The sessions list is the agent-preset authority on the client: the
-    // alpha.2 projects the current preset into `projectionValues.agentPreset`.
+    // The sessions list is the agent-preset authority on the client: the host
+    // projects the current preset into `projectionValues.agentPreset`.
     const sessionsSource = {
-      getSnapshot: (): SessionListLike => list.getSnapshot() as unknown as SessionListLike,
+      getSnapshot: (): SessionListLike => list.getSnapshot(),
       subscribe: (fn: () => void): (() => void) => list.subscribe(fn),
     }
     const workbenchOpen = createWorkbenchOpenBridge(
@@ -93,7 +93,7 @@ export function apply(ctx: ClientContext): void {
       }),
     }, DataAgentWorkbench))
 
-    // alpha.2's blank-session composer has no Session scope, so input.right
+    // The host's new-session composer has no Session scope, so input.right
     // cannot render there. Shadow the host's single agent-preset seat with an
     // additive wrapper that preserves its exact component/inject face and adds
     // the database entry only while `data-agent` is staged. Slot priority makes
@@ -121,15 +121,15 @@ export function apply(ctx: ClientContext): void {
         if (next === undefined || next.inject === undefined) return
 
         const originalSeat = next.component as ComponentType<AgentPresetSeatProps>
-        const originalInject = next.inject as unknown as (() => HostAgentPresetSeatFace)
+        const originalInject = next.inject as unknown as ((sessionId: AgentPresetSeatProps['sessionId']) => HostAgentPresetSeatFace)
         const priority = Math.min(...entries.map(priorityOf)) - 1
         source = next
         disposeShadow = slots.register({
           name: 'conversation.hero.agentPreset',
           priority,
           locale: 'settings.agentPreset',
-          inject: () => {
-            const face = originalInject()
+          inject: (sessionId) => {
+            const face = originalInject(sessionId)
             return {
               ...face,
               hooks: {

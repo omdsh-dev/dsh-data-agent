@@ -52,7 +52,7 @@ Tired of filing data requests, wrestling with complex SQL queries, exporting CSV
 
 ### 1. Prerequisites
 
-- **DeepSeek Harness** (DSH runtime environment)
+- **DeepSeek Harness `0.1.7-rc.1`** (the target of source version `0.2.0`; all official `@deepseek-ai/dsh-*` dependencies are pinned to this version)
 - Accessible database (local SQLite file or remote/cloud database)
 
 ### 2. Quick Install
@@ -69,7 +69,9 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ### 3. Start Analyzing
 
-On the first start after a plugin upgrade, recognized, unmodified legacy `data-agent` presets are updated automatically to supply the `persona.config.prefix` required by newer DSH versions while retaining `text` for older hosts. Customized presets are never overwritten. If startup reports `$.prefix missing required value`, back up `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml` (`DSH_HOME` defaults to `~/.dsh`), give `prefix` the same prompt as the existing `text` in the persona config, and restart.
+This version declares Data Mode through `dsh-agent-preset-registry` instead of the removed `standingKeyFor()` API. It still reads presets from `$DSH_HOME/.agent-presets/<presetId>/`; the host registry owns tool scopes, blank-session switching, and disposal. Existing customized presets and names are preserved. `installPreset: false` disables this plugin's preset installation and registration; another host plugin must declare the preset. Use a matching older plugin release with older DSH hosts.
+
+On the first start after a plugin upgrade, recognized, unmodified legacy `data-agent` presets are updated automatically to supply the `persona.config.prefix` required by newer DSH versions while retaining the existing `text` field. Customized presets are never overwritten. If startup reports `$.prefix missing required value`, back up `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml` (`DSH_HOME` defaults to `~/.dsh`), give `prefix` the same prompt as the existing `text` in the persona config, and restart.
 
 #### Method 1: Web Interface (Recommended)
 Start the Web console, create a new session, and select **"Data Mode"**:

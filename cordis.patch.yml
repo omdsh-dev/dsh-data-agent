@@ -1,7 +1,7 @@
 # The dsh-data-agent bundle patch: activates the plugin as a profile layer.
 #
 # Two host rows: `data-agent` provides connection and versioned Catalog stores,
-# installs the selectable agent preset, and statically preloads that preset's
+# installs the selectable agent preset, and declares that preset's
 # scoped tools on every surface and gates the human commands plus optional
 # public status/scene presentation on the actual `dsh-tui` Cordis plugin
 # runtime (independent of profile name);
@@ -9,8 +9,8 @@
 # HTTP routes and only activates where the webserver exists (web profiles).
 # The browser half (lib/client.js) ships in the same package and loads under
 # the data-agent id through the `dsh.client` declaration in package.json.
-# The preset composition deliberately contains no dynamic imports of this
-# package, which keeps DSH Desktop away from its unpacked-ASAR resolver bug.
+# The host row registers the preset with dsh-agent-preset-registry. Its own
+# scoped entries use absolute artifact URLs to avoid package-resolution drift.
 - insert:
     - id: data-agent
       name: '@yejiming/dsh-data-agent'

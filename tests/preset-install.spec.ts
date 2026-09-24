@@ -2,9 +2,10 @@ import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import yaml from 'js-yaml'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installPreset, isLegacyManagedPreset } from '../src/index.ts'
+import { installPreset, isLegacyManagedPreset, registerPreset } from '../src/index.ts'
 
 const packagedPreset = new URL('../preset/data-agent/agent.cordis.yml', import.meta.url)
 const fixture = (version: string) => new URL(`./fixtures/presets/data-agent-${version}.yml`, import.meta.url)
@@ -46,7 +47,7 @@ describe('data-agent preset installation and persona compatibility', () => {
     expect(await readFile(join(directory, 'preset.yml'), 'utf8')).toContain('数据模式')
   })
 
-  it.each(['0.0.11', '0.0.12', '0.1.4'])('migrates the exact %s release preset and preserves adjacent metadata', async (version) => {
+  it.each(['0.0.11', '0.0.12', '0.1.4', '0.1.5'])('migrates the exact %s release preset and preserves adjacent metadata', async (version) => {
     const old = await readFile(fixture(version), 'utf8')
     expect(isLegacyManagedPreset(old)).toBe(true)
     await mkdir(directory, { recursive: true })
@@ -75,5 +76,44 @@ describe('data-agent preset installation and persona compatibility', () => {
     const before = await stat(composition)
     expect(await installPreset(ctx, 'data-agent')).toBe(true)
     expect((await stat(composition)).mtimeMs).toBe(before.mtimeMs)
+  })
+
+  it('registers custom metadata and existing tool config once without rewriting user files', async () => {
+    await installPreset(ctx, 'data-agent')
+    const custom = (await readFile(composition, 'utf8')) + '\n- id: custom-tools\n  name: "@yejiming/dsh-data-agent/tool"\n  config:\n    maxRows: 7\n'
+    const metadata = 'name: Custom data mode\ndescription: Preserved description\norder: 5\n'
+    await writeFile(composition, custom)
+    await writeFile(join(directory, 'preset.yml'), metadata)
+    const dispose = vi.fn(async () => {})
+    const register = vi.fn(async (_definition: PresetDefinition) => dispose)
+    const effect = vi.fn()
+    await registerPreset({ agentPresets: { register }, effect } as unknown as Context, 'data-agent', {
+      queryTimeoutMs: 30000, maxResultChars: 20000, maxRows: 100, maxQueryChars: 65536, readonly: false, clients: {},
+    })
+    expect(register).toHaveBeenCalledOnce()
+    expect(register.mock.calls[0]?.[0]).toMatchObject({
+      id: 'data-agent', name: 'Custom data mode', description: 'Preserved description', order: 5,
+      plugins: expect.arrayContaining([
+        { id: 'custom-tools', name: expect.stringMatching(/\/tool\.js$/), config: { maxRows: 7 } },
+        { id: 'data-agent-command', name: expect.stringMatching(/\/command\.js$/) },
+      ]),
+    })
+    const definition = register.mock.calls[0]?.[0] as unknown as { plugins: { name: string }[] }
+    expect(definition.plugins.filter(row => row.name.endsWith('/tool.js'))).toHaveLength(1)
+    await effect.mock.calls[0]?.[0]()()
+    expect(dispose).toHaveBeenCalledOnce()
+    expect(await readFile(composition, 'utf8')).toBe(custom)
+    expect(await readFile(join(directory, 'preset.yml'), 'utf8')).toBe(metadata)
+  })
+
+  it.each(['{ invalid: object }', '- id: broken\n  name: 42'])('rejects malformed composition before registration: %s', async (invalid) => {
+    await installPreset(ctx, 'data-agent')
+    await writeFile(composition, invalid)
+    const register = vi.fn()
+    await expect(registerPreset({ agentPresets: { register } } as unknown as Context, 'data-agent', {
+      queryTimeoutMs: 30000, maxResultChars: 20000, maxRows: 100, maxQueryChars: 65536, readonly: false, clients: {},
+    })).rejects.toThrow()
+    expect(register).not.toHaveBeenCalled()
+    expect(await readFile(composition, 'utf8')).toBe(invalid)
   })
 })

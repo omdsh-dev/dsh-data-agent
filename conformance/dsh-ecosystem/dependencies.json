@@ -6,6 +6,7 @@
       "@dsh-std/sdk",
       "echarts",
       "fflate",
+      "js-yaml",
       "schemastery",
       "zod"
     ],

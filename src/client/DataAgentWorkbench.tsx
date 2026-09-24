@@ -13,7 +13,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { IconDataOutline16, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconDataOutlineRegular, Modal, StateDot, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls the ui-conversation slot declarations (conversation.input.right)
 // and the framework-standard view props into this program.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -125,8 +125,8 @@ export type { DatabaseType } from '../database-types.ts'
 
 /** The sessions-list slice the workbench needs (structural; avoids a runtime import). */
 export interface SessionListLike {
-  current?: string
   byId: Record<string, {
+    readonly retainedBy?: Readonly<Record<string, number>>
     projectionValues?: {
       agentPreset?: string | null
     }
@@ -676,7 +676,7 @@ export function DataAgentWorkbench({
             aria-expanded={workbenchOpen}
             onClick={() => setWorkbenchOpen(true)}
           >
-            <IconDataOutline16 size={17} />
+            <IconDataOutlineRegular size={17} />
             <StateDot state={triggerState} size={7} className={css.triggerDot} />
           </button>
         </Tooltip>

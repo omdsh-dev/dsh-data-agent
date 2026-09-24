@@ -8,7 +8,7 @@ import { CONNECTION_STORAGE_KEY } from '../src/client/persistence.ts'
 import type { WorkbenchOpenSnapshot } from '../src/client/workbench-open.ts'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconDataOutline16: () => React.createElement('span', { 'data-testid': 'database-icon' }),
+  IconDataOutlineRegular: () => React.createElement('span', { 'data-testid': 'database-icon' }),
   StateDot: ({ state }: { state: string }) => React.createElement('span', { 'data-testid': 'state-dot', 'data-state': state }),
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
   Modal: ({ open, onClose, title, description, children }: {

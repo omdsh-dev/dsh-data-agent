@@ -8,7 +8,7 @@ import type { AgentPresetSeatState } from '@deepseek-ai/dsh-client-ui-agent-pres
 import type { WorkbenchOpenSnapshot } from '../src/client/workbench-open.ts'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  IconDataOutline16: () => React.createElement('span', { 'data-testid': 'database-icon' }),
+  IconDataOutlineRegular: () => React.createElement('span', { 'data-testid': 'database-icon' }),
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
 }))
 
@@ -24,7 +24,7 @@ const OriginalSeat = () => <button type="button">数据模式</button>
 
 function usePreset(current: string) {
   const state: AgentPresetSeatState = {
-    options: [], current, error: null, busy: false, introduce: false,
+    options: [], current, error: null, busy: false, introduce: false, showPicker: true,
   }
   return <T,>(selector: (snapshot: AgentPresetSeatState) => T): T => selector(state)
 }
@@ -39,7 +39,6 @@ function renderHero(
   requestWorkbench = vi.fn(),
   currentSessionId?: string,
 ) {
-  const useSessions = <T,>(selector: (value: { current?: string }) => T): T => selector({ current: currentSessionId })
   render(
     <div data-testid="composer-scope">
       <div>
@@ -49,7 +48,8 @@ function renderHero(
           requestWorkbench,
           useHeroWorkbench: useOpen(snapshot),
           useAgentPresetSeat: usePreset(current),
-          useSessions,
+          sessionId: currentSessionId,
+          useShowPresetPicker: (select: (value: boolean) => unknown) => select(true),
           load: vi.fn(),
           select: vi.fn(),
           introduced: vi.fn(),

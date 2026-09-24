@@ -1,11 +1,7 @@
 /** DSH-native AI enrichment for table and field business-meaning candidates. */
 
 import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
-import {
-  createUserMessage,
-  type LlmCallConfig,
-  type LlmRuntime,
-} from '@deepseek-ai/dsh-llm'
+import type { LlmCallConfig, LlmRuntime, RequestUserInput } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { z } from 'zod'
 
@@ -143,10 +139,11 @@ async function generateModelBatch(
     maxTokens: MAX_MODEL_OUTPUT_TOKENS,
   }
   const prepared = await llm.prepareCall(config, signal)
-  const message = createUserMessage({
+  // An auxiliary request has no durable session-message identity or source.
+  const message: RequestUserInput = {
+    role: 'user',
     content: [{ type: 'text', text: JSON.stringify(input) }],
-    source: { kind: 'plugin', plugin: '@yejiming/dsh-data-agent' },
-  })
+  }
   let output = ''
   let finished = false
   for await (const chunk of prepared.stream({

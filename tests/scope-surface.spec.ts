@@ -1,11 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Commands from '@deepseek-ai/dsh-commands'
 import { bindScopeParent, createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRegistry, { type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { createConnectionStore } from '../src/connections.ts'
-import { mountPresetCapabilities } from '../src/index.ts'
+import { apply as applyTools } from '../src/tool.ts'
+import { apply as applyCommand } from '../src/command.ts'
+
+const contexts: Context[] = []
+afterEach(async () => {
+  for (const ctx of contexts.splice(0)) await ctx.fiber.dispose()
+})
 
 const HOST_TOOLS = [
   'describe_image',
@@ -42,7 +48,7 @@ async function mintScope(ctx: Context, key: object): Promise<Scope> {
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => {
     scope = createScope(inner, key)
-  }, { inject: ['tools', 'systemPrompt'] }))
+  }, { inject: ['tools', 'systemPrompt', ...ctx.get('commands') ? ['commands'] : []] }))
   return scope
 }
 
@@ -53,6 +59,7 @@ describe('standing preset tool surface', () => {
     ['headless', [...DATA_TOOLS, 'render-analysis'].sort()],
   ] as const)('rebinds an existing blank %s agent to the exact data-mode tools', async (surface, expected) => {
     const ctx = new Context()
+    contexts.push(ctx)
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRegistry)
     for (const name of HOST_TOOLS) ctx.tools.register(tool(name))
@@ -91,6 +98,7 @@ describe('standing preset tool surface', () => {
     ['runtime with dsh-tui loaded', true, ['catalog', 'database']],
   ] as const)('registers shared tools but gates human commands on %s', async (surface, hasDshTuiPlugin, expectedCommands) => {
     const ctx = new Context()
+    contexts.push(ctx)
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(Commands)
@@ -102,20 +110,17 @@ describe('standing preset tool surface', () => {
     for (const name of HOST_TOOLS) ctx.tools.register(tool(name))
 
     const dataKey = { agentPreset: 'data-agent' }
-    const standing = createScope(ctx, dataKey)
-    const scopeTag = Object.getOwnPropertySymbols(standing.ctx)
-      .find(candidate => Reflect.get(standing.ctx, candidate) === dataKey)!
-    await ctx.plugin(Object.assign(async (inner: Context) => {
-      inner.extend({ [scopeTag]: dataKey }).tools.register(tool('str_replace_editor'))
-      await mountPresetCapabilities(inner, dataKey, scopeTag, {
+    const standing = await mintScope(ctx, dataKey)
+    standing.ctx.tools.register(tool('str_replace_editor'))
+    applyTools(standing.ctx, {
         queryTimeoutMs: 30_000,
         maxResultChars: 20_000,
         maxRows: 100,
         maxQueryChars: 65_536,
         readonly: false,
         clients: {},
-      }, { isDshTuiPluginLoaded: () => hasDshTuiPlugin })
-    }, { inject: ['commands', 'dataAgentConnections', 'subprocess', 'tools'] }))
+    })
+    applyCommand(standing.ctx, { isDshTuiPluginLoaded: () => hasDshTuiPlugin })
 
     const agentKey = { id: `${surface}-session` }
     bindScopeParent(agentKey, dataKey)
@@ -129,6 +134,7 @@ describe('standing preset tool surface', () => {
 
   it('follows the actual dsh-tui Cordis runtime across late load and unload', async () => {
     const ctx = new Context()
+    contexts.push(ctx)
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(ToolRegistry)
     await ctx.plugin(Commands)
@@ -139,20 +145,17 @@ describe('standing preset tool surface', () => {
     ctx.provide('dataAgentConnections', createConnectionStore())
 
     const dataKey = { agentPreset: 'custom-profile-data-agent' }
-    const standing = createScope(ctx, dataKey)
-    const scopeTag = Object.getOwnPropertySymbols(standing.ctx)
-      .find(candidate => Reflect.get(standing.ctx, candidate) === dataKey)!
-    await ctx.plugin(Object.assign(async (inner: Context) => {
-      inner.extend({ [scopeTag]: dataKey }).tools.register(tool('str_replace_editor'))
-      await mountPresetCapabilities(inner, dataKey, scopeTag, {
+    const standing = await mintScope(ctx, dataKey)
+    standing.ctx.tools.register(tool('str_replace_editor'))
+    applyTools(standing.ctx, {
         queryTimeoutMs: 30_000,
         maxResultChars: 20_000,
         maxRows: 100,
         maxQueryChars: 65_536,
         readonly: false,
         clients: {},
-      })
-    }, { inject: ['commands', 'dataAgentConnections', 'subprocess', 'tools'] }))
+    })
+    applyCommand(standing.ctx)
 
     const agentKey = { id: 'custom-profile-session' }
     bindScopeParent(agentKey, dataKey)

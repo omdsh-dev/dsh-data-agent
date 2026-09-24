@@ -20,6 +20,7 @@ describe('Catalog AI result validation', () => {
       async *stream(options: Record<string, unknown>) {
         expect(options).toMatchObject({ provider: 'selected-provider', model: 'selected-model', maxTokens: 16_384 })
         expect(options.tools).toBeUndefined()
+        expect(options.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: JSON.stringify(input) }] }])
         yield { type: 'text-delta', index: 0, text: '{"table":{"assetId":"asset_orders","meaning":"订单"},"fields":[{"assetId":"asset_order_id","meaning":"订单编号"},{"assetId":"asset_amount","meaning":"订单金额"}]}' }
         yield { type: 'finish', reason: { kind: 'stop' } }
       },

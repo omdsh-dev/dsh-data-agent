@@ -71,7 +71,8 @@ export function createWorkbenchOpenBridge(
     const current = store.getSnapshot()
     if (!current.pending) return
     const list = sessions.getSnapshot()
-    const sessionId = list.current
+    const sessionId = Object.keys(list.byId)
+      .find(id => (list.byId[id]?.retainedBy?.mainView ?? 0) > 0)
     if (sessionId === undefined) return
     if (list.byId[sessionId]?.projectionValues?.agentPreset !== DATA_AGENT_PRESET) return
     store.set({ pending: false, revision: current.revision + 1, sessionId })

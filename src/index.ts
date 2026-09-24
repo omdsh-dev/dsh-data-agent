@@ -3,7 +3,7 @@
  * `dataAgentConnections` service (shared non-secret profile/binding storage;
  * temporary passwords stay process-local), seeds config connections (`connections`, `'*'` =
  * wildcard default), provides a separate versioned governance Catalog, installs the `data-agent` agent preset into
- * `$DSH_HOME/.agent-presets/`, and preloads the preset-scoped database tools
+ * `$DSH_HOME/.agent-presets/`, and declares its preset-scoped database tools
  * on every surface, while registering `/database` and `/catalog` only while
  * the current Cordis composition actually loads the dsh-tui plugin.
  *
@@ -11,9 +11,9 @@
  * (`@yejiming/dsh-data-agent/routes`, cordis row `data-agent-routes`) so
  * this row keeps working in headless profiles without a webserver. The
  * database implementations still have public `./tool` and `./command`
- * exports, but the shipped preset does not dynamically import those package
- * subpaths. Loading them here keeps Desktop on the same profile-startup path
- * as other UI bundles and avoids Electron ASAR package-resolution drift.
+ * exports. The preset registry loads them from absolute URLs beside this
+ * artifact, so scoped activation never relies on resolving this package
+ * again from a different host module root.
  * @module @yejiming/dsh-data-agent
  */
 
@@ -23,9 +23,8 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent-presets'
+import { entryListProblem, type PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-credentials'
-import type { ScopeKey } from '@deepseek-ai/dsh-scope'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as storageDomainPlugin from '@deepseek-ai/dsh-storage-domain'
 import * as storageJsonPlugin from '@deepseek-ai/dsh-storage-json'
@@ -41,6 +40,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 import z from 'schemastery'
+import yaml from 'js-yaml'
 import {
   createConnectionService,
   type DataAgentConnections,
@@ -78,12 +78,8 @@ import {
   DEFAULT_QUERY_TIMEOUT_MS,
   MAX_CATALOG_PAGE_SIZE,
 } from './defaults.ts'
-import {
-  apply as applyDatabaseCommand,
-  type DataAgentCommandAdapterOptions,
-} from './command.ts'
 import { connectionStorageSpec, createDomainConnectionPersistence } from './storage.ts'
-import { apply as applyDatabaseTools, type Config as ToolConfig } from './tool.ts'
+import type { Config as ToolConfig } from './tool.ts'
 
 export type {
   CatalogServiceBundle,
@@ -283,6 +279,8 @@ export async function installPreset(ctx: Context, presetId: string): Promise<boo
 
 /** SHA-256 values of unmodified package-owned compositions safe to migrate. */
 const LEGACY_MANAGED_PRESET_SHA256 = new Set([
+  // 0.1.5: registry migration updates obsolete loading comments only.
+  '899d351670bac68fdc385467cc71d646a0fc426c58f3dd8b181d679d1a9d5709',
   // 0.0.9: imported /tool and /command dynamically.
   'bae875a90d638ea78715030246b0f8a9f1a2c3359ca61febb6ceb59d0fcd930a',
   // 0.0.11 before HTML artifacts: described render-analysis as Web-only.
@@ -319,14 +317,6 @@ async function synchronizeExistingPreset(
       )
       return true
     }
-    if (current.includes('@yejiming/dsh-data-agent/tool') || current.includes('@yejiming/dsh-data-agent/command')) {
-      ctx.logger.warn(
-        'data-agent: user-edited preset at %s still imports /tool or /command dynamically; '
-        + 'remove those rows so the profile-preloaded preset capabilities can activate in DSH Desktop',
-        composition,
-      )
-      return false
-    }
     ctx.logger.info('data-agent: preset "%s" already present at %s, skipping install', presetId, targetDir)
     return true
   } catch (error) {
@@ -349,66 +339,63 @@ export function missingProfileDependencyMessage(profile: string): string {
   return `data-agent preset is visible, but its profile-preloaded capabilities are absent from profile "${profile}". Run: ${profileInstallCommand(profile)}`
 }
 
-/** Tool configuration inherited by the profile-preloaded preset capabilities. */
+/** Tool configuration inherited by the registry-owned preset capabilities. */
 type PresetCapabilitiesConfig = Pick<
   ToolConfig,
   'queryTimeoutMs' | 'maxResultChars' | 'maxRows' | 'maxQueryChars' | 'readonly' | 'clients'
 >
 
 /**
- * Register the statically imported database tools and surface adapters under the exact
- * standing key owned by the data-agent preset. Selecting the preset performs
- * no package import and only links the agent scope to this key.
+ * Declare the preset through the host registry. The registry owns its scope,
+ * revision lifetime and blank-session rebinding; no private scope tags are read.
+ * Absolute artifact URLs keep scoped entries beside this installed package even
+ * when the host and plugin use different module-resolution roots (Desktop).
  */
-export async function mountPresetCapabilities(
+export async function registerPreset(
   ctx: Context,
-  key: ScopeKey,
-  scopeTag: symbol,
+  presetId: string,
   config: PresetCapabilitiesConfig,
-  commandOptions: DataAgentCommandAdapterOptions = {},
 ): Promise<void> {
-  // Do not call createScope() from this package. A linked/profile package may
-  // resolve a second copy of dsh-scope while Desktop's registries use the copy
-  // inside app.asar; their private symbols would differ and the registrations
-  // would be mistaken for global ones. Reuse the exact tag from the standing
-  // scope that AgentPresets created with the host singleton instead.
-  const scoped = ctx.extend({ [scopeTag]: key })
-  applyDatabaseTools(scoped, config)
-  applyDatabaseCommand(scoped, commandOptions)
-}
-
-interface StandingScopeRecord {
-  key: ScopeKey
-  scope: { ctx: Context }
-}
-
-/** Read the host-owned scope tag from AgentPresets' already-created standing mount. */
-async function standingScopeTag(ctx: Context, presetId: string, key: ScopeKey): Promise<symbol> {
-  // AgentPresets intentionally exposes only the standing key. The cached scope
-  // is the one host-owned object that also carries the singleton-private tag;
-  // reading it avoids manufacturing an incompatible tag in linked profiles.
-  const registry = ctx.agentPresets as unknown as {
-    standing?: Map<string, Promise<StandingScopeRecord>>
+  const directory = join(resolveDshHome(), '.agent-presets', presetId)
+  const plugins: unknown = yaml.load(await readFile(join(directory, 'agent.cordis.yml'), 'utf8'))
+  const problem = entryListProblem(plugins, `data-agent preset ${presetId}`)
+  if (problem !== undefined) throw new Error(problem)
+  const metadata: unknown = yaml.load(await readFile(join(directory, 'preset.yml'), 'utf8'))
+  if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error(`data-agent: preset "${presetId}" metadata must be an object`)
   }
-  const pending = registry.standing?.get(presetId)
-  if (pending === undefined) {
-    throw new Error(`data-agent: preset "${presetId}" has no standing scope after standingKeyFor()`)
+  const fields = metadata as Record<string, unknown>
+  for (const field of ['name', 'description']) {
+    if (fields[field] !== undefined && typeof fields[field] !== 'string') {
+      throw new Error(`data-agent: preset "${presetId}" ${field} must be a string`)
+    }
   }
-  const standing = await pending
-  if (standing.key !== key) {
-    throw new Error(`data-agent: preset "${presetId}" standing scope changed during profile preload`)
+  if (fields.order !== undefined && (typeof fields.order !== 'number' || !Number.isFinite(fields.order))) {
+    throw new Error(`data-agent: preset "${presetId}" order must be a finite number`)
   }
-  const tag = Object.getOwnPropertySymbols(standing.scope.ctx)
-    .find(candidate => Reflect.get(standing.scope.ctx, candidate) === key)
-  if (tag === undefined) {
-    throw new Error(`data-agent: preset "${presetId}" standing context exposes no scope tag`)
+  // Old user compositions may already own these rows. Preserve their config
+  // and resolve their entries to this artifact instead of registering twice.
+  const rows = (plugins as PresetDefinition['plugins']).map(row => ({ ...row }))
+  for (const [entry, entryConfig] of [['tool', config], ['command', undefined]] as const) {
+    const specifier = `@yejiming/dsh-data-agent/${entry}`
+    const existing = rows.find(row => row.name === specifier)
+    const name = new URL(`./${entry}.js`, import.meta.url).href
+    if (existing !== undefined) existing.name = name
+    else rows.push({ id: `data-agent-${entry}`, name, ...entryConfig === undefined ? {} : { config: entryConfig } })
   }
-  return tag
+  const dispose = await ctx.agentPresets.register({
+    id: presetId,
+    ...typeof fields.name === 'string' ? { name: fields.name } : {},
+    ...typeof fields.description === 'string' ? { description: fields.description } : {},
+    ...typeof fields.order === 'number' ? { order: fields.order } : {},
+    plugins: rows,
+  })
+  ctx.effect(() => dispose, 'data-agent: unregister preset definition')
 }
 
 /**
  * Mount the data-agent profile row: connection store, config-seeded
- * connections, preset installation, and profile-preloaded preset capabilities.
+ * connections, preset installation, and registry-owned preset capabilities.
  * HTTP routes are the sibling `data-agent-routes` row (`./routes`).
  * @param ctx - host cordis context.
  * @param config - validated loader configuration.
@@ -521,9 +508,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.effect(() => () => catalog.scanner.interruptActiveRuns(), 'data-agent: interrupt active Catalog scans')
 
   if (presetReady) {
-    const standingKey = await ctx.agentPresets.standingKeyFor(resolved.presetId)
-    const scopeTag = await standingScopeTag(ctx, resolved.presetId, standingKey)
-    await mountPresetCapabilities(ctx, standingKey, scopeTag, {
+    await registerPreset(ctx, resolved.presetId, {
       queryTimeoutMs: resolved.queryTimeoutMs,
       maxResultChars: resolved.maxResultChars,
       maxRows: resolved.maxRows,

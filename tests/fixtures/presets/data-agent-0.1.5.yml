@@ -8,11 +8,14 @@
 # the registries themselves, the sandbox and approval stack, persistence, and
 # the model route.
 #
-# The editor row registers DSH's native str_replace_editor. The profile entry
-# reads this file and declares it through dsh-agent-preset-registry, adding the
-# database tool and command rows with URLs beside its installed artifact.
-# The registry owns activation, scope parentage, revisions and disposal.
+# The editor row registers DSH's native str_replace_editor. The database tools,
+# /database command, and inherited-tool restriction are statically imported by
+# the profile's `@yejiming/dsh-data-agent` bundle entry and registered under
+# this preset's standing key. Selecting the preset therefore performs no
+# dynamic import of this package (important for DSH Desktop's ASAR runtime).
 #
+# Both rows only consume host services and remain safe for standing mounting.
+
 # ── identity ────────────────────────────────────────────────────────────────
 
 # The data-engineer persona, shadowing the deployment default for this agent.

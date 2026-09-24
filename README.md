@@ -52,7 +52,7 @@
 
 ### 1. 运行环境准备
 
-- **DeepSeek Harness**（DSH 运行时环境）
+- **DeepSeek Harness `0.1.7-rc.1`**（本源码版本 `0.2.0` 的适配目标；官方 `@deepseek-ai/dsh-*` 依赖统一为此版本）
 - 本机可访问目标数据库（支持本地 SQLite 文件或局域网/云端数据库）
 
 ### 2. 快速安装
@@ -69,7 +69,9 @@ dsh plugin --profile dsh-tui add @yejiming/dsh-data-agent
 
 ### 3. 开始分析
 
-升级插件后首次启动会自动更新已识别的原版 `data-agent` 预设，使其兼容新版 DSH 必填的 `persona.config.prefix`，同时保留旧版 DSH 使用的 `text`。自定义过的预设不会被覆盖；若启动报 `$.prefix missing required value`，请备份 `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml`（默认位于 `~/.dsh`），在 persona 的 config 中让 `prefix` 与原 `text` 使用相同提示词，再重启。
+当前版本通过新版 `dsh-agent-preset-registry` 注册数据模式，不再调用已移除的 `standingKeyFor()`。预设仍从 `$DSH_HOME/.agent-presets/<presetId>/` 读取；宿主注册表负责工具作用域、空会话切换和卸载。现有自定义预设与名称保持不变。`installPreset: false` 会禁用插件的预设安装及注册；需要由其他宿主插件声明预设。旧版 DSH 请继续使用相应旧版插件。
+
+升级插件后首次启动会自动更新已识别的原版 `data-agent` 预设，使其兼容新版 DSH 必填的 `persona.config.prefix`，保留已有 `text` 字段。自定义过的预设不会被覆盖；若启动报 `$.prefix missing required value`，请备份 `$DSH_HOME/.agent-presets/data-agent/agent.cordis.yml`（默认位于 `~/.dsh`），在 persona 的 config 中让 `prefix` 与原 `text` 使用相同提示词，再重启。
 
 #### 方式一：Web 界面（推荐）
 启动 Web 控制台后，新建会话并选择 **「数据模式」**：
