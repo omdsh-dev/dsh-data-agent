@@ -112,4 +112,53 @@ describe('Catalog AI result validation', () => {
     expect(() => validateModelResult('{"table":{"assetId":"asset_orders","meaning":"订单"},"fields":[{"assetId":"asset_order_id","meaning":"编号"},{"assetId":"asset_unknown","meaning":"未知"}]}', input))
       .toThrow(/unknown field asset/)
   })
+
+  it('selects the system prompt per enrichment language, with zh as the default', async () => {
+    const modelResult = JSON.stringify({
+      table: { assetId: 'asset_orders', meaning: 'x' },
+      fields: [
+        { assetId: 'asset_order_id', meaning: 'y' },
+        { assetId: 'asset_amount', meaning: 'z' },
+      ],
+    })
+    const agents = {
+      get: () => ({ options: { provider: 'p', model: 'm' }, session: { requestHeader: () => undefined } }),
+    }
+    const makeLlm = (captured: { system?: unknown }[]) => ({
+      prepareCall: vi.fn(async (config: Record<string, unknown>) => ({
+        config,
+        async *stream(options: Record<string, unknown>) {
+          captured.push({ system: options.system })
+          yield { type: 'text-delta', index: 0, text: modelResult }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        },
+      })),
+    })
+    const selection = { provider: 'p', model: 'm' }
+    const signal = new AbortController().signal
+
+    // zh (default when no language is passed): upstream Chinese prompt verbatim.
+    const zhDefault: { system?: unknown }[] = []
+    await createDshCatalogMeaningGenerator(agents as never, makeLlm(zhDefault) as never).generate(selection, input, signal)
+    expect(zhDefault[0]!.system).toContain('中文业务含义候选')
+
+    const zhExplicit: { system?: unknown }[] = []
+    await createDshCatalogMeaningGenerator(agents as never, makeLlm(zhExplicit) as never, 'zh').generate(selection, input, signal)
+    expect(zhExplicit[0]!.system).toBe(zhDefault[0]!.system)
+
+    // ru: English instructions demanding Russian output.
+    const ru: { system?: unknown }[] = []
+    await createDshCatalogMeaningGenerator(agents as never, makeLlm(ru) as never, 'ru').generate(selection, input, signal)
+    expect(ru[0]!.system).toContain('written in Russian (русский язык)')
+    expect(ru[0]!.system).not.toContain('written in English')
+
+    // en: the same English instructions demanding English output.
+    const en: { system?: unknown }[] = []
+    await createDshCatalogMeaningGenerator(agents as never, makeLlm(en) as never, 'en').generate(selection, input, signal)
+    expect(en[0]!.system).toContain('written in English')
+    expect(en[0]!.system).not.toContain('русский язык')
+
+    // All three are distinct prompts.
+    expect(new Set([zhDefault[0]!.system, ru[0]!.system, en[0]!.system]).size).toBe(3)
+  })
 })
