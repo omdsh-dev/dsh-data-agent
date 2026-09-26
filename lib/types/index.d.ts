@@ -30,6 +30,7 @@ import z from 'schemastery';
 import { type DataAgentConnections, type DatabaseType } from './connections.ts';
 import { type CliDatabaseType, type ClientConfig } from './clients.ts';
 import { type DataAgentCatalog, type DataAgentCatalogReview, type DataAgentCatalogScanner } from './catalog.ts';
+import { type CatalogMeaningLanguage } from './catalog-ai.ts';
 import type { Config as ToolConfig } from './tool.ts';
 export type { CatalogServiceBundle, CatalogServiceOptions, CatalogStatusSummary, DataAgentCatalog, DataAgentCatalogReview, DataAgentCatalogScanner, StartCatalogScanInput, } from './catalog.ts';
 export type { CatalogAssetDetail, CatalogAssetHead, CatalogAssetKind, CatalogAssetRevision, CatalogAssetStatus, CatalogCapability, CatalogDiffItem, CatalogDiffKind, CatalogDiffPage, CatalogEnrichment, CatalogEnrichmentStatus, CatalogIdentity, CatalogObservation, CatalogProgress, CatalogRelation, CatalogRun, CatalogRunStatus, CatalogScope, CatalogSearchFilters, CatalogSearchItem, CatalogSearchPage, CatalogSearchRequest, CatalogSemanticEntry, CatalogSemanticKind, CatalogSemanticRevision, CatalogSemanticStatus, CatalogSource, CatalogTechnicalPayload, MetricDefinition, MeaningDefinition, SemanticDefinition, TermDefinition, } from './catalog-types.ts';
@@ -97,6 +98,8 @@ export interface Config {
     persistConnections: boolean;
     /** CLI client overrides keyed by database type. */
     clients: ClientsConfig;
+    /** Output language of AI business-meaning candidates ('zh' | 'ru' | 'en'). */
+    enrichmentLanguage: CatalogMeaningLanguage;
     /** Config-seeded connections keyed by session id (`'*'` = wildcard default). */
     connections: Record<string, SeededConnectionConfig>;
 }
@@ -129,6 +132,7 @@ export declare const Config: z<Schemastery.ObjectS<{
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
     }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
+    enrichmentLanguage: z<"zh" | "ru" | "en", "zh" | "ru" | "en">;
     connections: z<import("cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;
@@ -178,6 +182,7 @@ export declare const Config: z<Schemastery.ObjectS<{
         args: z<string[], string[]>;
         searchPaths: z<string[], string[]>;
     }>, "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "doris" | "sqlserver">>;
+    enrichmentLanguage: z<"zh" | "ru" | "en", "zh" | "ru" | "en">;
     connections: z<import("cosmokit").Dict<{
         type?: "mysql" | "postgres" | "sqlite" | "oracle" | "hive" | "impala" | "clickhouse" | "doris" | "sqlserver" | null | undefined;
         host?: string | null | undefined;

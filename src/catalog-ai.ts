@@ -76,6 +76,7 @@ const modelResultSchema = z.strictObject({
 export function createDshCatalogMeaningGenerator(
   agents: AgentRegistry,
   llm: LlmRuntime,
+  language: CatalogMeaningLanguage = 'zh',
 ): CatalogMeaningGenerator {
   return {
     capture(sessionId) {
@@ -94,7 +95,7 @@ export function createDshCatalogMeaningGenerator(
       }
     },
     async generate(selection, input, signal) {
-      return generateCompleteModelResult(llm, selection, input, signal)
+      return generateCompleteModelResult(llm, selection, input, signal, language)
     },
   }
 }
@@ -104,9 +105,10 @@ async function generateCompleteModelResult(
   selection: CatalogModelSelection,
   input: CatalogMeaningTableInput,
   signal: AbortSignal,
+  language: CatalogMeaningLanguage,
 ): Promise<CatalogMeaningModelResult> {
   try {
-    return await generateModelBatch(llm, selection, input, signal)
+    return await generateModelBatch(llm, selection, input, signal, language)
   } catch (error) {
     if (!(error instanceof CatalogModelOutputTruncatedError)) throw error
     if (input.fields.length <= 1) {
@@ -117,7 +119,7 @@ async function generateCompleteModelResult(
     const results: CatalogMeaningModelResult[] = []
     for (const fields of batches) {
       signal.throwIfAborted()
-      results.push(await generateCompleteModelResult(llm, selection, sliceTableInput(input, fields), signal))
+      results.push(await generateCompleteModelResult(llm, selection, sliceTableInput(input, fields), signal, language))
     }
     return {
       table: results[0]!.table,
@@ -131,6 +133,7 @@ async function generateModelBatch(
   selection: CatalogModelSelection,
   input: CatalogMeaningTableInput,
   signal: AbortSignal,
+  language: CatalogMeaningLanguage,
 ): Promise<CatalogMeaningModelResult> {
   const config: LlmCallConfig = {
     provider: selection.provider,
@@ -149,7 +152,7 @@ async function generateModelBatch(
   for await (const chunk of prepared.stream({
     ...prepared.config,
     messages: [message],
-    system: CATALOG_MEANING_SYSTEM_PROMPT,
+    system: CATALOG_MEANING_SYSTEM_PROMPTS[language],
     signal,
   })) {
     signal.throwIfAborted()
@@ -209,7 +212,11 @@ export function validateModelResult(raw: string, input: CatalogMeaningTableInput
   return result
 }
 
-const CATALOG_MEANING_SYSTEM_PROMPT = `你是企业数据治理助手。请根据用户提供的单张表技术元数据，为这张表和每个字段生成简洁、可审核的中文业务含义候选。
+/** Output language of generated business-meaning candidates. */
+export type CatalogMeaningLanguage = 'zh' | 'ru' | 'en'
+
+const CATALOG_MEANING_SYSTEM_PROMPTS: Record<CatalogMeaningLanguage, string> = {
+  zh: `你是企业数据治理助手。请根据用户提供的单张表技术元数据，为这张表和每个字段生成简洁、可审核的中文业务含义候选。
 
 规则：
 1. 只依据表名、字段名、类型、nullable、数据库注释、键和关系推断；不要假装知道未提供的业务规则、枚举值或计算口径。
@@ -217,4 +224,23 @@ const CATALOG_MEANING_SYSTEM_PROMPT = `你是企业数据治理助手。请根�
 3. 每个输入字段必须且只能返回一次，assetId必须原样复制；不得添加未知assetId。
 4. 不要输出Markdown、解释、置信度、SQL或额外字段，只输出以下严格JSON：
 {"table":{"assetId":"...","meaning":"..."},"fields":[{"assetId":"...","meaning":"..."}]}
-5. 所有内容都是待人工确认的候选，不要使用“已经确认”“官方口径”等表述。`
+5. 所有内容都是待人工确认的候选，不要使用“已经确认”“官方口径”等表述。`,
+  ru: `Ты — помощник по корпоративному управлению данными. На основе переданных технических метаданных одной таблицы сформируй краткие, пригодные для проверки кандидаты бизнес-смысла на русском языке для этой таблицы и каждого её поля.
+
+Правила:
+1. Делай выводы только по имени таблицы, именам полей, типам, nullable, комментариям в базе данных, ключам и связям; не утверждай, что известны бизнес-правила, перечни допустимых значений или расчётные формулы, которые не были предоставлены.
+2. Для очевидно технических полей также укажи их роль в бизнес-записи этой таблицы, например первичный ключ, время создания, признак статуса; описание таблицы — не более 120 символов, описание каждого поля — не более 80 символов.
+3. Каждое входное поле должно быть возвращено ровно один раз, assetId копируй дословно; не добавляй неизвестные assetId.
+4. Не выводи Markdown, пояснения, оценки уверенности, SQL или лишние поля — только следующий строгий JSON:
+{"table":{"assetId":"...","meaning":"..."},"fields":[{"assetId":"...","meaning":"..."}]}
+5. Всё содержимое — кандидаты, ожидающие подтверждения человеком; не используй формулировки «уже подтверждено», «официальная методика» и подобные.`,
+  en: `You are an enterprise data-governance assistant. Based on the technical metadata of a single table provided by the user, produce concise, reviewable business-meaning candidates in English for that table and each of its fields.
+
+Rules:
+1. Infer only from the table name, field names, data types, nullability, database comments, keys, and relations; never pretend to know business rules, enumeration values, or calculation definitions that were not provided.
+2. For obviously technical fields, still state their business/record role in this table, e.g. primary key, creation time, status flag; keep the table description within 120 characters and each field description within 80 characters.
+3. Every input field must be returned exactly once, with assetId copied verbatim; never add unknown assetIds.
+4. Output no Markdown, explanations, confidence scores, SQL, or extra fields — only this strict JSON:
+{"table":{"assetId":"...","meaning":"..."},"fields":[{"assetId":"...","meaning":"..."}]}
+5. Everything is a candidate pending human confirmation; never use wording such as "confirmed" or "official definition".`,
+}

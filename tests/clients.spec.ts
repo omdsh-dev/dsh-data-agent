@@ -224,7 +224,8 @@ describe('buildClientTemplate — new types', () => {
     const template = buildClientTemplate('oracle', oracleConnection)
     expect(template.command).toBe('sqlplus')
     expect(template.args).toEqual(['-S', '/nolog'])
-    expect(template.env).toEqual({})
+    // Oracle pins NLS_LANG so non-ASCII dictionary comments survive the client charset.
+    expect(template.env).toEqual({ NLS_LANG: 'AMERICAN_AMERICA.AL32UTF8' })
     expect(template.stdinPrefix).toContain('connect scott/tiger@ora.internal:1522/ORCLPDB1')
     // The password never appears in argv.
     expect(template.args.join(' ')).not.toContain('tiger')
@@ -235,6 +236,11 @@ describe('buildClientTemplate — new types', () => {
     expect(template.stdinPrefix).toContain('SET PAGESIZE 0')
     expect(template.stdinPrefix).toContain('SET HEADING OFF')
     expect(template.stdinPrefix).toContain("SET COLSEP '|'")
+    // One unpadded row per line: no wrapping and no AL32UTF8 CHAR padding.
+    expect(template.stdinPrefix).toContain('SET LINESIZE 32767')
+    expect(template.stdinPrefix).toContain('SET WRAP OFF')
+    expect(template.stdinPrefix).toContain('SET RECSEP OFF')
+    expect(template.stdinPrefix).toContain("SET MARKUP CSV ON DELIMITER '|' QUOTE OFF")
   })
 
   it('builds the hive argv with beeline flags and !connect on stdin', () => {
@@ -534,10 +540,18 @@ describe('structured query template and read row limit', () => {
     )
   })
 
-  it('preserves the legacy EOF-delimited stdin for Oracle raw and introspection modes', () => {
+  it('appends a terminator to unterminated Oracle SQL in raw and introspection modes', () => {
     const raw = buildClientTemplate('oracle', oracleConnection)
+    // sqlplus reads an unterminated SELECT to EOF, executes nothing and exits 0.
     expect(buildClientStdin('oracle', 'query', raw.stdinPrefix, 'SELECT 42 FROM dual')).toBe(
-      `${raw.stdinPrefix}SELECT 42 FROM dual\n`,
+      `${raw.stdinPrefix}SELECT 42 FROM dual;\n`,
+    )
+    // Already-terminated statements and SQL*Plus commands stay untouched.
+    expect(buildClientStdin('oracle', 'query', raw.stdinPrefix, 'SELECT 42 FROM dual;')).toBe(
+      `${raw.stdinPrefix}SELECT 42 FROM dual;\n`,
+    )
+    expect(buildClientStdin('oracle', 'introspect', raw.stdinPrefix, 'DESCRIBE dual')).toBe(
+      `${raw.stdinPrefix}DESCRIBE dual\n`,
     )
     expect(raw.stdinPrefix).toContain('SET PAGESIZE 0')
     expect(raw.stdinPrefix).toContain('SET HEADING OFF')

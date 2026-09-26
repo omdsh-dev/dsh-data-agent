@@ -530,7 +530,10 @@ function connectionArgs(type: DatabaseType, connection: DatabaseConnection): rea
 /** Credential environment entries per type; absent password yields an empty env. */
 function credentialEnv(type: DatabaseType, connection: DatabaseConnection): Readonly<Record<string, string>> {
   const password = connection.password
-  if (password === undefined) return {}
+  // Oracle needs NLS_LANG even without a password (wallet/OS authentication):
+  // without it sqlplus falls back to a locale charset and non-ASCII comments
+  // (Russian text) come back mangled or as replacement characters.
+  if (password === undefined) return type === 'oracle' ? { NLS_LANG: 'AMERICAN_AMERICA.AL32UTF8' } : {}
   switch (type) {
     case 'mysql':
     case 'doris':
@@ -539,9 +542,10 @@ function credentialEnv(type: DatabaseType, connection: DatabaseConnection): Read
       return { PGPASSWORD: password }
     case 'sqlserver':
       return { SQLCMDPASSWORD: password }
+    case 'oracle':
+      return { NLS_LANG: 'AMERICAN_AMERICA.AL32UTF8' }
     case 'clickhouse':
     case 'sqlite':
-    case 'oracle':
     case 'hive':
     case 'impala':
       return {}
@@ -553,6 +557,13 @@ function credentialEnv(type: DatabaseType, connection: DatabaseConnection): Read
  * their credentials never appear in argv. Oracle also silences sqlplus
  * decoration (PAGESIZE/FEEDBACK/HEADING) and pins the column separator to
  * `|` for the describe parser; Hive connects through beeline's `!connect`.
+ *
+ * Oracle plain/introspection rows must survive one line per row: LINESIZE
+ * 32767 + WRAP OFF prevents wrapping, and MARKUP CSV (SQL*Plus 18c+) removes
+ * the per-column padding entirely — with AL32UTF8 CHAR semantics sqlplus
+ * pads each column to up to 4 display columns per character, so a padded
+ * row (e.g. all_tab_comments VARCHAR2(4000 CHAR)) is wider than any LINESIZE
+ * and loses its trailing fields.
  */
 function stdinPrefix(type: DatabaseType, connection: DatabaseConnection): string {
   switch (type) {
@@ -563,6 +574,10 @@ function stdinPrefix(type: DatabaseType, connection: DatabaseConnection): string
         'SET HEADING OFF',
         "SET COLSEP '|'",
         'SET TRIMSPOOL ON',
+        'SET LINESIZE 32767',
+        'SET WRAP OFF',
+        'SET RECSEP OFF',
+        "SET MARKUP CSV ON DELIMITER '|' QUOTE OFF",
         connection.user !== undefined
           ? `connect ${connection.user}${connection.password !== undefined ? `/${connection.password}` : ''}@${connection.host ?? '127.0.0.1'}:${connection.port ?? defaultDatabasePort('oracle')}/${connection.database}`
           : '',
@@ -617,7 +632,11 @@ function structuredStdinPrefix(type: DatabaseType, connection: DatabaseConnectio
  * Compose one complete client stdin payload. Oracle's structured SQL*Plus
  * mode is a script protocol rather than an EOF-delimited command: normalize
  * the already-validated statement to one terminator and exit explicitly.
- * Raw/introspection modes and every other client preserve the legacy payload.
+ * Raw/introspection modes and every other client preserve the legacy payload,
+ * except that Oracle plain mode appends a terminator to an unterminated SQL
+ * statement: sqlplus reads a SELECT without `;`/`/` to EOF, executes nothing
+ * and exits 0 with empty output (SQL*Plus commands like SHOW/DESCRIBE need
+ * no terminator and are left untouched).
  */
 export function buildClientStdin(
   type: DatabaseType,
@@ -627,6 +646,13 @@ export function buildClientStdin(
 ): string {
   if (type === 'oracle' && mode === 'structured') {
     return `${prefix}${stripTrailingTerminator(sql)};\nEXIT SUCCESS\n`
+  }
+  if (
+    type === 'oracle'
+    && !/;\s*$|\/\s*$/.test(sql)
+    && /^(select|with|insert|update|delete|merge|create|drop|alter|truncate|comment|grant|revoke|explain|call|declare|begin)\b/i.test(sql.trimStart())
+  ) {
+    return `${prefix}${sql};\n`
   }
   return `${prefix}${sql}\n`
 }

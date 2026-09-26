@@ -54,7 +54,7 @@ import {
   type DataAgentCatalogReview,
   type DataAgentCatalogScanner,
 } from './catalog.ts'
-import { createDshCatalogMeaningGenerator } from './catalog-ai.ts'
+import { createDshCatalogMeaningGenerator, type CatalogMeaningLanguage } from './catalog-ai.ts'
 import {
   catalogStorageSpec,
   createDomainCatalogPersistence,
@@ -193,6 +193,8 @@ export interface Config {
   persistConnections: boolean
   /** CLI client overrides keyed by database type. */
   clients: ClientsConfig
+  /** Output language of AI business-meaning candidates ('zh' | 'ru' | 'en'). */
+  enrichmentLanguage: CatalogMeaningLanguage
   /** Config-seeded connections keyed by session id (`'*'` = wildcard default). */
   connections: Record<string, SeededConnectionConfig>
 }
@@ -218,6 +220,7 @@ export const Config = z.object({
   readonly: z.boolean().default(false),
   persistConnections: z.boolean().default(true),
   clients: clientsSchema,
+  enrichmentLanguage: z.union([z.const('zh'), z.const('ru'), z.const('en')]).default('zh'),
   connections: z.dict(z.object({
     type: z.union([
       z.const('mysql'), z.const('postgres'), z.const('sqlite'), z.const('oracle'), z.const('hive'),
@@ -424,6 +427,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     readonly: config.readonly,
     persistConnections: config.persistConnections,
     clients: config.clients,
+    enrichmentLanguage: config.enrichmentLanguage,
     connections: config.connections,
   }
 
@@ -499,7 +503,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     maxPageSize: resolved.catalogMaxPageSize,
     schemaConcurrency: resolved.catalogSchemaConcurrency,
     assetConcurrency: resolved.catalogAssetConcurrency,
-    meaningGenerator: createDshCatalogMeaningGenerator(ctx.agents, ctx.llm),
+    meaningGenerator: createDshCatalogMeaningGenerator(ctx.agents, ctx.llm, resolved.enrichmentLanguage),
     logger: ctx.logger,
   })
   ctx.provide('dataAgentCatalog', catalog.read)
