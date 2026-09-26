@@ -93,7 +93,11 @@ export interface ClientTemplate {
  * Compose one complete client stdin payload. Oracle's structured SQL*Plus
  * mode is a script protocol rather than an EOF-delimited command: normalize
  * the already-validated statement to one terminator and exit explicitly.
- * Raw/introspection modes and every other client preserve the legacy payload.
+ * Raw/introspection modes and every other client preserve the legacy payload,
+ * except that Oracle plain mode appends a terminator to an unterminated SQL
+ * statement: sqlplus reads a SELECT without `;`/`/` to EOF, executes nothing
+ * and exits 0 with empty output (SQL*Plus commands like SHOW/DESCRIBE need
+ * no terminator and are left untouched).
  */
 export declare function buildClientStdin(type: DatabaseType, mode: 'query' | 'introspect' | 'structured', prefix: string, sql: string): string;
 /**

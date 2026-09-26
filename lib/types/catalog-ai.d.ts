@@ -45,5 +45,7 @@ export interface CatalogMeaningGenerator {
     generate(selection: CatalogModelSelection, input: CatalogMeaningTableInput, signal: AbortSignal): Promise<CatalogMeaningModelResult>;
 }
 /** Resolve the exact current session model once, then use the host's configured LLM adapters and credentials. */
-export declare function createDshCatalogMeaningGenerator(agents: AgentRegistry, llm: LlmRuntime): CatalogMeaningGenerator;
+export declare function createDshCatalogMeaningGenerator(agents: AgentRegistry, llm: LlmRuntime, language?: CatalogMeaningLanguage): CatalogMeaningGenerator;
 export declare function validateModelResult(raw: string, input: CatalogMeaningTableInput): CatalogMeaningModelResult;
+/** Output language of generated business-meaning candidates. */
+export type CatalogMeaningLanguage = 'zh' | 'ru' | 'en';

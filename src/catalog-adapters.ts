@@ -314,11 +314,11 @@ export function buildCatalogMetadataSql(
     case 'oracle': {
       const owner = sqlLiteral(schema.toUpperCase())
       return [
-        "SELECT 'relation', o.owner, o.object_name, CASE o.object_type WHEN 'VIEW' THEN 'VIEW' ELSE 'BASE TABLE' END, NVL(tc.comments,''), '', '', '', '', '0'",
+        "SELECT 'relation', o.owner, o.object_name, CASE o.object_type WHEN 'VIEW' THEN 'VIEW' ELSE 'BASE TABLE' END, NVL(REPLACE(REPLACE(tc.comments,CHR(13),' '),CHR(10),' '),''), '', '', '', '', '0'",
         'FROM all_objects o LEFT JOIN all_tab_comments tc ON tc.owner=o.owner AND tc.table_name=o.object_name',
         `WHERE o.owner=${owner} AND o.object_type IN ('TABLE','VIEW')${tableFilter('o.object_name')}`,
         'UNION ALL',
-        "SELECT 'column', c.owner, c.table_name, '', '', c.column_name, c.data_type, c.nullable, NVL(cc.comments,''), TO_CHAR(c.column_id)",
+        "SELECT 'column', c.owner, c.table_name, '', '', c.column_name, c.data_type, c.nullable, NVL(REPLACE(REPLACE(cc.comments,CHR(13),' '),CHR(10),' '),''), TO_CHAR(c.column_id)",
         'FROM all_tab_columns c LEFT JOIN all_col_comments cc ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name',
         `WHERE c.owner=${owner}${tableFilter('c.table_name')}`,
         'UNION ALL',
@@ -328,7 +328,7 @@ export function buildCatalogMetadataSql(
         'UNION ALL',
         "SELECT 'index', i.table_owner, i.table_name, i.index_name, '', ic.column_name, '', '', CASE i.uniqueness WHEN 'UNIQUE' THEN 'unique' ELSE '' END, TO_CHAR(ic.column_position)",
         'FROM all_indexes i JOIN all_ind_columns ic ON ic.index_owner=i.owner AND ic.index_name=i.index_name',
-        `WHERE i.table_owner=${owner} AND NOT EXISTS (SELECT 1 FROM all_constraints c WHERE c.owner=i.table_owner AND c.table_name=i.table_name AND c.index_name=i.index_name AND c.constraint_type='P')${tableFilter('i.table_name')}`,
+        `WHERE i.table_owner=${owner} AND NOT EXISTS (SELECT 1 FROM all_constraints c WHERE c.owner=i.table_owner AND c.table_name=i.table_name AND c.index_name=i.index_name AND c.constraint_type='P') AND EXISTS (SELECT 1 FROM all_tab_columns tc WHERE tc.owner=ic.table_owner AND tc.table_name=ic.table_name AND tc.column_name=ic.column_name)${tableFilter('i.table_name')}`,
         'ORDER BY 2,3,1,10;',
       ].join(' ')
     }
