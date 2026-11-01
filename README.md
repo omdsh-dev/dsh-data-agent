@@ -167,6 +167,8 @@ DSH Data Agent 广泛支持各类主流业务数据库、分析型数仓及本�
 
 本项目基于 [MIT License](LICENSE) 开源。
 
+本项目在 DSH 0.2.1 及以上版本测试通过。
+
 ## 友情链接
 
 - [dshfind.com](https://dshfind.com)：DeepSeek Harness 插件与生态发现社区
